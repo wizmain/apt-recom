@@ -1,0 +1,48 @@
+# Virtual environment
+.venv/
+
+# Data / EDA
+apt_eda/
+
+# Environment files
+.env
+.env*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Firebase
+firebase-debug.log
+
+# OS
+.DS_Store
+
+# Large DB files
+web/backend/apt_web.db
+web/backend/knowledge_db/
+
+# Uploaded files
+web/backend/uploaded_pdfs/
+
+# Migration script (one-time)
+web/backend/migrate_to_pg.py
+
+# Node modules
+node_modules/
+
+# Build output
+dist/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Superpowers brainstorm artifacts
+.superpowers/
+
+# Misc data files
+*.csv
+collect_incheon_missing.py
+convert_to_sqlite.py
+pet_friendly_cultural_facilities.csv
