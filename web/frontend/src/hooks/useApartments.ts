@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import type { Apartment } from '../types/apartment';
+import { API_BASE } from '../config';
 
 export function useApartments() {
   const [apartments, setApartments] = useState<Apartment[]>([]);
@@ -10,7 +11,7 @@ export function useApartments() {
     const fetchApartments = async () => {
       try {
         setLoading(true);
-        const res = await axios.get<Apartment[]>('/api/apartments');
+        const res = await axios.get<Apartment[]>(`${API_BASE}/api/apartments`);
         setApartments(res.data);
       } catch (err) {
         console.error('아파트 목록 불러오기 실패:', err);

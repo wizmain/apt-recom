@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE } from '../config';
 
 interface Props { pnu1: string; pnu2: string; onClose: () => void; triggerBtnId?: string }
 interface Apt {
@@ -41,8 +42,8 @@ export default function CompareModal({ pnu1, pnu2, onClose, triggerBtnId }: Prop
     if (!show) return;
     setLoading(true);
     Promise.all([
-      axios.get(`/api/apartment/${encodeURIComponent(pnu1)}`),
-      axios.get(`/api/apartment/${encodeURIComponent(pnu2)}`),
+      axios.get(`${API_BASE}/api/apartment/${encodeURIComponent(pnu1)}`),
+      axios.get(`${API_BASE}/api/apartment/${encodeURIComponent(pnu2)}`),
     ]).then(([r1, r2]) => { setA(r1.data); setB(r2.data); })
       .catch(console.error).finally(() => setLoading(false));
   }, [pnu1, pnu2, show]);

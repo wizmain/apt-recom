@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Apartment, ScoredApartment, MapBounds } from '../types/apartment';
+import { API_BASE } from '../config';
 
 declare global {
   interface Window {
@@ -212,7 +213,7 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     prevSearchRef.current = searchKeyword;
 
     // 검색 API로 해당 지역 아파트 좌표 가져오기
-    fetch(`/api/apartments/search?q=${encodeURIComponent(searchKeyword)}`)
+    fetch(`${API_BASE}/api/apartments/search?q=${encodeURIComponent(searchKeyword)}`)
       .then(res => res.json())
       .then((data: Array<{ lat: number; lng: number }>) => {
         if (!data || data.length === 0 || !window.kakao?.maps || !mapRef.current) return;

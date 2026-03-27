@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import axios from 'axios';
 import type { ScoredApartment, MapBounds } from '../types/apartment';
+import { API_BASE } from '../config';
 
 export function useNudge() {
   const [results, setResults] = useState<ScoredApartment[]>([]);
@@ -9,7 +10,7 @@ export function useNudge() {
 
   const fetchWeights = useCallback(async () => {
     try {
-      const res = await axios.get<Record<string, Record<string, number>>>('/api/nudge/weights');
+      const res = await axios.get<Record<string, Record<string, number>>>(`${API_BASE}/api/nudge/weights`);
       setDefaultWeights(res.data);
       return res.data;
     } catch (err) {
@@ -46,7 +47,7 @@ export function useNudge() {
         if (keyword && keyword.trim()) {
           body.keyword = keyword.trim();
         }
-        const res = await axios.post<ScoredApartment[]>('/api/nudge/score', body);
+        const res = await axios.post<ScoredApartment[]>(`${API_BASE}/api/nudge/score`, body);
         setResults(res.data);
       } catch (err) {
         console.error('스코어링 실패:', err);

@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import { API_BASE } from '../config';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -63,7 +64,7 @@ export function useChat() {
     let toolStatuses: { name: string; status: 'running' | 'done'; preview?: string }[] = [];
 
     try {
-      const response = await fetch('/api/chat/stream', {
+      const response = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, conversation, context: context || {} }),
@@ -223,7 +224,7 @@ export function useChat() {
     }
 
     try {
-      await fetch('/api/chat/feedback', {
+      await fetch(`${API_BASE}/api/chat/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

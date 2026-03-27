@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { API_BASE } from '../config';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   LineChart, Line, BarChart, Bar, Legend,
@@ -118,8 +119,8 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
     setLoading(true);
 
     Promise.all([
-      axios.get<ApartmentDetail>(`/api/apartment/${pnu}`),
-      axios.get<TradesResponse>(`/api/apartment/${pnu}/trades`),
+      axios.get<ApartmentDetail>(`${API_BASE}/api/apartment/${pnu}`),
+      axios.get<TradesResponse>(`${API_BASE}/api/apartment/${pnu}/trades`),
     ])
       .then(([detailRes, tradesRes]) => {
         if (cancelled) return;
