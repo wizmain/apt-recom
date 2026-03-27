@@ -1,1 +1,1 @@
-/api/* https://RAILWAY_BACKEND_URL/api/:splat 200
+/api/* https://apt-recom-production.up.railway.app/api/:splat 200
