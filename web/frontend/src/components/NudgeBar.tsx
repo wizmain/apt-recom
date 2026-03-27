@@ -27,7 +27,7 @@ export default function NudgeBar({
   onSearchChange,
 }: NudgeBarProps) {
   const [inputValue, setInputValue] = useState(searchKeyword);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const handleInput = useCallback((value: string) => {
     setInputValue(value);

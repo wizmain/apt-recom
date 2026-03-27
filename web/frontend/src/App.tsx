@@ -19,7 +19,7 @@ function App() {
   const [selectedNudges, setSelectedNudges] = useState<string[]>([]);
   const [showWeightDrawer, setShowWeightDrawer] = useState(false);
   const [customWeights, setCustomWeights] = useState<Record<string, Record<string, number>> | null>(null);
-  const [mapBounds, setMapBounds] = useState<MapBounds | undefined>(undefined);
+  const [, setMapBounds] = useState<MapBounds | undefined>(undefined);
   const [selectedPnu, setSelectedPnu] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showChat, setShowChat] = useState(false);

@@ -5,11 +5,11 @@ import type { ScoredApartment, MapBounds } from '../types/apartment';
 export function useNudge() {
   const [results, setResults] = useState<ScoredApartment[]>([]);
   const [loading, setLoading] = useState(false);
-  const [defaultWeights, setDefaultWeights] = useState<Record<string, number>>({});
+  const [defaultWeights, setDefaultWeights] = useState<Record<string, Record<string, number>>>({});
 
   const fetchWeights = useCallback(async () => {
     try {
-      const res = await axios.get<Record<string, number>>('/api/nudge/weights');
+      const res = await axios.get<Record<string, Record<string, number>>>('/api/nudge/weights');
       setDefaultWeights(res.data);
       return res.data;
     } catch (err) {

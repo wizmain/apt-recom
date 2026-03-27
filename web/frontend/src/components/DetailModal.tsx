@@ -390,7 +390,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
                 <YAxis tick={{ fontSize: 11 }} label={{ value: '만원', position: 'insideTopLeft', offset: -5, fontSize: 11 }} />
                 <Tooltip
-                  formatter={(val: number, name: string) => {
+                  formatter={(val: any, name: any) => {
                     const range = activeRanges.find(r => r.key === name);
                     return [`${Number(val).toLocaleString()}만원`, range?.label ?? name];
                   }}

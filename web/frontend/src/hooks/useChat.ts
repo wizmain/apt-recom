@@ -50,7 +50,6 @@ export function useChat() {
     abortRef.current = controller;
 
     // Add placeholder assistant message
-    const assistantIdx = messages.length + 1; // index in next state
     setMessages(prev => [...prev, {
       role: 'assistant',
       content: '',
