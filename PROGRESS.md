@@ -1,6 +1,6 @@
 # 아파트 추천 서비스 프로젝트 진행 현황
 
-> 최종 업데이트: 2026-03-26
+> 최종 업데이트: 2026-03-27
 
 ---
 
@@ -129,9 +129,9 @@
 
 ## Phase 4: 웹 서비스 구축 (2026-03-21 ~ 03-25)
 
-### 4.1 SQLite DB 빌드
-- [x] `web/backend/apt_web.db` (8.3GB)
-- [x] 11개 테이블 + 인구 테이블 = 12개 테이블
+### 4.1 DB 구축
+- [x] SQLite → PostgreSQL 마이그레이션 완료 (2026-03-27)
+- [x] 12개 테이블 + chat_feedback 테이블 = 13개 테이블
 - [x] apartments: 16,755건
 - [x] facilities: 182,902건
 - [x] apt_facility_mapping: ~56M행
@@ -143,21 +143,25 @@
 ### 4.2 FastAPI 백엔드
 - [x] 아파트 목록 API (GET /api/apartments)
 - [x] 아파트 검색 API (GET /api/apartments/search)
-- [x] 넛지 스코어링 API (POST /api/nudge/score)
-- [x] 넛지 가중치 API (GET /api/nudge/weights)
+- [x] 라이프 점수 스코어링 API (POST /api/nudge/score) — 커스텀 가중치 반영
+- [x] 라이프 점수 가중치 API (GET /api/nudge/weights)
 - [x] 아파트 상세 API (GET /api/apartment/{pnu})
 - [x] 거래 내역 API (GET /api/apartment/{pnu}/trades)
-- [x] 채팅 API (POST /api/chat)
+- [x] 채팅 API (POST /api/chat) + SSE 스트리밍 (POST /api/chat/stream)
+- [x] 출퇴근 시간 조회 API (POST /api/commute) — ODSay 대중교통
+- [x] 챗봇 피드백 API (POST /api/chat/feedback, GET /api/chat/feedback/stats)
 - [x] Knowledge 관리 API (POST/GET/DELETE /api/knowledge/*)
 
 ### 4.3 React 프론트엔드
 - [x] Kakao Maps 지도 (클러스터링, 마커, 인포윈도우)
-- [x] 넛지 태그 바 (8개 넛지 선택)
+- [x] 라이프 항목 태그 바 (8개 항목 선택)
 - [x] 지역명/단지명 검색 + 지도 자동 이동/줌인
-- [x] 가중치 슬라이더 드로어 (한글 라벨)
+- [x] 가중치 설정 드롭다운 패널 (상단 바 아래로 펼침, 2열 슬라이더, 한글 라벨)
 - [x] 하단 결과 카드 (Top 5 추천)
-- [x] 상세 모달 (5탭: 기본정보, 가격분석, 주변시설, 학군, 인구)
-  - 넛지 스코어 레이더 차트
+- [x] 순위별 색상 마커 (1위 빨강, 2위 주황, 3~5위 로즈, 순위 숫자 표시)
+- [x] 마커 팝업 (닫기 X, 상세보기, 챗봇 분석, 비교담기 버튼)
+- [x] 상세 모달 (5탭: 기본정보, 가격분석, 주변시설, 학군, 인구) — 고정 높이 85vh
+  - 라이프 점수 레이더 차트
   - 월별 매매가 추이 (면적별 멀티 라인)
   - 면적별 평균가 바 차트
   - 전세가율 추이
@@ -165,12 +169,18 @@
   - 시설 요약 카드 + 바 차트
   - 학군 정보 (초/중/고 + 교육지원청)
   - 인구 피라미드 (구별 연령대/성별)
+- [x] 아파트 비교 모달 (2개 선택 → 비교하기)
+  - 좌우 분할 아파트 카드 (A 파랑 / B 보라)
+  - 라이프 점수 대결 바 차트 (승자 색상 강조)
+  - 주변 시설 3열 비교 테이블 (승자 볼드)
+  - 학군/안전 점수 비교 (SVG 링 게이지)
+  - 승패 집계 배지
 
-### 4.4 넛지 스코어링 엔진
-- [x] 8개 넛지: 가성비, 반려동물, 출퇴근, 신혼육아, 학군, 시니어, 투자, 자연친화
+### 4.4 라이프 점수 스코어링 엔진
+- [x] 8개 항목: 가성비, 반려동물, 출퇴근, 신혼육아, 학군, 시니어, 투자, 자연친화
 - [x] 가격 점수 반영 (_price, _jeonse)
 - [x] 안전 점수 반영 (_safety)
-- [x] 사용자 가중치 커스터마이징
+- [x] 사용자 커스텀 가중치 반영 (API + 프론트 연동 완료)
 
 ---
 
@@ -184,13 +194,14 @@
 - [x] .env 기반 전환 (LLM_PROVIDER=openai|claude|gemini)
 - [x] Tool 스키마 자동 변환 (OpenAI/Claude/Gemini 형식)
 
-### 5.2 Tool 함수 (6개)
-- [x] search_apartments — 넛지 기반 아파트 검색
-- [x] get_apartment_detail — 상세 정보 조회
+### 5.2 Tool 함수 (7개)
+- [x] search_apartments — 라이프 점수 기반 아파트 검색
+- [x] get_apartment_detail — 상세 정보 조회 (PNU 직접 조회 지원)
 - [x] compare_apartments — 아파트 비교
 - [x] get_market_trend — 시세 동향
 - [x] get_school_info — 학군 정보
 - [x] search_knowledge — RAG 기반 PDF 검색
+- [x] search_commute — ODSay 대중교통 출퇴근 시간 조회 (2026-03-27)
 
 ### 5.3 RAG 파이프라인
 - [x] PDF 업로드 → PyMuPDF 텍스트 추출
@@ -202,10 +213,38 @@
 - [x] 우측 하단 채팅 버튼
 - [x] 채팅 모달 (메시지 + 아파트 카드 + 로딩)
 - [x] 지도 양방향 연동 (챗봇→지도 하이라이트, 지도→챗봇 분석)
+- [x] SSE 스트리밍 응답 (실시간 글자 단위 출력) (2026-03-27)
+- [x] 마크다운 렌더링 (react-markdown, 테이블/리스트/볼드 스타일링)
+- [x] 인포그래픽 UI (점수 색상 배지, 가격 강조, 미니 바 차트)
+- [x] Tool 실행 상태 태그 (실행 중/완료 표시)
+- [x] 스트리밍 커서 + "답변 생성 중" 인디케이터
+- [x] 피드백 UI (👍👎 + 태그 6종 + 자유 코멘트) (2026-03-27)
+- [x] PNU 기반 정확한 아파트 조회 (지도 클릭 → 챗봇 context 전달)
 
 ---
 
-## Phase 6: 문서화 (2026-03-24 ~ 03-26)
+## Phase 6: 데이터 품질 개선 (2026-03-27)
+
+### 6.1 인천 아파트 데이터 재구축
+- [x] 지오코딩 좌표 검증 — 인천 범위 밖 좌표 153건 수정 → 0건
+- [x] `_is_incheon()` 좌표 범위 검증 함수 추가
+- [x] Kakao 검색 시 "인천광역시" 접두어 강제
+- [x] DB 전체 퍼지 → integrate_incheon.py 재실행
+- [x] 시설 매핑, 학군, 가격/안전 점수 전체 재계산
+
+### 6.2 SQLite → PostgreSQL 마이그레이션
+- [x] psycopg2 기반 database.py 전면 재작성 (DictConnection 클래스)
+- [x] 모든 라우터/서비스 SQL 플레이스홀더 변환 (`?` → `%s`)
+- [x] 12개 테이블 데이터 마이그레이션 (49M행 포함, 24분 소요)
+- [x] `DATABASE_URL` 환경변수 기반 연결
+
+### 6.3 읍면동 단위 인구통계 수집
+- [x] KOSIS API DT_1B04005N 읍면동 레벨 수집
+- [x] 수도권 1,192개 읍면동 총인구/남/여 (서울 427, 경기 604, 인천 161)
+
+---
+
+## Phase 7: 문서화 (2026-03-24 ~ 03-26)
 
 ### 6.1 ERD
 - [x] processed CSV 파일 ERD (`apt_eda/docs/data_erd.md`)
@@ -245,10 +284,11 @@
 
 | 영역 | 기술 |
 |------|------|
-| 백엔드 | Python 3.12, FastAPI, SQLite, uvicorn |
-| 프론트엔드 | React, TypeScript, Vite, TailwindCSS, Recharts |
+| 백엔드 | Python 3.12, FastAPI, PostgreSQL, psycopg2, uvicorn |
+| 프론트엔드 | React 19, TypeScript, Vite, TailwindCSS, Recharts, react-markdown |
 | 지도 | Kakao Maps JavaScript API |
-| AI/LLM | OpenAI GPT-4o (기본), Claude, Gemini (전환 가능) |
+| AI/LLM | OpenAI GPT-4o (기본), Claude, Gemini (전환 가능), SSE 스트리밍 |
+| 외부 API | ODSay (대중교통), Kakao (지도/지오코딩), Vworld (지오코딩), KOSIS (인구) |
 | RAG | ChromaDB, PyMuPDF, LangChain TextSplitters |
 | 데이터 | pandas, scikit-learn (BallTree), geopandas, pyproj |
 | 시각화 | matplotlib, koreanize_matplotlib, Plotly, seaborn |
@@ -278,19 +318,20 @@ fcicb6-proj3/
 ├── web/
 │   ├── backend/
 │   │   ├── main.py               # FastAPI 앱
-│   │   ├── database.py           # DB 연결
-│   │   ├── build_db.py           # CSV→SQLite 빌드
-│   │   ├── apt_web.db            # SQLite DB (8.3GB)
+│   │   ├── database.py           # PostgreSQL 연결 (DictConnection)
+│   │   ├── build_db.py           # CSV→DB 빌드
 │   │   ├── routers/              # API 엔드포인트
 │   │   │   ├── apartments.py
 │   │   │   ├── nudge.py
 │   │   │   ├── detail.py
-│   │   │   ├── chat.py
+│   │   │   ├── chat.py           # + SSE 스트리밍
+│   │   │   ├── commute.py        # ODSay 통근시간
+│   │   │   ├── feedback.py       # 챗봇 피드백
 │   │   │   └── knowledge.py
 │   │   ├── services/             # 비즈니스 로직
-│   │   │   ├── scoring.py        # 넛지 스코어링
-│   │   │   ├── chat_engine.py    # 챗봇 엔진
-│   │   │   ├── tools.py          # 6개 Tool 함수
+│   │   │   ├── scoring.py        # 라이프 점수 스코어링
+│   │   │   ├── chat_engine.py    # 챗봇 엔진 (스트리밍)
+│   │   │   ├── tools.py          # 7개 Tool 함수
 │   │   │   ├── rag.py            # RAG 파이프라인
 │   │   │   ├── knowledge_manager.py
 │   │   │   └── llm/              # LLM 추상화
@@ -314,8 +355,9 @@ fcicb6-proj3/
 │       │   │   ├── DetailModal.tsx
 │       │   │   ├── ChatButton.tsx
 │       │   │   ├── ChatModal.tsx
-│       │   │   ├── ChatMessage.tsx
-│       │   │   └── ChatInput.tsx
+│       │   │   ├── ChatMessage.tsx  # 마크다운 + 인포그래픽 + 피드백
+│       │   │   ├── ChatInput.tsx
+│       │   │   └── CompareModal.tsx # 아파트 비교
 │       │   ├── hooks/
 │       │   │   ├── useApartments.ts
 │       │   │   ├── useNudge.ts
@@ -333,12 +375,20 @@ fcicb6-proj3/
 
 ## 향후 계획
 
+### 완료 (2026-03-27)
+- [x] ~~SQLite → PostgreSQL 마이그레이션~~
+- [x] ~~인천 좌표 오류 수정~~
+- [x] ~~챗봇 스트리밍 응답~~
+- [x] ~~출퇴근 시간 조회 (ODSay)~~
+- [x] ~~아파트 비교 기능~~
+- [x] ~~챗봇 피드백 수집~~
+- [x] ~~가중치 설정 UI 개선~~
+
 ### 미완료 / 개선 가능
-- [ ] ML 모델: 가격 예측 (XGBoost), 유사 아파트 추천 (KNN), 가격 변동 예측
-- [ ] 2016~2026 거래 데이터로 DB 완전 교체 (현재 일부 반영)
+- [ ] 챗봇 피드백 2단계: 대시보드 + Few-shot 예시 DB + 프롬프트 자동 보강
+- [ ] ML 모델: 가격 예측 (XGBoost), 유사 아파트 추천 (KNN)
 - [ ] 인천 지하철역 107개 반영 (현재 6개만)
-- [ ] 이름 없는 아파트 63건 처리
-- [ ] 클라우드 배포 (Vercel/AWS)
+- [ ] 클라우드 배포 (CloudType/Fly.io/NCP)
 - [ ] 사용자 인증 + 관심 아파트 저장
-- [ ] 챗봇 대화 이력 저장
 - [ ] 모바일 반응형 UI
+- [ ] A/B 프롬프트 테스트

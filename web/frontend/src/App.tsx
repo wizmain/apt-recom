@@ -27,6 +27,7 @@ function App() {
   const [chatInitialMessage, setChatInitialMessage] = useState<string | null>(null);
   const [chatAnalyzeContext, setChatAnalyzeContext] = useState<{ pnu: string; name: string } | null>(null);
   const [compareList, setCompareList] = useState<{ pnu: string; name: string }[]>([]);
+  const [chatFocusApts, setChatFocusApts] = useState<{ lat: number; lng: number }[]>([]);
 
   // Fetch default weights on mount
   useEffect(() => {
@@ -69,8 +70,13 @@ function App() {
 
   const handleMapAction = useCallback((actions: MapAction[]) => {
     for (const action of actions) {
-      if (action.action === 'highlight' && action.pnus) {
+      const actionType = action.type || action.action;
+      if (actionType === 'highlight' && action.pnus) {
         setChatHighlightPnus(action.pnus);
+        // 아파트 좌표가 있으면 지도 포커싱
+        if (action.apartments && action.apartments.length > 0) {
+          setChatFocusApts(action.apartments);
+        }
       }
     }
   }, []);
@@ -120,6 +126,7 @@ function App() {
           onCompareToggle={handleCompareToggle}
           compareSelected={compareList.map(c => c.pnu)}
           highlightPnus={chatHighlightPnus}
+          chatFocusApts={chatFocusApts}
           searchKeyword={searchKeyword}
         />
       </div>

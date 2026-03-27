@@ -17,10 +17,11 @@ interface MapProps {
   onCompareToggle?: (pnu: string, name: string) => void;
   compareSelected?: string[];
   highlightPnus?: string[];
+  chatFocusApts?: { lat: number; lng: number }[];
   searchKeyword?: string;
 }
 
-export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightPnus, searchKeyword }: MapProps) {
+export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightPnus, chatFocusApts, searchKeyword }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
@@ -255,17 +256,29 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
         position: new window.kakao.maps.LatLng(apt.lat, apt.lng),
         title: apt.bld_nm,
         image: chatMarkerImage,
-        zIndex: 10,
+        zIndex: 5,
+      });
+      // 클릭 시 팝업
+      window.kakao.maps.event.addListener(marker, 'click', () => {
+        infoWindowRef.current?.setContent(buildPopupHtml(apt.bld_nm, apt.pnu, apt.total_hhld_cnt));
+        infoWindowRef.current?.open(mapRef.current, marker);
       });
       chatHighlightRef.current.push(marker);
     });
-
-    // Pan to first matched
-    if (matchedApts.length > 0 && matchedApts[0].lat != null) {
-      const pos = new window.kakao.maps.LatLng(matchedApts[0].lat, matchedApts[0].lng);
-      mapRef.current.panTo(pos);
-    }
   }, [highlightPnus, apartments]);
+
+  // Chat focus — fitBounds to chat result apartments
+  useEffect(() => {
+    if (!mapRef.current || !chatFocusApts || chatFocusApts.length === 0) return;
+
+    const bounds = new window.kakao.maps.LatLngBounds();
+    chatFocusApts.forEach(a => {
+      if (a.lat != null && a.lng != null) {
+        bounds.extend(new window.kakao.maps.LatLng(a.lat, a.lng));
+      }
+    });
+    mapRef.current.setBounds(bounds, 80);
+  }, [chatFocusApts]);
 
   function buildPopupHtml(displayName: string, pnu: string, hhldCnt?: number, score?: number) {
     const escapedName = displayName.replace(/'/g, "\\'").replace(/\d+위\s*/, '');

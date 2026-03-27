@@ -20,8 +20,10 @@ export interface ApartmentCard {
 }
 
 export interface MapAction {
-  action: string;
+  action?: string;
+  type?: string;
   pnus?: string[];
+  apartments?: { pnu: string; bld_nm: string; lat: number; lng: number; score: number }[];
 }
 
 export function useChat() {
