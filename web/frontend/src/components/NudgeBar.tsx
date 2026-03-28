@@ -88,7 +88,7 @@ export default function NudgeBar({
         </div>
 
         {/* 넛지 칩 */}
-        <div className="flex items-center gap-2 flex-1 overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
           {NUDGES.map((nudge) => {
             const isSelected = selectedNudges.includes(nudge.id);
             return (
@@ -111,25 +111,28 @@ export default function NudgeBar({
           })}
         </div>
 
-        <button
-          onClick={onOpenFilter}
-          className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
-                     border transition-all duration-200 whitespace-nowrap cursor-pointer
-                     ${filterCount > 0
-                       ? 'bg-blue-50 text-blue-600 border-blue-300'
-                       : 'text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
-                     }`}
-        >
-          🔽 필터{filterCount > 0 && ` (${filterCount})`}
-        </button>
-        <button
-          onClick={onOpenSettings}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
-                     text-gray-600 border border-gray-300 hover:border-blue-400
-                     hover:text-blue-600 transition-all duration-200 whitespace-nowrap cursor-pointer"
-        >
-          ⚙ 가중치
-        </button>
+        {/* 구분선 + 필터/가중치 */}
+        <div className="flex items-center gap-2 ml-3 pl-3 border-l border-gray-200 flex-shrink-0">
+          <button
+            onClick={onOpenFilter}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
+                       border transition-all duration-200 whitespace-nowrap cursor-pointer
+                       ${filterCount > 0
+                         ? 'bg-blue-50 text-blue-600 border-blue-300'
+                         : 'text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+                       }`}
+          >
+            🔽 필터{filterCount > 0 && ` (${filterCount})`}
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
+                       text-gray-600 border border-gray-300 hover:border-blue-400
+                       hover:text-blue-600 transition-all duration-200 whitespace-nowrap cursor-pointer"
+          >
+            ⚙ 가중치
+          </button>
+        </div>
       </div>
 
       {/* 검색 활성 표시 */}
