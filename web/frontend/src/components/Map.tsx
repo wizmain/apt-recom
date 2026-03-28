@@ -17,7 +17,6 @@ interface MapProps {
   onDetailClick?: (pnu: string) => void;
   onCompareToggle?: (pnu: string, name: string) => void;
   compareSelected?: string[];
-  highlightPnus?: string[];
   highlightApts?: { pnu: string; bld_nm: string; lat: number; lng: number; score?: number }[];
   chatFocusApts?: { lat: number; lng: number }[];
   focusPnu?: { pnu: string; lat: number; lng: number; name: string } | null;
@@ -25,7 +24,7 @@ interface MapProps {
   searchKeywords?: string[];
 }
 
-export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightPnus, highlightApts, chatFocusApts, focusPnu, onFocusPnuHandled, searchKeywords }: MapProps) {
+export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightApts, chatFocusApts, focusPnu, onFocusPnuHandled, searchKeywords }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
