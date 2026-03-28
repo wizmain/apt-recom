@@ -58,7 +58,7 @@ export default function NudgeBar({
     <div className="fixed top-0 left-0 right-0 z-10 bg-white/95 backdrop-blur-sm shadow-sm">
       <div className="flex items-center gap-2 px-4 h-14 overflow-x-auto">
         <span className="text-sm font-semibold text-gray-700 whitespace-nowrap mr-1">
-          🏠 아파트추천
+          🐿 라이프스타일 아파트 찾기
         </span>
 
         {/* 지역/단지 검색 */}
