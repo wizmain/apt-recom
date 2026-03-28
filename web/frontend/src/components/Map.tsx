@@ -18,13 +18,14 @@ interface MapProps {
   onCompareToggle?: (pnu: string, name: string) => void;
   compareSelected?: string[];
   highlightPnus?: string[];
+  highlightApts?: { pnu: string; bld_nm: string; lat: number; lng: number; score?: number }[];
   chatFocusApts?: { lat: number; lng: number }[];
   focusPnu?: { pnu: string; lat: number; lng: number; name: string } | null;
   onFocusPnuHandled?: () => void;
   searchKeywords?: string[];
 }
 
-export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightPnus, chatFocusApts, focusPnu, onFocusPnuHandled, searchKeywords }: MapProps) {
+export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightPnus, highlightApts, chatFocusApts, focusPnu, onFocusPnuHandled, searchKeywords }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
@@ -262,7 +263,7 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     });
   }, [searchKeywords]);
 
-  // Chat highlight PNUs
+  // Chat highlight — highlightApts 좌표 데이터로 직접 마커 생성
   const chatHighlightRef = useRef<any[]>([]);
   useEffect(() => {
     if (!mapRef.current) return;
@@ -271,10 +272,7 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     chatHighlightRef.current.forEach(m => m.setMap(null));
     chatHighlightRef.current = [];
 
-    if (!highlightPnus || highlightPnus.length === 0) return;
-
-    const pnuSet = new Set(highlightPnus);
-    const matchedApts = apartments.filter(a => pnuSet.has(a.pnu));
+    if (!highlightApts || highlightApts.length === 0) return;
 
     const chatSvg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38"><path d="M14 0C6.3 0 0 6.3 0 14c0 9.8 14 24 14 24s14-14.2 14-24C28 6.3 21.7 0 14 0z" fill="%23dc2626"/><circle cx="14" cy="13" r="6" fill="white"/></svg>')}`;
     const chatMarkerImage = new window.kakao.maps.MarkerImage(
@@ -283,7 +281,7 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
       { offset: new window.kakao.maps.Point(14, 38) },
     );
 
-    matchedApts.forEach(apt => {
+    highlightApts.forEach(apt => {
       if (apt.lat == null || apt.lng == null) return;
       const marker = new window.kakao.maps.Marker({
         map: mapRef.current,
@@ -292,20 +290,19 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
         image: chatMarkerImage,
         zIndex: 5,
       });
-      // 클릭 시 팝업 토글
       window.kakao.maps.event.addListener(marker, 'click', () => {
         if (openMarkerRef.current === marker) {
           infoWindowRef.current?.close();
           openMarkerRef.current = null;
         } else {
-          infoWindowRef.current?.setContent(buildPopupHtml(apt.bld_nm, apt.pnu, apt.total_hhld_cnt));
+          infoWindowRef.current?.setContent(buildPopupHtml(apt.bld_nm, apt.pnu));
           infoWindowRef.current?.open(mapRef.current, marker);
           openMarkerRef.current = marker;
         }
       });
       chatHighlightRef.current.push(marker);
     });
-  }, [highlightPnus, apartments]);
+  }, [highlightApts]);
 
   // Chat focus — fitBounds to chat result apartments
   useEffect(() => {

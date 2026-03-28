@@ -26,6 +26,7 @@ function App() {
   const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
   const [showChat, setShowChat] = useState(false);
   const [chatHighlightPnus, setChatHighlightPnus] = useState<string[]>([]);
+  const [chatHighlightApts, setChatHighlightApts] = useState<{ pnu: string; bld_nm: string; lat: number; lng: number; score?: number }[]>([]);
   const [chatInitialMessage, setChatInitialMessage] = useState<string | null>(null);
   const [chatAnalyzeContext, setChatAnalyzeContext] = useState<{ pnu: string; name: string } | null>(null);
   const [compareList, setCompareList] = useState<{ pnu: string; name: string }[]>([]);
@@ -88,8 +89,9 @@ function App() {
       const actionType = action.type || action.action;
       if (actionType === 'highlight' && action.pnus) {
         setChatHighlightPnus(action.pnus);
-        // 아파트 좌표가 있으면 지도 포커싱
+        // 아파트 좌표 데이터가 있으면 하이라이트 마커 + 지도 포커싱
         if (action.apartments && action.apartments.length > 0) {
+          setChatHighlightApts(action.apartments);
           setChatFocusApts(action.apartments);
         }
       }
@@ -145,6 +147,7 @@ function App() {
           onCompareToggle={handleCompareToggle}
           compareSelected={compareList.map(c => c.pnu)}
           highlightPnus={chatHighlightPnus}
+          highlightApts={chatHighlightApts}
           chatFocusApts={chatFocusApts}
           focusPnu={focusPnu}
           onFocusPnuHandled={() => setFocusPnu(null)}
