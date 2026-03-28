@@ -41,6 +41,30 @@ TOOL_DEFINITIONS: list[Tool] = [
                     "description": "반환할 최대 아파트 수 (기본 10)",
                     "default": 10,
                 },
+                "min_area": {
+                    "type": "number",
+                    "description": "최소 면적 (㎡). 예: 60",
+                },
+                "max_area": {
+                    "type": "number",
+                    "description": "최대 면적 (㎡). 예: 85",
+                },
+                "min_price": {
+                    "type": "integer",
+                    "description": "최소 매매가 (만원). 예: 50000 (5억)",
+                },
+                "max_price": {
+                    "type": "integer",
+                    "description": "최대 매매가 (만원). 예: 100000 (10억)",
+                },
+                "min_floor": {
+                    "type": "integer",
+                    "description": "최소 최고층수. 예: 15",
+                },
+                "built_after": {
+                    "type": "integer",
+                    "description": "준공연도 이후. 예: 2015",
+                },
             },
             "required": ["keyword"],
         },
@@ -171,8 +195,14 @@ async def search_apartments(
     keyword: str,
     nudges: list[str] | None = None,
     top_n: int = 10,
+    min_area: float | None = None,
+    max_area: float | None = None,
+    min_price: int | None = None,
+    max_price: int | None = None,
+    min_floor: int | None = None,
+    built_after: int | None = None,
 ) -> str:
-    """Search apartments with nudge scoring."""
+    """Search apartments with nudge scoring and filters."""
     conn = _get_conn()
     try:
         # If no nudges provided, try to infer from keyword
@@ -181,16 +211,38 @@ async def search_apartments(
         if not nudges:
             nudges = ["commute"]  # default
 
-        # Search apartments by keyword
+        # Search apartments by keyword with filters
         import re as _re
         kw = keyword.strip()
         norm_kw = _re.sub(r'[\s()\-·]', '', kw)
         apt_sql = (
-            "SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, new_plat_plc "
-            "FROM apartments "
-            "WHERE new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s"
+            "SELECT a.pnu, a.bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc "
+            "FROM apartments a "
+            "LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu "
+            "LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu "
+            "WHERE (a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
         )
-        params = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
+        params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
+
+        if min_area is not None:
+            apt_sql += " AND ai.max_area >= %s"
+            params.append(min_area)
+        if max_area is not None:
+            apt_sql += " AND ai.min_area <= %s"
+            params.append(max_area)
+        if min_price is not None:
+            apt_sql += " AND ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s"
+            params.append(min_price)
+        if max_price is not None:
+            apt_sql += " AND ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 <= %s"
+            params.append(max_price)
+        if min_floor is not None:
+            apt_sql += " AND a.max_floor >= %s"
+            params.append(min_floor)
+        if built_after is not None:
+            apt_sql += " AND a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int >= %s"
+            params.append(built_after)
+
         apartments = conn.execute(apt_sql, params).fetchall()
 
         if not apartments:

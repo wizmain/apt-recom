@@ -43,6 +43,7 @@ SYSTEM_PROMPT = """\
 5. 한국어로 답변하세요.
 6. 출퇴근 시간 조회 시 search_commute 도구를 사용하세요. PNU가 컨텍스트에 있으면 그것을 사용하고, 없으면 먼저 get_apartment_detail로 PNU를 확인하세요.
 7. 출퇴근 결과는 경로별 소요시간, 환승횟수, 요금을 표 형태로 정리하세요.
+8. 사용자가 면적, 가격, 층수, 준공연도 등 조건을 언급하면 search_apartments의 필터 파라미터를 사용하세요. 예: "60~85㎡" → min_area=60, max_area=85, "10억 이하" → max_price=100000, "신축" → built_after=2020
 
 ## 안전 점수 설명 가이드
 안전 점수 관련 질문 시, get_apartment_detail 결과의 safety 필드에 다음 정보가 포함됩니다:
