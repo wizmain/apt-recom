@@ -738,9 +738,23 @@ function EmptyState({ text }: { text: string }) {
 
 /* ── Safety Tab ── */
 
+interface CrimeDetail {
+  murder?: number;
+  robbery?: number;
+  sexual_assault?: number;
+  theft?: number;
+  violence?: number;
+  total_crime?: number;
+  resident_pop?: number;
+  effective_pop?: number;
+  crime_rate?: number;
+  float_pop_ratio?: number;
+}
+
 interface SafetyData {
   safety_score?: number;
   crime_safety_score?: number;
+  crime_detail?: CrimeDetail | null;
   cctv_nearest_m?: number;
   cctv_count_500m?: number;
   cctv_count_1km?: number;
@@ -836,9 +850,74 @@ function TabSafety({ safety }: { safety?: SafetyData | null }) {
              crimeScore >= 40 ? '이 지역은 평균적인 범죄 발생률을 보입니다.' :
              '이 지역은 범죄 발생률이 다소 높은 편입니다. 야간 이동 시 주의가 필요합니다.'}
           </p>
-          <p className="text-[10px] text-gray-400 mt-1">* 2024년 경찰청 범죄통계 기반, 인구 10만명당 범죄율 산정</p>
+          <p className="text-[10px] text-gray-400 mt-1">
+            * 2024년 경찰청 범죄통계 기반
+            {safety.crime_detail?.float_pop_ratio && safety.crime_detail.float_pop_ratio > 1.0
+              ? `, 유동인구 보정 적용 (×${safety.crime_detail.float_pop_ratio.toFixed(1)})`
+              : ', 인구 10만명당 범죄율 산정'}
+          </p>
         </div>
       </div>
+
+      {/* 범죄 유형 분석 */}
+      {safety.crime_detail && (
+        <div>
+          <h3 className="text-sm font-bold text-gray-700 mb-3">범죄 유형 분석 (2024)</h3>
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            {/* 범죄 유형별 바 차트 */}
+            <div className="space-y-3">
+              {[
+                { key: 'violence', label: '폭력', icon: '👊', color: '#ef4444', count: safety.crime_detail.violence ?? 0 },
+                { key: 'theft', label: '절도', icon: '🔓', color: '#f59e0b', count: safety.crime_detail.theft ?? 0 },
+                { key: 'sexual_assault', label: '강간·강제추행', icon: '⚠', color: '#8b5cf6', count: safety.crime_detail.sexual_assault ?? 0 },
+                { key: 'robbery', label: '강도', icon: '🔪', color: '#dc2626', count: safety.crime_detail.robbery ?? 0 },
+                { key: 'murder', label: '살인', icon: '💀', color: '#1e293b', count: safety.crime_detail.murder ?? 0 },
+              ].map(crime => {
+                const maxCount = Math.max(
+                  safety.crime_detail!.violence ?? 0,
+                  safety.crime_detail!.theft ?? 0,
+                  safety.crime_detail!.sexual_assault ?? 0,
+                  1
+                );
+                const pct = (crime.count / maxCount) * 100;
+                const totalPct = safety.crime_detail!.total_crime
+                  ? ((crime.count / safety.crime_detail!.total_crime) * 100).toFixed(1)
+                  : '0';
+                return (
+                  <div key={crime.key}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-600">{crime.icon} {crime.label}</span>
+                      <span className="text-xs font-bold text-gray-800">
+                        {crime.count.toLocaleString()}건
+                        <span className="text-gray-400 font-normal ml-1">({totalPct}%)</span>
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${Math.max(pct, 1)}%`, backgroundColor: crime.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* 요약 정보 */}
+            <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-3 gap-3 text-center">
+              <div>
+                <div className="text-lg font-bold text-gray-800">{(safety.crime_detail.total_crime ?? 0).toLocaleString()}</div>
+                <div className="text-[10px] text-gray-500">5대범죄 합계</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-gray-800">{(safety.crime_detail.effective_pop ?? 0).toLocaleString()}</div>
+                <div className="text-[10px] text-gray-500">보정 인구</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-gray-800">{(safety.crime_detail.crime_rate ?? 0).toFixed(0)}</div>
+                <div className="text-[10px] text-gray-500">10만명당 범죄율</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CCTV 밀도 시각화 */}
       <div>

@@ -112,23 +112,42 @@ def apartment_detail(pnu: str):
             ).fetchone()
             safety_score_val = safety_row["safety_score"] if safety_row else None
 
-            # 범죄율 점수
+            # 범죄율 점수 + 상세
             crime_score = None
+            crime_detail = None
             sigungu = basic.get("sigungu_code", "")[:5] if basic.get("sigungu_code") else None
             if sigungu:
                 crime_row = conn.execute(
-                    "SELECT crime_safety_score FROM sigungu_crime_score WHERE sigungu_code = %s", [sigungu]
+                    "SELECT * FROM sigungu_crime_detail WHERE sigungu_code = %s", [sigungu]
                 ).fetchone()
                 if crime_row:
                     crime_score = crime_row["crime_safety_score"]
+                    crime_detail = {
+                        "murder": crime_row.get("murder", 0),
+                        "robbery": crime_row.get("robbery", 0),
+                        "sexual_assault": crime_row.get("sexual_assault", 0),
+                        "theft": crime_row.get("theft", 0),
+                        "violence": crime_row.get("violence", 0),
+                        "total_crime": crime_row.get("total_crime", 0),
+                        "resident_pop": crime_row.get("resident_pop", 0),
+                        "effective_pop": crime_row.get("effective_pop", 0),
+                        "crime_rate": crime_row.get("crime_rate", 0),
+                        "float_pop_ratio": crime_row.get("float_pop_ratio", 1.0),
+                    }
+                else:
+                    score_row = conn.execute(
+                        "SELECT crime_safety_score FROM sigungu_crime_score WHERE sigungu_code = %s", [sigungu]
+                    ).fetchone()
+                    if score_row:
+                        crime_score = score_row["crime_safety_score"]
 
-            # 안전시설 거리
             police_dist = facility_summary.get("police", {}).get("nearest_distance_m")
             fire_dist = facility_summary.get("fire_station", {}).get("nearest_distance_m")
 
             safety_info = {
                 "safety_score": safety_score_val,
                 "crime_safety_score": crime_score,
+                "crime_detail": crime_detail,
                 "cctv_nearest_m": cctv_row["nearest_distance_m"] if cctv_row else None,
                 "cctv_count_500m": cctv_row["cctv_count_500m"] if cctv_row else 0,
                 "cctv_count_1km": cctv_row["cctv_count_1km"] if cctv_row else 0,
