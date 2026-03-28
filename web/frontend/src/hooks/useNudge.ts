@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import axios from 'axios';
 import type { ScoredApartment, MapBounds } from '../types/apartment';
+import type { ApartmentFilters } from './useApartments';
 import { API_BASE } from '../config';
 
 export function useNudge() {
@@ -25,7 +26,8 @@ export function useNudge() {
       weights: Record<string, Record<string, number>> | null,
       topN: number = 10,
       bounds?: MapBounds,
-      keyword?: string
+      keyword?: string,
+      filters?: ApartmentFilters,
     ) => {
       if (nudges.length === 0) {
         setResults([]);
@@ -46,6 +48,18 @@ export function useNudge() {
         }
         if (keyword && keyword.trim()) {
           body.keyword = keyword.trim();
+        }
+        // Pass filters to nudge scoring
+        if (filters) {
+          if (filters.minArea) body.min_area = filters.minArea;
+          if (filters.maxArea) body.max_area = filters.maxArea;
+          if (filters.minPrice) body.min_price = filters.minPrice;
+          if (filters.maxPrice) body.max_price = filters.maxPrice;
+          if (filters.minFloor) body.min_floor = filters.minFloor;
+          if (filters.minHhld) body.min_hhld = filters.minHhld;
+          if (filters.maxHhld) body.max_hhld = filters.maxHhld;
+          if (filters.builtAfter) body.built_after = filters.builtAfter;
+          if (filters.builtBefore) body.built_before = filters.builtBefore;
         }
         const res = await axios.post<ScoredApartment[]>(`${API_BASE}/api/nudge/score`, body);
         setResults(res.data);

@@ -22,6 +22,16 @@ class NudgeScoreRequest(BaseModel):
     ne_lat: float | None = None
     ne_lng: float | None = None
     keyword: str | None = None
+    # Filters
+    min_area: float | None = None
+    max_area: float | None = None
+    min_price: int | None = None
+    max_price: int | None = None
+    min_floor: int | None = None
+    min_hhld: int | None = None
+    max_hhld: int | None = None
+    built_after: int | None = None
+    built_before: int | None = None
 
 
 @router.post("/nudge/score")
@@ -29,8 +39,11 @@ def nudge_score(req: NudgeScoreRequest):
     """Calculate nudge scores for apartments and return top_n."""
     conn = DictConnection()
     try:
-        # 1. Get apartments (keyword and/or bounds filter)
-        apt_sql = "SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, new_plat_plc, sigungu_code FROM apartments"
+        # 1. Get apartments (keyword, bounds, and property filters)
+        apt_sql = """SELECT a.pnu, a.bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc, a.sigungu_code
+            FROM apartments a
+            LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
+            LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu"""
         conditions: list[str] = []
         params: list = []
 
@@ -40,12 +53,41 @@ def nudge_score(req: NudgeScoreRequest):
             pattern = f"%{kw}%"
             norm_kw = re.sub(r'[\s()\-·]', '', kw)
             norm_pattern = f"%{norm_kw}%"
-            conditions.append("(new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)")
+            conditions.append("(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)")
             params.extend([pattern, pattern, pattern, norm_pattern])
 
         if all(v is not None for v in [req.sw_lat, req.sw_lng, req.ne_lat, req.ne_lng]):
-            conditions.append("lat BETWEEN %s AND %s AND lng BETWEEN %s AND %s")
+            conditions.append("a.lat BETWEEN %s AND %s AND a.lng BETWEEN %s AND %s")
             params.extend([req.sw_lat, req.ne_lat, req.sw_lng, req.ne_lng])
+
+        # Property filters
+        if req.min_area is not None:
+            conditions.append("ai.max_area >= %s")
+            params.append(req.min_area)
+        if req.max_area is not None:
+            conditions.append("ai.min_area <= %s")
+            params.append(req.max_area)
+        if req.min_price is not None:
+            conditions.append("ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s")
+            params.append(req.min_price)
+        if req.max_price is not None:
+            conditions.append("ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 <= %s")
+            params.append(req.max_price)
+        if req.min_floor is not None:
+            conditions.append("a.max_floor >= %s")
+            params.append(req.min_floor)
+        if req.min_hhld is not None:
+            conditions.append("a.total_hhld_cnt >= %s")
+            params.append(req.min_hhld)
+        if req.max_hhld is not None:
+            conditions.append("a.total_hhld_cnt <= %s")
+            params.append(req.max_hhld)
+        if req.built_after is not None:
+            conditions.append("a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int >= %s")
+            params.append(req.built_after)
+        if req.built_before is not None:
+            conditions.append("a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int <= %s")
+            params.append(req.built_before)
 
         if conditions:
             apt_sql += " WHERE " + " AND ".join(conditions)

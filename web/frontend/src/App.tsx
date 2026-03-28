@@ -36,14 +36,14 @@ function App() {
     fetchWeights();
   }, [fetchWeights]);
 
-  // Re-score when nudges or keyword change
+  // Re-score when nudges, keyword, or filters change
   useEffect(() => {
     if (selectedNudges.length > 0) {
-      scoreApartments(selectedNudges, customWeights, 10, undefined, searchKeyword || undefined);
+      scoreApartments(selectedNudges, customWeights, 10, undefined, searchKeyword || undefined, filters);
     } else {
       scoreApartments([], null, 0);
     }
-  }, [selectedNudges, customWeights, searchKeyword, scoreApartments]);
+  }, [selectedNudges, customWeights, searchKeyword, filters, scoreApartments]);
 
   const handleToggleNudge = useCallback((nudgeId: string) => {
     setSelectedNudges((prev) =>
