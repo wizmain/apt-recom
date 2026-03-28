@@ -14,7 +14,7 @@ import type { MapBounds } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
 
 function App() {
-  const { apartments, filters, applyFilters, clearFilters, onBoundsChange, setKeyword } = useApartments();
+  const { apartments, filters, applyFilters, clearFilters, onBoundsChange, addKeyword, removeKeyword, clearKeywords } = useApartments();
   const { results, loading, defaultWeights, scoreApartments, fetchWeights } = useNudge();
 
   const [selectedNudges, setSelectedNudges] = useState<string[]>([]);
@@ -23,27 +23,28 @@ function App() {
   const [customWeights, setCustomWeights] = useState<Record<string, Record<string, number>> | null>(null);
   // mapBounds는 useApartments에서 관리
   const [selectedPnu, setSelectedPnu] = useState<string | null>(null);
-  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
   const [showChat, setShowChat] = useState(false);
   const [chatHighlightPnus, setChatHighlightPnus] = useState<string[]>([]);
   const [chatInitialMessage, setChatInitialMessage] = useState<string | null>(null);
   const [chatAnalyzeContext, setChatAnalyzeContext] = useState<{ pnu: string; name: string } | null>(null);
   const [compareList, setCompareList] = useState<{ pnu: string; name: string }[]>([]);
   const [chatFocusApts, setChatFocusApts] = useState<{ lat: number; lng: number }[]>([]);
+  const [focusPnu, setFocusPnu] = useState<{ pnu: string; lat: number; lng: number; name: string } | null>(null);
 
   // Fetch default weights on mount
   useEffect(() => {
     fetchWeights();
   }, [fetchWeights]);
 
-  // Re-score when nudges, keyword, or filters change
+  // Re-score when nudges, keywords, or filters change
   useEffect(() => {
     if (selectedNudges.length > 0) {
-      scoreApartments(selectedNudges, customWeights, 10, undefined, searchKeyword || undefined, filters);
+      scoreApartments(selectedNudges, customWeights, 10, undefined, searchKeywords.length > 0 ? searchKeywords : undefined, filters);
     } else {
       scoreApartments([], null, 0);
     }
-  }, [selectedNudges, customWeights, searchKeyword, filters, scoreApartments]);
+  }, [selectedNudges, customWeights, searchKeywords, filters, scoreApartments]);
 
   const handleToggleNudge = useCallback((nudgeId: string) => {
     setSelectedNudges((prev) =>
@@ -66,10 +67,21 @@ function App() {
     setCustomWeights(wrapped);
   }, [selectedNudges]);
 
-  const handleSearchChange = useCallback((keyword: string) => {
-    setSearchKeyword(keyword);
-    setKeyword(keyword);  // 마커도 키워드 기반으로 전환
-  }, [setKeyword]);
+  const handleAddKeyword = useCallback((keyword: string) => {
+    setSearchKeywords(prev => prev.includes(keyword) ? prev : [...prev, keyword]);
+    addKeyword(keyword);
+  }, [addKeyword]);
+
+  const handleRemoveKeyword = useCallback((keyword: string) => {
+    setSearchKeywords(prev => prev.filter(k => k !== keyword));
+    removeKeyword(keyword);
+  }, [removeKeyword]);
+
+  const handleClearAllKeywords = useCallback(() => {
+    setSearchKeywords([]);
+    clearKeywords();
+    setSelectedNudges([]);
+  }, [clearKeywords]);
 
   const handleMapAction = useCallback((actions: MapAction[]) => {
     for (const action of actions) {
@@ -104,7 +116,7 @@ function App() {
   }, []);
 
   // NudgeBar 높이 (검색 키워드가 있으면 더 높아짐)
-  const barHeight = searchKeyword ? 'pt-[4.5rem]' : 'pt-14';
+  const barHeight = searchKeywords.length > 0 ? 'pt-[4.5rem]' : 'pt-14';
 
   return (
     <div className="relative w-full h-screen overflow-hidden">
@@ -115,8 +127,10 @@ function App() {
         onOpenSettings={() => setShowWeightDrawer(true)}
         onOpenFilter={() => setShowFilterPanel(true)}
         filterCount={Object.values(filters).filter(v => v !== undefined).length}
-        searchKeyword={searchKeyword}
-        onSearchChange={handleSearchChange}
+        searchKeywords={searchKeywords}
+        onAddKeyword={handleAddKeyword}
+        onRemoveKeyword={handleRemoveKeyword}
+        onClearAll={handleClearAllKeywords}
       />
 
       {/* Map fills the viewport */}
@@ -132,12 +146,20 @@ function App() {
           compareSelected={compareList.map(c => c.pnu)}
           highlightPnus={chatHighlightPnus}
           chatFocusApts={chatFocusApts}
-          searchKeyword={searchKeyword}
+          focusPnu={focusPnu}
+          onFocusPnuHandled={() => setFocusPnu(null)}
+          searchKeywords={searchKeywords}
         />
       </div>
 
       {/* Bottom result cards */}
-      <ResultCards results={results} loading={loading} onSelect={(pnu) => setSelectedPnu(pnu)} />
+      <ResultCards results={results} loading={loading} onSelect={(pnu) => {
+        // 해당 아파트로 지도 이동 + 팝업
+        const apt = results.find(r => r.pnu === pnu);
+        if (apt?.lat && apt?.lng) {
+          setFocusPnu({ pnu, lat: apt.lat, lng: apt.lng, name: apt.bld_nm });
+        }
+      }} />
 
       {/* Detail modal */}
       {selectedPnu && (

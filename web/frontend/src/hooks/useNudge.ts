@@ -26,7 +26,7 @@ export function useNudge() {
       weights: Record<string, Record<string, number>> | null,
       topN: number = 10,
       bounds?: MapBounds,
-      keyword?: string,
+      keywords?: string[],
       filters?: ApartmentFilters,
     ) => {
       if (nudges.length === 0) {
@@ -46,8 +46,8 @@ export function useNudge() {
           body.ne_lat = bounds.ne.lat;
           body.ne_lng = bounds.ne.lng;
         }
-        if (keyword && keyword.trim()) {
-          body.keyword = keyword.trim();
+        if (keywords && keywords.length > 0) {
+          body.keywords = keywords;
         }
         // Pass filters to nudge scoring
         if (filters) {

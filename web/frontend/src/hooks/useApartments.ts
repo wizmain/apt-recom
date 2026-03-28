@@ -20,20 +20,40 @@ export function useApartments() {
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState<ApartmentFilters>({});
   const boundsRef = useRef<MapBounds | undefined>(undefined);
-  const keywordRef = useRef<string>('');
+  const keywordsRef = useRef<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const fetchApartments = useCallback(async (f: ApartmentFilters, bounds?: MapBounds, keyword?: string) => {
+  const fetchByKeywords = useCallback(async (keywords: string[]): Promise<Apartment[]> => {
+    // 각 키워드별로 검색 후 합산 (중복 제거)
+    const allResults: Apartment[] = [];
+    const pnuSet = new Set<string>();
+    for (const kw of keywords) {
+      try {
+        const res = await axios.get<Apartment[]>(`${API_BASE}/api/apartments/search`, { params: { q: kw } });
+        for (const apt of res.data) {
+          if (!pnuSet.has(apt.pnu)) {
+            pnuSet.add(apt.pnu);
+            allResults.push(apt);
+          }
+        }
+      } catch (err) {
+        console.error(`검색 실패 (${kw}):`, err);
+      }
+    }
+    return allResults;
+  }, []);
+
+  const fetchApartments = useCallback(async (f: ApartmentFilters, bounds?: MapBounds, keywords?: string[]) => {
     try {
       setLoading(true);
-      const params: Record<string, string> = {};
+      const kws = keywords ?? keywordsRef.current;
 
-      const kw = keyword ?? keywordRef.current;
-
-      // 검색 키워드가 있으면 키워드 기반, 없으면 bounds 기반
-      if (kw) {
-        params.q = kw;
+      if (kws.length > 0) {
+        const results = await fetchByKeywords(kws);
+        searchResultsRef.current = results;
+        setApartments(results);
       } else {
+        const params: Record<string, string> = {};
         const b = bounds || boundsRef.current;
         if (b) {
           params.sw_lat = String(b.sw.lat);
@@ -41,51 +61,88 @@ export function useApartments() {
           params.ne_lat = String(b.ne.lat);
           params.ne_lng = String(b.ne.lng);
         }
+        // Filters
+        if (f.minArea) params.min_area = String(f.minArea);
+        if (f.maxArea) params.max_area = String(f.maxArea);
+        if (f.minPrice) params.min_price = String(f.minPrice);
+        if (f.maxPrice) params.max_price = String(f.maxPrice);
+        if (f.minFloor) params.min_floor = String(f.minFloor);
+        if (f.minHhld) params.min_hhld = String(f.minHhld);
+        if (f.maxHhld) params.max_hhld = String(f.maxHhld);
+        if (f.builtAfter) params.built_after = String(f.builtAfter);
+        if (f.builtBefore) params.built_before = String(f.builtBefore);
+
+        const query = new URLSearchParams(params).toString();
+        const url = `${API_BASE}/api/apartments${query ? `?${query}` : ''}`;
+        const res = await axios.get<Apartment[]>(url);
+        setApartments(res.data);
       }
-
-      // Filters
-      if (f.minArea) params.min_area = String(f.minArea);
-      if (f.maxArea) params.max_area = String(f.maxArea);
-      if (f.minPrice) params.min_price = String(f.minPrice);
-      if (f.maxPrice) params.max_price = String(f.maxPrice);
-      if (f.minFloor) params.min_floor = String(f.minFloor);
-      if (f.minHhld) params.min_hhld = String(f.minHhld);
-      if (f.maxHhld) params.max_hhld = String(f.maxHhld);
-      if (f.builtAfter) params.built_after = String(f.builtAfter);
-      if (f.builtBefore) params.built_before = String(f.builtBefore);
-
-      const query = new URLSearchParams(params).toString();
-      const endpoint = kw ? '/api/apartments/search' : '/api/apartments';
-      const url = `${API_BASE}${endpoint}${query ? `?${query}` : ''}`;
-      const res = await axios.get<Apartment[]>(url);
-      setApartments(res.data);
     } catch (err) {
       console.error('아파트 목록 불러오기 실패:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchByKeywords]);
 
-  // 지도 영역 변경 시 호출 (디바운스) — 키워드 검색 중이면 스킵
+  // 검색 결과 캐시 (검색 후 지도 이동 시 합산용)
+  const searchResultsRef = useRef<Apartment[]>([]);
+
+  // 지도 영역 변경 시 호출 (디바운스)
   const onBoundsChange = useCallback((bounds: MapBounds) => {
     boundsRef.current = bounds;
-    if (keywordRef.current) return; // 검색 키워드가 있으면 bounds 갱신 안 함
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      fetchApartments(filters, bounds);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        setLoading(true);
+        const params: Record<string, string> = {
+          sw_lat: String(bounds.sw.lat), sw_lng: String(bounds.sw.lng),
+          ne_lat: String(bounds.ne.lat), ne_lng: String(bounds.ne.lng),
+        };
+        const query = new URLSearchParams(params).toString();
+        const res = await axios.get<Apartment[]>(`${API_BASE}/api/apartments?${query}`);
+        const boundsApts = res.data;
+
+        if (searchResultsRef.current.length > 0) {
+          // 검색 결과 + 현재 영역 합산 (중복 제거)
+          const pnuSet = new Set(boundsApts.map(a => a.pnu));
+          const merged = [...boundsApts, ...searchResultsRef.current.filter(a => !pnuSet.has(a.pnu))];
+          setApartments(merged);
+        } else {
+          setApartments(boundsApts);
+        }
+      } catch (err) {
+        console.error('아파트 목록 불러오기 실패:', err);
+      } finally {
+        setLoading(false);
+      }
     }, 300);
+  }, []);
+
+  // 키워드 추가
+  const addKeyword = useCallback((kw: string) => {
+    if (keywordsRef.current.includes(kw)) return;
+    const next = [...keywordsRef.current, kw];
+    keywordsRef.current = next;
+    fetchApartments(filters, undefined, next);
   }, [filters, fetchApartments]);
 
-  // 검색 키워드 변경
-  const setKeyword = useCallback((kw: string) => {
-    keywordRef.current = kw;
-    if (kw) {
-      // 키워드 검색: bounds 무시, 키워드로 조회
-      fetchApartments(filters, undefined, kw);
+  // 키워드 제거
+  const removeKeyword = useCallback((kw: string) => {
+    const next = keywordsRef.current.filter(k => k !== kw);
+    keywordsRef.current = next;
+    if (next.length === 0) {
+      searchResultsRef.current = [];
+      fetchApartments(filters, boundsRef.current, []);
     } else {
-      // 키워드 해제: 현재 bounds로 복귀
-      fetchApartments(filters, boundsRef.current, '');
+      fetchApartments(filters, undefined, next);
     }
+  }, [filters, fetchApartments]);
+
+  // 전체 키워드 클리어
+  const clearKeywords = useCallback(() => {
+    keywordsRef.current = [];
+    searchResultsRef.current = [];
+    fetchApartments(filters, boundsRef.current, []);
   }, [filters, fetchApartments]);
 
   // 필터 변경
@@ -102,5 +159,5 @@ export function useApartments() {
     fetchApartments({});
   }, [fetchApartments]);
 
-  return { apartments, loading, filters, applyFilters, clearFilters, onBoundsChange, setKeyword };
+  return { apartments, loading, filters, applyFilters, clearFilters, onBoundsChange, addKeyword, removeKeyword, clearKeywords };
 }

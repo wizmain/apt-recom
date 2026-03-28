@@ -19,10 +19,12 @@ interface MapProps {
   compareSelected?: string[];
   highlightPnus?: string[];
   chatFocusApts?: { lat: number; lng: number }[];
-  searchKeyword?: string;
+  focusPnu?: { pnu: string; lat: number; lng: number; name: string } | null;
+  onFocusPnuHandled?: () => void;
+  searchKeywords?: string[];
 }
 
-export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightPnus, chatFocusApts, searchKeyword }: MapProps) {
+export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightPnus, chatFocusApts, focusPnu, onFocusPnuHandled, searchKeywords }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
@@ -227,28 +229,38 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     }
   }, [scoredResults]);
 
-  // 검색어 변경 시 해당 지역 아파트로 fitBounds (API 검색)
+  // 검색어 변경 시 해당 지역 아파트로 fitBounds (모든 키워드 합산)
   const prevSearchRef = useRef<string>('');
   useEffect(() => {
-    if (!mapRef.current || !searchKeyword || searchKeyword === prevSearchRef.current) return;
-    prevSearchRef.current = searchKeyword;
+    const key = (searchKeywords || []).join(',');
+    if (!mapRef.current || !key || key === prevSearchRef.current) return;
+    prevSearchRef.current = key;
 
-    // 검색 API로 해당 지역 아파트 좌표 가져오기
-    fetch(`${API_BASE}/api/apartments/search?q=${encodeURIComponent(searchKeyword)}`)
-      .then(res => res.json())
-      .then((data: Array<{ lat: number; lng: number }>) => {
-        if (!data || data.length === 0 || !window.kakao?.maps || !mapRef.current) return;
-        const validApts = data.filter(a => a.lat != null && a.lng != null);
-        if (validApts.length === 0) return;
-
-        const bounds = new window.kakao.maps.LatLngBounds();
-        validApts.forEach(apt => {
-          bounds.extend(new window.kakao.maps.LatLng(apt.lat, apt.lng));
-        });
+    // 각 키워드별 검색 후 합산 fitBounds
+    const keywords = searchKeywords || [];
+    Promise.all(
+      keywords.map(kw =>
+        fetch(`${API_BASE}/api/apartments/search?q=${encodeURIComponent(kw)}`)
+          .then(res => res.json())
+          .catch(() => [])
+      )
+    ).then((results: Array<Array<{ lat: number; lng: number }>>) => {
+      if (!window.kakao?.maps || !mapRef.current) return;
+      const bounds = new window.kakao.maps.LatLngBounds();
+      let count = 0;
+      for (const data of results) {
+        for (const apt of data) {
+          if (apt.lat != null && apt.lng != null) {
+            bounds.extend(new window.kakao.maps.LatLng(apt.lat, apt.lng));
+            count++;
+          }
+        }
+      }
+      if (count > 0) {
         mapRef.current.setBounds(bounds, 100);
-      })
-      .catch(() => {});
-  }, [searchKeyword]);
+      }
+    });
+  }, [searchKeywords]);
 
   // Chat highlight PNUs
   const chatHighlightRef = useRef<any[]>([]);
@@ -307,6 +319,27 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     });
     mapRef.current.setBounds(bounds, 80);
   }, [chatFocusApts]);
+
+  // 특정 아파트로 포커스 (결과 카드 클릭 시)
+  useEffect(() => {
+    if (!mapRef.current || !focusPnu) return;
+
+    // 지도 이동
+    const pos = new window.kakao.maps.LatLng(focusPnu.lat, focusPnu.lng);
+    mapRef.current.setLevel(3); // 가까이 줌
+    mapRef.current.panTo(pos);
+
+    // 팝업 표시
+    setTimeout(() => {
+      const content = buildPopupHtml(focusPnu.name, focusPnu.pnu);
+      infoWindowRef.current?.setContent(content);
+      // 임시 마커에 팝업 열기
+      const tempMarker = new window.kakao.maps.Marker({ position: pos });
+      infoWindowRef.current?.open(mapRef.current, tempMarker);
+      openMarkerRef.current = tempMarker;
+      onFocusPnuHandled?.();
+    }, 300);
+  }, [focusPnu]);
 
   function buildPopupHtml(displayName: string, pnu: string, hhldCnt?: number, score?: number) {
     const escapedName = displayName.replace(/'/g, "\\'").replace(/\d+위\s*/, '');

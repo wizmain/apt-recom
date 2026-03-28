@@ -22,6 +22,7 @@ class NudgeScoreRequest(BaseModel):
     ne_lat: float | None = None
     ne_lng: float | None = None
     keyword: str | None = None
+    keywords: list[str] | None = None
     # Filters
     min_area: float | None = None
     max_area: float | None = None
@@ -47,14 +48,23 @@ def nudge_score(req: NudgeScoreRequest):
         conditions: list[str] = ["a.lat IS NOT NULL"]  # 좌표 없는 아파트 제외
         params: list = []
 
-        if req.keyword and req.keyword.strip():
-            import re
-            kw = req.keyword.strip()
-            pattern = f"%{kw}%"
-            norm_kw = re.sub(r'[\s()\-·]', '', kw)
-            norm_pattern = f"%{norm_kw}%"
-            conditions.append("(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)")
-            params.extend([pattern, pattern, pattern, norm_pattern])
+        # 다중 키워드 지원 (keywords 우선, 없으면 keyword 단일 호환)
+        import re
+        kw_list: list[str] = []
+        if req.keywords:
+            kw_list = [k.strip() for k in req.keywords if k.strip()]
+        elif req.keyword and req.keyword.strip():
+            kw_list = [req.keyword.strip()]
+
+        if kw_list:
+            or_clauses = []
+            for kw in kw_list:
+                pattern = f"%{kw}%"
+                norm_kw = re.sub(r'[\s()\-·]', '', kw)
+                norm_pattern = f"%{norm_kw}%"
+                or_clauses.append("(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)")
+                params.extend([pattern, pattern, pattern, norm_pattern])
+            conditions.append(f"({' OR '.join(or_clauses)})")
 
         if all(v is not None for v in [req.sw_lat, req.sw_lng, req.ne_lat, req.ne_lng]):
             conditions.append("a.lat BETWEEN %s AND %s AND a.lng BETWEEN %s AND %s")
