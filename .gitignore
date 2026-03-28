@@ -41,6 +41,9 @@ dist/
 # Superpowers brainstorm artifacts
 .superpowers/
 
+# Git worktrees
+.worktrees/
+
 # Misc data files
 *.csv
 collect_incheon_missing.py
