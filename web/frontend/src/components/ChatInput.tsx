@@ -1,13 +1,30 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
 }
 
-export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+export interface ChatInputHandle {
+  focus: () => void;
+}
+
+function ChatInputInner({ onSend, disabled }: ChatInputProps, ref: React.ForwardedRef<ChatInputHandle>) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+  }));
+
+  // disabled → enabled 전환 시 자동 포커스
+  const prevDisabledRef = useRef(disabled);
+  useEffect(() => {
+    if (prevDisabledRef.current && !disabled) {
+      textareaRef.current?.focus();
+    }
+    prevDisabledRef.current = disabled;
+  }, [disabled]);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -69,3 +86,6 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
     </div>
   );
 }
+
+const ChatInput = forwardRef(ChatInputInner);
+export default ChatInput;

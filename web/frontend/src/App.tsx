@@ -103,8 +103,14 @@ function App() {
   }, []);
 
   const handleChatApartmentClick = useCallback((pnu: string) => {
-    setSelectedPnu(pnu);
-  }, []);
+    // highlightApts에서 좌표 찾기
+    const apt = chatHighlightApts.find(a => a.pnu === pnu);
+    if (apt?.lat && apt?.lng) {
+      setFocusPnu({ pnu, lat: apt.lat, lng: apt.lng, name: apt.bld_nm });
+    } else {
+      setSelectedPnu(pnu);
+    }
+  }, [chatHighlightApts]);
 
   const handleCompareToggle = useCallback((pnu: string, name: string) => {
     setCompareList(prev => {
@@ -173,7 +179,7 @@ function App() {
       }} isOpen={showChat} />
       {showChat && (
         <ChatModal
-          onClose={() => { setShowChat(false); setChatInitialMessage(null); setChatAnalyzeContext(null); }}
+          onClose={() => { setShowChat(false); setChatInitialMessage(null); setChatAnalyzeContext(null); setChatHighlightApts([]); setChatFocusApts([]); }}
           onMapAction={handleMapAction}
           onApartmentClick={handleChatApartmentClick}
           initialMessage={chatInitialMessage}
