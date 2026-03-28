@@ -44,7 +44,7 @@ def nudge_score(req: NudgeScoreRequest):
             FROM apartments a
             LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu"""
-        conditions: list[str] = []
+        conditions: list[str] = ["a.lat IS NOT NULL"]  # 좌표 없는 아파트 제외
         params: list = []
 
         if req.keyword and req.keyword.strip():

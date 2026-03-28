@@ -220,7 +220,7 @@ async def search_apartments(
             "FROM apartments a "
             "LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu "
             "LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu "
-            "WHERE (a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
+            "WHERE a.lat IS NOT NULL AND (a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
         )
         params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
 
