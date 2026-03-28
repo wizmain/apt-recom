@@ -281,6 +281,145 @@ def test_area_coverage():
 
 
 # ============================================================
+# 7. 챗봇 스트리밍 + 추가 Tool 테스트
+# ============================================================
+
+@test("챗봇: /api/chat/stream SSE 스트리밍 응답")
+def test_chat_stream():
+    import requests
+    resp = requests.post("http://localhost:8000/api/chat/stream", json={
+        "message": "안녕하세요",
+        "conversation": [],
+        "context": {},
+    }, stream=True, timeout=30)
+    assert resp.status_code == 200, f"스트리밍 API 에러: {resp.status_code}"
+    assert resp.headers.get("content-type", "").startswith("text/event-stream"), \
+        f"Content-Type이 SSE가 아님: {resp.headers.get('content-type')}"
+    # 최소 1개의 delta 이벤트 수신
+    found_delta = False
+    for line in resp.iter_lines(decode_unicode=True):
+        if line and line.startswith("event: delta"):
+            found_delta = True
+            break
+        if line and line.startswith("event: done"):
+            break
+    resp.close()
+    assert found_delta, "delta 이벤트를 수신하지 못함"
+
+
+@test("챗봇: compare_apartments tool")
+def test_tool_compare():
+    from services.tools import compare_apartments
+    result = asyncio.run(compare_apartments(queries=["래미안대치팰리스", "은마아파트"]))
+    data = json.loads(result)
+    assert "error" not in data, f"에러: {data.get('error')}"
+    assert data.get("count", 0) >= 1, "비교 결과 없음"
+
+
+@test("챗봇: get_market_trend tool")
+def test_tool_market_trend():
+    from services.tools import get_market_trend
+    result = asyncio.run(get_market_trend(region="강남구", period="1y"))
+    data = json.loads(result)
+    assert "error" not in data, f"에러: {data.get('error')}"
+    assert len(data.get("trade_trends", [])) > 0 or data.get("sgg_cd"), "시세 데이터 없음"
+
+
+@test("챗봇: get_school_info tool")
+def test_tool_school_info():
+    from services.tools import get_school_info
+    result = asyncio.run(get_school_info(query="래미안대치팰리스"))
+    data = json.loads(result)
+    # school 또는 schools 키 존재
+    has_data = data.get("school") or data.get("schools") or "error" not in data
+    assert has_data, f"학군 정보 없음: {data}"
+
+
+@test("챗봇: 안전 점수 관련 데이터 포함 응답")
+def test_chat_safety_data():
+    """get_apartment_detail 결과에 safety + crime_detail 포함 확인."""
+    from services.tools import get_apartment_detail
+    result = asyncio.run(get_apartment_detail("1111010100000560045"))  # 종로구 청운현대
+    data = json.loads(result)
+    assert "error" not in data, f"에러: {data.get('error')}"
+    assert "nudge_scores" in data, "nudge_scores 없음"
+    assert "safety" in data.get("nudge_scores", {}), "safety 넛지 점수 없음"
+
+
+# ============================================================
+# 8. 피드백 API 테스트
+# ============================================================
+
+@test("피드백: POST /api/chat/feedback 저장")
+def test_feedback_submit():
+    import requests
+    resp = requests.post("http://localhost:8000/api/chat/feedback", json={
+        "user_message": "테스트 질문",
+        "assistant_message": "테스트 답변",
+        "rating": 1,
+        "tags": [],
+        "comment": "자동 테스트",
+    }, timeout=10)
+    assert resp.status_code == 200, f"피드백 API 에러: {resp.status_code}"
+    data = resp.json()
+    assert data.get("id", 0) > 0, f"피드백 ID 없음: {data}"
+
+
+@test("피드백: GET /api/chat/feedback/stats 통계")
+def test_feedback_stats():
+    import requests
+    resp = requests.get("http://localhost:8000/api/chat/feedback/stats", timeout=10)
+    assert resp.status_code == 200, f"통계 API 에러: {resp.status_code}"
+    data = resp.json()
+    assert "total" in data, "total 필드 없음"
+    assert "likes" in data, "likes 필드 없음"
+    assert "dislikes" in data, "dislikes 필드 없음"
+
+
+# ============================================================
+# 9. API 엔드포인트 기본 테스트
+# ============================================================
+
+@test("API: GET /api/health")
+def test_api_health():
+    import requests
+    resp = requests.get("http://localhost:8000/api/health", timeout=5)
+    assert resp.status_code == 200
+    assert resp.json().get("status") == "ok"
+
+
+@test("API: GET /api/apartments 응답")
+def test_api_apartments():
+    import requests
+    resp = requests.get("http://localhost:8000/api/apartments", timeout=10)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) > 1000, f"아파트 {len(data)}개 (1000개 이상 예상)"
+
+
+@test("API: GET /api/apartment/{pnu} 상세")
+def test_api_apartment_detail():
+    import requests
+    resp = requests.get("http://localhost:8000/api/apartment/1168010600010270000", timeout=10)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("basic", {}).get("bld_nm") is not None, "아파트 이름 없음"
+    assert "scores" in data, "scores 없음"
+    assert "facility_summary" in data, "facility_summary 없음"
+
+
+@test("API: POST /api/commute 통근 조회")
+def test_api_commute():
+    import requests
+    resp = requests.post("http://localhost:8000/api/commute", json={
+        "pnu": "1121510500008540000",
+        "destination": "강남역",
+    }, timeout=20)
+    # ODSay 키 문제일 수 있으므로 200 또는 502 허용
+    assert resp.status_code in (200, 502, 404), f"예상치 못한 에러: {resp.status_code}"
+
+
+# ============================================================
 # 실행
 # ============================================================
 

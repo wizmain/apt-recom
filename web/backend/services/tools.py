@@ -559,8 +559,8 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
             """
             SELECT deal_year, deal_month,
                    COUNT(*) as volume,
-                   ROUND(AVG(deal_amount)) as avg_price,
-                   ROUND(AVG(deal_amount / exclu_use_ar), 1) as avg_price_per_m2
+                   ROUND(AVG(deal_amount)::numeric)::float as avg_price,
+                   ROUND(AVG(deal_amount::float / exclu_use_ar)::numeric, 1)::float as avg_price_per_m2
             FROM trade_history
             WHERE sgg_cd = %s AND deal_year >= %s
             GROUP BY deal_year, deal_month
@@ -574,8 +574,8 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
             """
             SELECT deal_year, deal_month,
                    COUNT(*) as volume,
-                   ROUND(AVG(deposit)) as avg_deposit,
-                   ROUND(AVG(monthly_rent)) as avg_monthly_rent
+                   ROUND(AVG(deposit)::numeric)::float as avg_deposit,
+                   ROUND(AVG(monthly_rent)::numeric)::float as avg_monthly_rent
             FROM rent_history
             WHERE sgg_cd = %s AND deal_year >= %s
             GROUP BY deal_year, deal_month
