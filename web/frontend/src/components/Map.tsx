@@ -106,7 +106,8 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
 
       infoWindowRef.current = new window.kakao.maps.InfoWindow({ zIndex: 10 });
 
-      window.kakao.maps.event.addListener(map, 'idle', () => {
+      // bounds 전달 헬퍼
+      const emitBounds = () => {
         const bounds = map.getBounds();
         const sw = bounds.getSouthWest();
         const ne = bounds.getNorthEast();
@@ -114,7 +115,13 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
           sw: { lat: sw.getLat(), lng: sw.getLng() },
           ne: { lat: ne.getLat(), lng: ne.getLng() },
         });
-      });
+      };
+
+      // 지도 이동/줌 시 bounds 전달
+      window.kakao.maps.event.addListener(map, 'idle', emitBounds);
+
+      // 초기 로딩: 지도 생성 직후 현재 영역 마커 로딩
+      setTimeout(emitBounds, 100);
     };
 
     if (window.kakao.maps && window.kakao.maps.LatLng) {
