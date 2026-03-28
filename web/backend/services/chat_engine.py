@@ -33,6 +33,7 @@ SYSTEM_PROMPT = """\
 - senior: 시니어 (병원, 약국, 편의시설)
 - investment: 투자 (가격, 교통, 인프라)
 - nature: 자연친화 (공원, 도서관, 펫시설)
+- safety: 안전 (CCTV, 경찰서, 소방서, 안전점수)
 
 ## 응답 가이드라인
 1. 아파트 추천 시 반드시 search_apartments 도구를 사용하세요.

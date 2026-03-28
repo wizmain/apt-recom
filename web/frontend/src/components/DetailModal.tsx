@@ -77,7 +77,7 @@ interface TradesResponse {
 const nudgeLabels: Record<string, string> = {
   cost: '가성비', pet: '반려동물', commute: '출퇴근',
   newlywed: '신혼육아', education: '학군', senior: '시니어',
-  investment: '투자', nature: '자연친화',
+  investment: '투자', nature: '자연친화', safety: '안전',
 };
 
 const facilityLabels: Record<string, string> = {
@@ -94,7 +94,7 @@ const facilityLabels: Record<string, string> = {
   medical: '의료', pet: '반려동물',
 };
 
-const TABS = ['기본정보', '가격분석', '주변시설', '학군', '인구'] as const;
+const TABS = ['기본정보', '가격분석', '주변시설', '학군', '안전', '인구'] as const;
 type TabName = (typeof TABS)[number];
 
 const BLUE = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'];
@@ -206,6 +206,7 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
               {activeTab === '가격분석' && <TabPriceAnalysis trades={tradesData.trades} rents={tradesData.rents} />}
               {activeTab === '주변시설' && <TabFacilities detail={detail} />}
               {activeTab === '학군' && <TabSchool school={detail?.school ?? undefined} />}
+              {activeTab === '안전' && <TabSafety safety={(detail as any)?.safety} />}
               {activeTab === '인구' && <TabPopulation population={(detail as any)?.population} />}
             </>
           )}
@@ -733,4 +734,218 @@ function EmptyState({ text }: { text: string }) {
       {text}
     </div>
   );
+}
+
+/* ── Safety Tab ── */
+
+interface SafetyData {
+  safety_score?: number;
+  crime_safety_score?: number;
+  cctv_nearest_m?: number;
+  cctv_count_500m?: number;
+  cctv_count_1km?: number;
+  police_nearest_m?: number;
+  police_count_3km?: number;
+  fire_nearest_m?: number;
+  fire_count_3km?: number;
+  nudge_safety_score?: number;
+}
+
+function TabSafety({ safety }: { safety?: SafetyData | null }) {
+  if (!safety) return <EmptyState text="안전 정보가 없습니다." />;
+
+  const safetyScore = safety.safety_score ?? 0;
+  const crimeScore = safety.crime_safety_score ?? 0;
+  const totalScore = safety.nudge_safety_score ?? 0;
+
+  return (
+    <div className="space-y-6">
+      {/* 종합 안전 점수 */}
+      <div className="bg-gradient-to-r from-blue-50 to-emerald-50 rounded-xl p-5">
+        <h3 className="text-sm font-bold text-gray-700 mb-4">종합 안전 점수</h3>
+        <div className="flex items-center justify-center gap-8">
+          <ScoreRing score={totalScore} label="종합" size={100} color="#2563eb" />
+          <ScoreRing score={safetyScore} label="CCTV 안전" size={80} color="#10b981" />
+          <ScoreRing score={crimeScore} label="범죄 안전" size={80} color="#8b5cf6" />
+        </div>
+      </div>
+
+      {/* 안전 시설 카드 */}
+      <div>
+        <h3 className="text-sm font-bold text-gray-700 mb-3">안전 시설 현황</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <FacilityCard
+            icon="📹"
+            title="CCTV"
+            items={[
+              { label: '최근접', value: fmtDist(safety.cctv_nearest_m) },
+              { label: '500m 이내', value: `${safety.cctv_count_500m ?? 0}대`, highlight: (safety.cctv_count_500m ?? 0) >= 20 },
+              { label: '1km 이내', value: `${safety.cctv_count_1km ?? 0}대` },
+            ]}
+            score={safetyScore}
+          />
+          <FacilityCard
+            icon="👮"
+            title="경찰서"
+            items={[
+              { label: '최근접', value: fmtDist(safety.police_nearest_m) },
+              { label: '3km 이내', value: `${safety.police_count_3km ?? 0}곳` },
+            ]}
+            score={safety.police_nearest_m != null ? Math.max(0, 100 - (safety.police_nearest_m / 30)) : 0}
+          />
+          <FacilityCard
+            icon="🚒"
+            title="소방서"
+            items={[
+              { label: '최근접', value: fmtDist(safety.fire_nearest_m) },
+              { label: '3km 이내', value: `${safety.fire_count_3km ?? 0}곳` },
+            ]}
+            score={safety.fire_nearest_m != null ? Math.max(0, 100 - (safety.fire_nearest_m / 50)) : 0}
+          />
+        </div>
+      </div>
+
+      {/* 범죄 안전 지수 */}
+      <div>
+        <h3 className="text-sm font-bold text-gray-700 mb-3">지역 범죄 안전 지수</h3>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="flex items-center gap-4 mb-3">
+            <span className="text-2xl">🛡</span>
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-gray-600">범죄 안전도</span>
+                <span className={`text-lg font-bold ${crimeScore >= 70 ? 'text-emerald-600' : crimeScore >= 40 ? 'text-blue-600' : 'text-amber-600'}`}>
+                  {crimeScore.toFixed(1)}점
+                </span>
+              </div>
+              <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${Math.min(crimeScore, 100)}%`,
+                    background: crimeScore >= 70 ? 'linear-gradient(90deg, #10b981, #34d399)' :
+                      crimeScore >= 40 ? 'linear-gradient(90deg, #3b82f6, #60a5fa)' :
+                      'linear-gradient(90deg, #f59e0b, #fbbf24)',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            {crimeScore >= 70 ? '이 지역은 범죄 발생률이 낮아 안전한 편입니다.' :
+             crimeScore >= 40 ? '이 지역은 평균적인 범죄 발생률을 보입니다.' :
+             '이 지역은 범죄 발생률이 다소 높은 편입니다. 야간 이동 시 주의가 필요합니다.'}
+          </p>
+          <p className="text-[10px] text-gray-400 mt-1">* 2024년 경찰청 범죄통계 기반, 인구 10만명당 범죄율 산정</p>
+        </div>
+      </div>
+
+      {/* CCTV 밀도 시각화 */}
+      <div>
+        <h3 className="text-sm font-bold text-gray-700 mb-3">CCTV 밀도</h3>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="grid grid-cols-2 gap-4">
+            <DensityMeter
+              label="500m 이내"
+              count={safety.cctv_count_500m ?? 0}
+              max={60}
+              icon="📹"
+              description={
+                (safety.cctv_count_500m ?? 0) >= 30 ? '매우 높음' :
+                (safety.cctv_count_500m ?? 0) >= 15 ? '양호' :
+                (safety.cctv_count_500m ?? 0) >= 5 ? '보통' : '부족'
+              }
+            />
+            <DensityMeter
+              label="1km 이내"
+              count={safety.cctv_count_1km ?? 0}
+              max={200}
+              icon="📹"
+              description={
+                (safety.cctv_count_1km ?? 0) >= 100 ? '매우 높음' :
+                (safety.cctv_count_1km ?? 0) >= 50 ? '양호' :
+                (safety.cctv_count_1km ?? 0) >= 20 ? '보통' : '부족'
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreRing({ score, label, size, color }: { score: number; label: string; size: number; color: string }) {
+  const r = size * 0.38;
+  const circ = 2 * Math.PI * r;
+  const pct = Math.min(score, 100) / 100;
+  const strokeW = size * 0.07;
+  const fontSize = size * 0.22;
+  const labelSize = size * 0.12;
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e5e7eb" strokeWidth={strokeW} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={strokeW}
+          strokeDasharray={`${pct * circ} ${circ}`}
+          strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`}
+          style={{ transition: 'stroke-dasharray 0.8s ease' }} />
+        <text x={size/2} y={size/2 + fontSize * 0.35} textAnchor="middle"
+          fontSize={fontSize} fontWeight="bold" fill={color}>
+          {score.toFixed(0)}
+        </text>
+      </svg>
+      <span className="text-xs text-gray-500" style={{ fontSize: labelSize }}>{label}</span>
+    </div>
+  );
+}
+
+function FacilityCard({ icon, title, items, score }: {
+  icon: string; title: string;
+  items: { label: string; value: string; highlight?: boolean }[];
+  score: number;
+}) {
+  const bg = score >= 70 ? 'border-emerald-200 bg-emerald-50' :
+    score >= 40 ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-white';
+  return (
+    <div className={`border rounded-xl p-3.5 ${bg}`}>
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="text-lg">{icon}</span>
+        <span className="text-sm font-bold text-gray-800">{title}</span>
+      </div>
+      <div className="space-y-1.5">
+        {items.map((item, i) => (
+          <div key={i} className="flex justify-between text-xs">
+            <span className="text-gray-500">{item.label}</span>
+            <span className={`font-medium ${item.highlight ? 'text-emerald-600' : 'text-gray-800'}`}>{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DensityMeter({ label, count, max, icon, description }: {
+  label: string; count: number; max: number; icon: string; description: string;
+}) {
+  const pct = Math.min(count / max, 1) * 100;
+  const color = pct >= 70 ? '#10b981' : pct >= 40 ? '#3b82f6' : pct >= 15 ? '#f59e0b' : '#ef4444';
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-600">{icon} {label}</span>
+        <span className="text-xs font-bold" style={{ color }}>{count}대 · {description}</span>
+      </div>
+      <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, backgroundColor: color }} />
+      </div>
+    </div>
+  );
+}
+
+function fmtDist(d?: number | null): string {
+  if (d == null) return '-';
+  const m = Math.round(d);
+  return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`;
 }

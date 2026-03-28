@@ -17,6 +17,7 @@ MAX_DISTANCES: dict[str, float] = {
     "fire_station": 5000,
     "pet_facility": 3000,
     "animal_hospital": 3000,
+    "cctv": 1000,
 }
 
 # Each nudge maps facility_subtypes to weights (must sum to ~1.0 per nudge).
@@ -77,6 +78,15 @@ NUDGE_WEIGHTS: dict[str, dict[str, float]] = {
         "park": 0.50,
         "library": 0.25,
         "pet_facility": 0.25,
+    },
+    "safety": {
+        "_safety": 0.25,
+        "_crime": 0.25,
+        "police": 0.15,
+        "fire_station": 0.10,
+        "cctv": 0.15,
+        "convenience_store": 0.05,
+        "park": 0.05,
     },
 }
 

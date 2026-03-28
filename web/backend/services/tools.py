@@ -23,7 +23,7 @@ def _get_conn():
 TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="search_apartments",
-        description="라이프 점수 기반 아파트 추천 검색. 키워드(지역명/단지명)와 라이프 항목을 조합하여 최적의 아파트를 점수순으로 반환합니다. 사용 가능한 항목: cost(가성비), pet(반려동물), commute(출퇴근), newlywed(신혼부부), education(교육), senior(시니어), investment(투자), nature(자연친화)",
+        description="라이프 점수 기반 아파트 추천 검색. 키워드(지역명/단지명)와 라이프 항목을 조합하여 최적의 아파트를 점수순으로 반환합니다. 사용 가능한 항목: cost(가성비), pet(반려동물), commute(출퇴근), newlywed(신혼부부), education(교육), senior(시니어), investment(투자), nature(자연친화), safety(안전)",
         parameters={
             "type": "object",
             "properties": {

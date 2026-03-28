@@ -30,7 +30,7 @@ def nudge_score(req: NudgeScoreRequest):
     conn = DictConnection()
     try:
         # 1. Get apartments (keyword and/or bounds filter)
-        apt_sql = "SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, new_plat_plc FROM apartments"
+        apt_sql = "SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, new_plat_plc, sigungu_code FROM apartments"
         conditions: list[str] = []
         params: list = []
 
@@ -106,7 +106,7 @@ def nudge_score(req: NudgeScoreRequest):
                     apt_facility_scores[pnu]["_jeonse"] = row["jeonse_ratio"] or 50.0
 
         # 4c. Safety scores
-        safety_nudges = {"cost", "newlywed", "senior"}
+        safety_nudges = {"cost", "newlywed", "senior", "safety"}
         if safety_nudges & set(req.nudges):
             for i in range(0, len(pnu_list), chunk_size):
                 chunk = pnu_list[i : i + chunk_size]
@@ -123,6 +123,28 @@ def nudge_score(req: NudgeScoreRequest):
                         apt_facility_scores[pnu]["_safety"] = row["safety_score"] or 50.0
                 except Exception:
                     pass
+
+        # 4d. Crime scores (시군구별 범죄율 기반)
+        crime_nudges = {"safety"}
+        if crime_nudges & set(req.nudges):
+            try:
+                # 시군구코드 → 범죄안전점수 로드
+                sgg_codes = list(set(apt_map[p].get("sigungu_code", "")[:5] for p in pnu_list if apt_map[p].get("sigungu_code")))
+                if sgg_codes:
+                    ph = ",".join(["%s"] * len(sgg_codes))
+                    crime_rows = conn.execute(
+                        f"SELECT sigungu_code, crime_safety_score FROM sigungu_crime_score WHERE sigungu_code IN ({ph})",
+                        sgg_codes,
+                    ).fetchall()
+                    sgg_crime = {r["sigungu_code"]: r["crime_safety_score"] for r in crime_rows}
+                    for pnu in pnu_list:
+                        sgg = (apt_map[pnu].get("sigungu_code") or "")[:5]
+                        if sgg in sgg_crime:
+                            if pnu not in apt_facility_scores:
+                                apt_facility_scores[pnu] = {}
+                            apt_facility_scores[pnu]["_crime"] = sgg_crime[sgg]
+            except Exception:
+                pass
 
         # 5. Calculate scores
         results = []

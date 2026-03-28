@@ -15,7 +15,7 @@ const NUDGES = [
   { id: 'cost', l: '가성비', i: '💰' }, { id: 'commute', l: '출퇴근', i: '🚇' },
   { id: 'education', l: '교육', i: '📚' }, { id: 'investment', l: '투자', i: '📈' },
   { id: 'newlywed', l: '신혼', i: '💑' }, { id: 'pet', l: '반려동물', i: '🐾' },
-  { id: 'senior', l: '시니어', i: '🏥' }, { id: 'nature', l: '자연', i: '🌿' },
+  { id: 'senior', l: '시니어', i: '🏥' }, { id: 'nature', l: '자연', i: '🌿' }, { id: 'safety', l: '안전', i: '🛡' },
 ];
 const FACS = [
   { id: 'subway', l: '지하철' }, { id: 'bus_stop', l: '버스' },

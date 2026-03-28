@@ -17,6 +17,7 @@ const NUDGES = [
   { id: 'senior', label: '시니어' },
   { id: 'investment', label: '투자' },
   { id: 'nature', label: '자연친화' },
+  { id: 'safety', label: '안전' },
 ];
 
 export default function NudgeBar({

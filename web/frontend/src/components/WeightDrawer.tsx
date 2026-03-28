@@ -28,6 +28,7 @@ const FACILITY_LABELS: Record<string, string> = {
   _price: '가격 경쟁력',
   _jeonse: '전세가율',
   _safety: '안전점수',
+  _crime: '범죄안전',
 };
 
 const NUDGE_LABELS: Record<string, string> = {
@@ -39,6 +40,7 @@ const NUDGE_LABELS: Record<string, string> = {
   senior: '시니어',
   investment: '투자',
   nature: '자연친화',
+  safety: '안전',
 };
 
 export default function WeightDrawer({
