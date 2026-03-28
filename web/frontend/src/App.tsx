@@ -14,14 +14,14 @@ import type { MapBounds } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
 
 function App() {
-  const { apartments, filters, applyFilters, clearFilters } = useApartments();
+  const { apartments, filters, applyFilters, clearFilters, onBoundsChange } = useApartments();
   const { results, loading, defaultWeights, scoreApartments, fetchWeights } = useNudge();
 
   const [selectedNudges, setSelectedNudges] = useState<string[]>([]);
   const [showWeightDrawer, setShowWeightDrawer] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [customWeights, setCustomWeights] = useState<Record<string, Record<string, number>> | null>(null);
-  const [, setMapBounds] = useState<MapBounds | undefined>(undefined);
+  // mapBounds는 useApartments에서 관리
   const [selectedPnu, setSelectedPnu] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showChat, setShowChat] = useState(false);
@@ -54,8 +54,8 @@ function App() {
   }, []);
 
   const handleBoundsChange = useCallback((bounds: MapBounds) => {
-    setMapBounds(bounds);
-  }, []);
+    onBoundsChange(bounds);
+  }, [onBoundsChange]);
 
   const handleApplyWeights = useCallback((flatWeights: Record<string, number>) => {
     // API expects { nudge_id: { facility: weight } } — wrap flat weights per selected nudge

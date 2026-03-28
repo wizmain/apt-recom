@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import axios from 'axios';
-import type { Apartment } from '../types/apartment';
+import type { Apartment, MapBounds } from '../types/apartment';
 import { API_BASE } from '../config';
 
 export interface ApartmentFilters {
@@ -17,14 +17,26 @@ export interface ApartmentFilters {
 
 export function useApartments() {
   const [apartments, setApartments] = useState<Apartment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState<ApartmentFilters>({});
+  const boundsRef = useRef<MapBounds | undefined>(undefined);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const fetchApartments = useCallback(async (f: ApartmentFilters) => {
+  const fetchApartments = useCallback(async (f: ApartmentFilters, bounds?: MapBounds) => {
     try {
       setLoading(true);
       const params: Record<string, string> = {};
+
+      // Bounds — 뷰포트 영역만 로딩
+      const b = bounds || boundsRef.current;
+      if (b) {
+        params.sw_lat = String(b.sw.lat);
+        params.sw_lng = String(b.sw.lng);
+        params.ne_lat = String(b.ne.lat);
+        params.ne_lng = String(b.ne.lng);
+      }
+
+      // Filters
       if (f.minArea) params.min_area = String(f.minArea);
       if (f.maxArea) params.max_area = String(f.maxArea);
       if (f.minPrice) params.min_price = String(f.minPrice);
@@ -46,18 +58,22 @@ export function useApartments() {
     }
   }, []);
 
-  // Initial load
-  useEffect(() => {
-    fetchApartments({});
-  }, [fetchApartments]);
+  // 지도 영역 변경 시 호출 (디바운스)
+  const onBoundsChange = useCallback((bounds: MapBounds) => {
+    boundsRef.current = bounds;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchApartments(filters, bounds);
+    }, 300);
+  }, [filters, fetchApartments]);
 
-  // Filter change with debounce
+  // 필터 변경
   const applyFilters = useCallback((newFilters: ApartmentFilters) => {
     setFilters(newFilters);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       fetchApartments(newFilters);
-    }, 500);
+    }, 300);
   }, [fetchApartments]);
 
   const clearFilters = useCallback(() => {
@@ -65,5 +81,5 @@ export function useApartments() {
     fetchApartments({});
   }, [fetchApartments]);
 
-  return { apartments, loading, filters, applyFilters, clearFilters };
+  return { apartments, loading, filters, applyFilters, clearFilters, onBoundsChange };
 }
