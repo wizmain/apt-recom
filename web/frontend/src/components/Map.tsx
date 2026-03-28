@@ -82,8 +82,8 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
       isInitializedRef.current = true;
 
       const map = new window.kakao.maps.Map(containerRef.current, {
-        center: new window.kakao.maps.LatLng(37.5665, 126.978),
-        level: 8,
+        center: new window.kakao.maps.LatLng(37.5666, 126.9784),  // 서울시청
+        level: 5,  // 구 단위 줌 (마커 로딩 속도 개선)
       });
       mapRef.current = map;
 
