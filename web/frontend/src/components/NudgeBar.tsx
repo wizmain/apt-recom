@@ -4,6 +4,8 @@ interface NudgeBarProps {
   selectedNudges: string[];
   onToggleNudge: (nudgeId: string) => void;
   onOpenSettings: () => void;
+  onOpenFilter: () => void;
+  filterCount: number;
   searchKeyword: string;
   onSearchChange: (keyword: string) => void;
 }
@@ -24,6 +26,8 @@ export default function NudgeBar({
   selectedNudges,
   onToggleNudge,
   onOpenSettings,
+  onOpenFilter,
+  filterCount,
   searchKeyword,
   onSearchChange,
 }: NudgeBarProps) {
@@ -107,6 +111,17 @@ export default function NudgeBar({
           })}
         </div>
 
+        <button
+          onClick={onOpenFilter}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
+                     border transition-all duration-200 whitespace-nowrap cursor-pointer
+                     ${filterCount > 0
+                       ? 'bg-blue-50 text-blue-600 border-blue-300'
+                       : 'text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+                     }`}
+        >
+          🔽 필터{filterCount > 0 && ` (${filterCount})`}
+        </button>
         <button
           onClick={onOpenSettings}
           className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium

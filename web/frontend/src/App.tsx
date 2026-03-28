@@ -7,17 +7,19 @@ import DetailModal from './components/DetailModal';
 import CompareModal from './components/CompareModal';
 import ChatButton from './components/ChatButton';
 import ChatModal from './components/ChatModal';
+import FilterPanel from './components/FilterPanel';
 import { useApartments } from './hooks/useApartments';
 import { useNudge } from './hooks/useNudge';
 import type { MapBounds } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
 
 function App() {
-  const { apartments } = useApartments();
+  const { apartments, filters, applyFilters, clearFilters } = useApartments();
   const { results, loading, defaultWeights, scoreApartments, fetchWeights } = useNudge();
 
   const [selectedNudges, setSelectedNudges] = useState<string[]>([]);
   const [showWeightDrawer, setShowWeightDrawer] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [customWeights, setCustomWeights] = useState<Record<string, Record<string, number>> | null>(null);
   const [, setMapBounds] = useState<MapBounds | undefined>(undefined);
   const [selectedPnu, setSelectedPnu] = useState<string | null>(null);
@@ -110,6 +112,8 @@ function App() {
         selectedNudges={selectedNudges}
         onToggleNudge={handleToggleNudge}
         onOpenSettings={() => setShowWeightDrawer(true)}
+        onOpenFilter={() => setShowFilterPanel(true)}
+        filterCount={Object.values(filters).filter(v => v !== undefined).length}
         searchKeyword={searchKeyword}
         onSearchChange={handleSearchChange}
       />
@@ -188,6 +192,16 @@ function App() {
           triggerBtnId="compare-btn"
         />
       )}
+
+      {/* Filter panel */}
+      <FilterPanel
+        isOpen={showFilterPanel}
+        onClose={() => setShowFilterPanel(false)}
+        filters={filters}
+        onApply={applyFilters}
+        onClear={clearFilters}
+        resultCount={apartments.length}
+      />
 
       {/* Weight drawer */}
       <WeightDrawer
