@@ -182,13 +182,15 @@ async def search_apartments(
             nudges = ["commute"]  # default
 
         # Search apartments by keyword
+        import re as _re
+        kw = keyword.strip()
+        norm_kw = _re.sub(r'[\s()\-·]', '', kw)
         apt_sql = (
             "SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, new_plat_plc "
             "FROM apartments "
-            "WHERE new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s"
+            "WHERE new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s"
         )
-        kw = keyword.strip()
-        params = [f"%{kw}%", f"%{kw}%", f"%{kw}%"]
+        params = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
         apartments = conn.execute(apt_sql, params).fetchall()
 
         if not apartments:
@@ -316,10 +318,12 @@ async def get_apartment_detail(query: str) -> str:
         # Try PNU first
         apt = conn.execute("SELECT * FROM apartments WHERE pnu = %s", [query]).fetchone()
         if not apt:
-            # Search by name
+            # Search by name (original + normalized)
+            import re as _re2
+            norm_q = _re2.sub(r'[\s()\-·]', '', query)
             rows = conn.execute(
-                "SELECT * FROM apartments WHERE bld_nm LIKE %s LIMIT 5",
-                [f"%{query}%"],
+                "SELECT * FROM apartments WHERE bld_nm LIKE %s OR bld_nm_norm LIKE %s LIMIT 5",
+                [f"%{query}%", f"%{norm_q}%"],
             ).fetchall()
             if not rows:
                 return json.dumps(
@@ -553,9 +557,11 @@ async def get_school_info(query: str) -> str:
 
         if not school:
             # Find apartment by name
+            import re as _re3
+            norm_sq = _re3.sub(r'[\s()\-·]', '', query)
             apt = conn.execute(
-                "SELECT pnu, bld_nm FROM apartments WHERE bld_nm LIKE %s LIMIT 5",
-                [f"%{query}%"],
+                "SELECT pnu, bld_nm FROM apartments WHERE bld_nm LIKE %s OR bld_nm_norm LIKE %s LIMIT 5",
+                [f"%{query}%", f"%{norm_sq}%"],
             ).fetchall()
             if not apt:
                 return json.dumps(

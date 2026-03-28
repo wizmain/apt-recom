@@ -35,10 +35,13 @@ def nudge_score(req: NudgeScoreRequest):
         params: list = []
 
         if req.keyword and req.keyword.strip():
+            import re
             kw = req.keyword.strip()
             pattern = f"%{kw}%"
-            conditions.append("(new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s)")
-            params.extend([pattern, pattern, pattern])
+            norm_kw = re.sub(r'[\s()\-·]', '', kw)
+            norm_pattern = f"%{norm_kw}%"
+            conditions.append("(new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)")
+            params.extend([pattern, pattern, pattern, norm_pattern])
 
         if all(v is not None for v in [req.sw_lat, req.sw_lng, req.ne_lat, req.ne_lng]):
             conditions.append("lat BETWEEN %s AND %s AND lng BETWEEN %s AND %s")
