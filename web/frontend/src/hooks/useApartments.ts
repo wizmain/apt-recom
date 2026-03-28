@@ -20,20 +20,27 @@ export function useApartments() {
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState<ApartmentFilters>({});
   const boundsRef = useRef<MapBounds | undefined>(undefined);
+  const keywordRef = useRef<string>('');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const fetchApartments = useCallback(async (f: ApartmentFilters, bounds?: MapBounds) => {
+  const fetchApartments = useCallback(async (f: ApartmentFilters, bounds?: MapBounds, keyword?: string) => {
     try {
       setLoading(true);
       const params: Record<string, string> = {};
 
-      // Bounds — 뷰포트 영역만 로딩
-      const b = bounds || boundsRef.current;
-      if (b) {
-        params.sw_lat = String(b.sw.lat);
-        params.sw_lng = String(b.sw.lng);
-        params.ne_lat = String(b.ne.lat);
-        params.ne_lng = String(b.ne.lng);
+      const kw = keyword ?? keywordRef.current;
+
+      // 검색 키워드가 있으면 키워드 기반, 없으면 bounds 기반
+      if (kw) {
+        params.q = kw;
+      } else {
+        const b = bounds || boundsRef.current;
+        if (b) {
+          params.sw_lat = String(b.sw.lat);
+          params.sw_lng = String(b.sw.lng);
+          params.ne_lat = String(b.ne.lat);
+          params.ne_lng = String(b.ne.lng);
+        }
       }
 
       // Filters
@@ -48,7 +55,8 @@ export function useApartments() {
       if (f.builtBefore) params.built_before = String(f.builtBefore);
 
       const query = new URLSearchParams(params).toString();
-      const url = `${API_BASE}/api/apartments${query ? `?${query}` : ''}`;
+      const endpoint = kw ? '/api/apartments/search' : '/api/apartments';
+      const url = `${API_BASE}${endpoint}${query ? `?${query}` : ''}`;
       const res = await axios.get<Apartment[]>(url);
       setApartments(res.data);
     } catch (err) {
@@ -58,13 +66,26 @@ export function useApartments() {
     }
   }, []);
 
-  // 지도 영역 변경 시 호출 (디바운스)
+  // 지도 영역 변경 시 호출 (디바운스) — 키워드 검색 중이면 스킵
   const onBoundsChange = useCallback((bounds: MapBounds) => {
     boundsRef.current = bounds;
+    if (keywordRef.current) return; // 검색 키워드가 있으면 bounds 갱신 안 함
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       fetchApartments(filters, bounds);
     }, 300);
+  }, [filters, fetchApartments]);
+
+  // 검색 키워드 변경
+  const setKeyword = useCallback((kw: string) => {
+    keywordRef.current = kw;
+    if (kw) {
+      // 키워드 검색: bounds 무시, 키워드로 조회
+      fetchApartments(filters, undefined, kw);
+    } else {
+      // 키워드 해제: 현재 bounds로 복귀
+      fetchApartments(filters, boundsRef.current, '');
+    }
   }, [filters, fetchApartments]);
 
   // 필터 변경
@@ -81,5 +102,5 @@ export function useApartments() {
     fetchApartments({});
   }, [fetchApartments]);
 
-  return { apartments, loading, filters, applyFilters, clearFilters, onBoundsChange };
+  return { apartments, loading, filters, applyFilters, clearFilters, onBoundsChange, setKeyword };
 }

@@ -14,7 +14,7 @@ import type { MapBounds } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
 
 function App() {
-  const { apartments, filters, applyFilters, clearFilters, onBoundsChange } = useApartments();
+  const { apartments, filters, applyFilters, clearFilters, onBoundsChange, setKeyword } = useApartments();
   const { results, loading, defaultWeights, scoreApartments, fetchWeights } = useNudge();
 
   const [selectedNudges, setSelectedNudges] = useState<string[]>([]);
@@ -68,7 +68,8 @@ function App() {
 
   const handleSearchChange = useCallback((keyword: string) => {
     setSearchKeyword(keyword);
-  }, []);
+    setKeyword(keyword);  // 마커도 키워드 기반으로 전환
+  }, [setKeyword]);
 
   const handleMapAction = useCallback((actions: MapAction[]) => {
     for (const action of actions) {
