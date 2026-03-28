@@ -53,8 +53,8 @@ export default function ChatModal({ onClose, onMapAction, onApartmentClick, init
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-          <span>🏠</span>
-          아파트 컨설턴트
+          <span>🐿</span>
+          <span className="text-amber-600">집토리</span>
         </h3>
         <div className="flex items-center gap-1">
           <button
@@ -73,8 +73,8 @@ export default function ChatModal({ onClose, onMapAction, onApartmentClick, init
       <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ maxHeight: 'calc(70vh - 120px)' }}>
         {messages.length === 0 && !loading && (
           <div className="text-center text-gray-400 text-sm py-8">
-            <p>안녕하세요! 아파트 추천 챗봇입니다.</p>
-            <p className="mt-1">원하시는 조건을 알려주세요.</p>
+            <p>안녕하세요! 🐿 <span className="text-amber-600 font-semibold">집토리</span>입니다.</p>
+            <p className="mt-1">아파트에 대해 무엇이든 물어보세요!</p>
           </div>
         )}
         {messages.map((msg, idx) => (
