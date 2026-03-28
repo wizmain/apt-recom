@@ -28,6 +28,7 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
   const clustererRef = useRef<any>(null);
   const highlightMarkersRef = useRef<any[]>([]);
   const infoWindowRef = useRef<any>(null);
+  const openMarkerRef = useRef<any>(null);  // 현재 팝업이 열린 마커 추적
   const isInitializedRef = useRef(false);
 
   // 콜백을 ref로 저장 (의존성 문제 방지)
@@ -61,6 +62,7 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     };
     (window as any).__closeInfoWindow = () => {
       infoWindowRef.current?.close();
+      openMarkerRef.current = null;
     };
     return () => {
       delete (window as any).__chatAnalyze;
@@ -137,8 +139,14 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
         });
 
         window.kakao.maps.event.addListener(marker, 'click', () => {
-          infoWindowRef.current?.setContent(buildPopupHtml(apt.bld_nm || '이름없음', apt.pnu, apt.total_hhld_cnt || 0));
-          infoWindowRef.current?.open(mapRef.current, marker);
+          if (openMarkerRef.current === marker) {
+            infoWindowRef.current?.close();
+            openMarkerRef.current = null;
+          } else {
+            infoWindowRef.current?.setContent(buildPopupHtml(apt.bld_nm || '이름없음', apt.pnu, apt.total_hhld_cnt || 0));
+            infoWindowRef.current?.open(mapRef.current, marker);
+            openMarkerRef.current = marker;
+          }
         });
 
         return marker;
@@ -182,10 +190,16 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
       });
 
       window.kakao.maps.event.addListener(marker, 'click', () => {
+        if (openMarkerRef.current === marker) {
+          infoWindowRef.current?.close();
+          openMarkerRef.current = null;
+          return;
+        }
         infoWindowRef.current?.setContent(
           buildPopupHtml(`${idx + 1}위 ${apt.bld_nm}`, apt.pnu, undefined, apt.score)
         );
         infoWindowRef.current?.open(mapRef.current, marker);
+        openMarkerRef.current = marker;
       });
 
       highlightMarkersRef.current.push(marker);
@@ -259,10 +273,16 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
         image: chatMarkerImage,
         zIndex: 5,
       });
-      // 클릭 시 팝업
+      // 클릭 시 팝업 토글
       window.kakao.maps.event.addListener(marker, 'click', () => {
-        infoWindowRef.current?.setContent(buildPopupHtml(apt.bld_nm, apt.pnu, apt.total_hhld_cnt));
-        infoWindowRef.current?.open(mapRef.current, marker);
+        if (openMarkerRef.current === marker) {
+          infoWindowRef.current?.close();
+          openMarkerRef.current = null;
+        } else {
+          infoWindowRef.current?.setContent(buildPopupHtml(apt.bld_nm, apt.pnu, apt.total_hhld_cnt));
+          infoWindowRef.current?.open(mapRef.current, marker);
+          openMarkerRef.current = marker;
+        }
       });
       chatHighlightRef.current.push(marker);
     });
