@@ -220,7 +220,7 @@ async def search_apartments(
             "FROM apartments a "
             "LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu "
             "LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu "
-            "WHERE a.lat IS NOT NULL AND (a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
+            "WHERE a.lat IS NOT NULL AND a.group_pnu = a.pnu AND (a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
         )
         params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
 
@@ -374,7 +374,7 @@ async def get_apartment_detail(query: str) -> str:
             import re as _re2
             norm_q = _re2.sub(r'[\s()\-·]', '', query)
             rows = conn.execute(
-                "SELECT * FROM apartments WHERE bld_nm LIKE %s OR bld_nm_norm LIKE %s LIMIT 5",
+                "SELECT * FROM apartments WHERE group_pnu = pnu AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 5",
                 [f"%{query}%", f"%{norm_q}%"],
             ).fetchall()
             if not rows:
@@ -612,7 +612,7 @@ async def get_school_info(query: str) -> str:
             import re as _re3
             norm_sq = _re3.sub(r'[\s()\-·]', '', query)
             apt = conn.execute(
-                "SELECT pnu, bld_nm FROM apartments WHERE bld_nm LIKE %s OR bld_nm_norm LIKE %s LIMIT 5",
+                "SELECT pnu, bld_nm FROM apartments WHERE group_pnu = pnu AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 5",
                 [f"%{query}%", f"%{norm_sq}%"],
             ).fetchall()
             if not apt:

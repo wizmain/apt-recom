@@ -35,7 +35,7 @@ def list_apartments(
             LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu
         """
-        conditions: list[str] = []
+        conditions: list[str] = ["a.group_pnu = a.pnu"]  # 대표 PNU만
         params: list = []
 
         # Map bounds
@@ -102,7 +102,8 @@ def search_apartments(q: str = Query(..., min_length=1)):
         rows = conn.execute("""
             SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
             FROM apartments
-            WHERE new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s
+            WHERE group_pnu = pnu
+              AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
             LIMIT 100
         """, [pattern, pattern, pattern, norm_pattern]).fetchall()
         return [dict(r) for r in rows]
