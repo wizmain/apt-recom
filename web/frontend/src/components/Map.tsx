@@ -2,9 +2,14 @@ import { useEffect, useRef } from 'react';
 import type { Apartment, ScoredApartment, MapBounds } from '../types/apartment';
 import { API_BASE } from '../config';
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- Kakao Maps SDK has no TypeScript types */
 declare global {
   interface Window {
     kakao: any;
+    __chatAnalyze?: (name: string, pnu: string) => void;
+    __detailClick?: (pnu: string) => void;
+    __compareToggle?: (pnu: string, name: string) => void;
+    __closeInfoWindow?: () => void;
   }
 }
 
@@ -35,42 +40,76 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
 
   // 콜백을 ref로 저장 (의존성 문제 방지)
   const onBoundsChangeRef = useRef(onBoundsChange);
-  onBoundsChangeRef.current = onBoundsChange;
   const onMarkerClickRef = useRef(onMarkerClick);
-  onMarkerClickRef.current = onMarkerClick;
   const onAnalyzeApartmentRef = useRef(onAnalyzeApartment);
-  onAnalyzeApartmentRef.current = onAnalyzeApartment;
   const onDetailClickRef = useRef(onDetailClick);
-  onDetailClickRef.current = onDetailClick;
   const onCompareToggleRef = useRef(onCompareToggle);
-  onCompareToggleRef.current = onCompareToggle;
   const compareSelectedRef = useRef(compareSelected);
-  compareSelectedRef.current = compareSelected;
+
+  useEffect(() => {
+    onBoundsChangeRef.current = onBoundsChange;
+    onMarkerClickRef.current = onMarkerClick;
+    onAnalyzeApartmentRef.current = onAnalyzeApartment;
+    onDetailClickRef.current = onDetailClick;
+    onCompareToggleRef.current = onCompareToggle;
+    compareSelectedRef.current = compareSelected;
+  });
 
   // 이전 scoredResults의 첫 번째 PNU를 추적 (같으면 panTo 안 함)
   const prevFirstPnuRef = useRef<string | null>(null);
 
+  function buildPopupHtml(displayName: string, pnu: string, hhldCnt?: number, score?: number) {
+    const escapedName = displayName.replace(/'/g, "\\'").replace(/\d+위\s*/, '');
+    const isCompared = compareSelectedRef.current.includes(pnu);
+    const compareFull = compareSelectedRef.current.length >= 2 && !isCompared;
+    const btnStyle = 'padding:3px 10px;font-size:11px;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;';
+    return `
+      <div style="padding:10px 14px;font-size:13px;min-width:280px;position:relative;">
+        <button onclick="window.__closeInfoWindow()"
+          style="position:absolute;top:4px;right:6px;background:none;border:none;cursor:pointer;font-size:16px;color:#999;line-height:1;"
+          title="닫기">&times;</button>
+        <strong style="display:block;margin-right:18px;">${displayName}</strong>
+        ${hhldCnt != null ? `<span style="color:#666;font-size:12px;">${hhldCnt}세대</span><br/>` : ''}
+        ${score != null ? `<span style="color:#2563eb;font-weight:bold;font-size:12px;">${score.toFixed(1)}점</span><br/>` : ''}
+        <div style="display:flex;gap:5px;margin-top:8px;">
+          <button onclick="window.__detailClick('${pnu}')"
+            style="${btnStyle}background:#f3f4f6;color:#374151;">
+            📋 상세보기
+          </button>
+          <button onclick="window.__chatAnalyze('${escapedName}', '${pnu}')"
+            style="${btnStyle}background:#2563eb;color:#fff;">
+            💬 챗봇 분석
+          </button>
+          <button onclick="window.__compareToggle('${pnu}', '${escapedName}')"
+            style="${btnStyle}background:${isCompared ? '#dc2626' : '#7c3aed'};color:#fff;${compareFull ? 'opacity:0.4;pointer-events:none;' : ''}">
+            ${isCompared ? '✕ 비교해제' : '⚖ 비교담기'}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   // Global handlers for InfoWindow button clicks
   useEffect(() => {
-    (window as any).__chatAnalyze = (name: string, pnu: string) => {
+    window.__chatAnalyze = (name: string, pnu: string) => {
       onAnalyzeApartmentRef.current?.(name, pnu);
     };
-    (window as any).__detailClick = (pnu: string) => {
+    window.__detailClick = (pnu: string) => {
       onDetailClickRef.current?.(pnu);
       infoWindowRef.current?.close();
     };
-    (window as any).__compareToggle = (pnu: string, name: string) => {
+    window.__compareToggle = (pnu: string, name: string) => {
       onCompareToggleRef.current?.(pnu, name);
     };
-    (window as any).__closeInfoWindow = () => {
+    window.__closeInfoWindow = () => {
       infoWindowRef.current?.close();
       openMarkerRef.current = null;
     };
     return () => {
-      delete (window as any).__chatAnalyze;
-      delete (window as any).__detailClick;
-      delete (window as any).__compareToggle;
-      delete (window as any).__closeInfoWindow;
+      delete window.__chatAnalyze;
+      delete window.__detailClick;
+      delete window.__compareToggle;
+      delete window.__closeInfoWindow;
     };
   }, []);
 
@@ -335,38 +374,7 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
       openMarkerRef.current = tempMarker;
       onFocusPnuHandled?.();
     }, 300);
-  }, [focusPnu]);
-
-  function buildPopupHtml(displayName: string, pnu: string, hhldCnt?: number, score?: number) {
-    const escapedName = displayName.replace(/'/g, "\\'").replace(/\d+위\s*/, '');
-    const isCompared = compareSelectedRef.current.includes(pnu);
-    const compareFull = compareSelectedRef.current.length >= 2 && !isCompared;
-    const btnStyle = 'padding:3px 10px;font-size:11px;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;';
-    return `
-      <div style="padding:10px 14px;font-size:13px;min-width:280px;position:relative;">
-        <button onclick="window.__closeInfoWindow()"
-          style="position:absolute;top:4px;right:6px;background:none;border:none;cursor:pointer;font-size:16px;color:#999;line-height:1;"
-          title="닫기">&times;</button>
-        <strong style="display:block;margin-right:18px;">${displayName}</strong>
-        ${hhldCnt != null ? `<span style="color:#666;font-size:12px;">${hhldCnt}세대</span><br/>` : ''}
-        ${score != null ? `<span style="color:#2563eb;font-weight:bold;font-size:12px;">${score.toFixed(1)}점</span><br/>` : ''}
-        <div style="display:flex;gap:5px;margin-top:8px;">
-          <button onclick="window.__detailClick('${pnu}')"
-            style="${btnStyle}background:#f3f4f6;color:#374151;">
-            📋 상세보기
-          </button>
-          <button onclick="window.__chatAnalyze('${escapedName}', '${pnu}')"
-            style="${btnStyle}background:#2563eb;color:#fff;">
-            💬 챗봇 분석
-          </button>
-          <button onclick="window.__compareToggle('${pnu}', '${escapedName}')"
-            style="${btnStyle}background:${isCompared ? '#dc2626' : '#7c3aed'};color:#fff;${compareFull ? 'opacity:0.4;pointer-events:none;' : ''}">
-            ${isCompared ? '✕ 비교해제' : '⚖ 비교담기'}
-          </button>
-        </div>
-      </div>
-    `;
-  }
+  }, [focusPnu, onFocusPnuHandled]);
 
   return (
     <div

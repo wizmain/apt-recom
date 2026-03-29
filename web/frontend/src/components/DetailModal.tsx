@@ -32,6 +32,8 @@ interface ApartmentDetail {
   facility_summary: Record<string, { nearest_distance_m: number; count_1km: number; count_3km: number; count_5km: number }>;
   nearby_facilities: Record<string, { name: string; distance_m: number; lat: number; lng: number }[]>;
   school: SchoolInfo | null;
+  safety?: SafetyData | null;
+  population?: PopulationData;
 }
 
 interface SchoolInfo {
@@ -116,6 +118,7 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading must reset when pnu changes
     setLoading(true);
 
     Promise.all([
@@ -206,8 +209,8 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
               {activeTab === '가격분석' && <TabPriceAnalysis trades={tradesData.trades} rents={tradesData.rents} />}
               {activeTab === '주변시설' && <TabFacilities detail={detail} />}
               {activeTab === '학군' && <TabSchool school={detail?.school ?? undefined} />}
-              {activeTab === '안전' && <TabSafety safety={(detail as any)?.safety} />}
-              {activeTab === '인구' && <TabPopulation population={(detail as any)?.population} />}
+              {activeTab === '안전' && <TabSafety safety={detail?.safety} />}
+              {activeTab === '인구' && <TabPopulation population={detail?.population} />}
             </>
           )}
         </div>
@@ -282,38 +285,51 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
   const saleTrades = trades;
   const rentTrades = rents;
 
-  // 면적 구간 정의
-  const areaRanges = [
-    { key: 'under60', label: '60㎡이하', min: 0, max: 60, color: '#93c5fd' },
-    { key: 'mid85', label: '60~85㎡', min: 60, max: 85, color: '#3b82f6' },
-    { key: 'mid135', label: '85~135㎡', min: 85, max: 135, color: '#2563eb' },
-    { key: 'over135', label: '135㎡이상', min: 135, max: Infinity, color: '#1e40af' },
-  ];
+  // 실제 거래 면적 타입 추출 (ROUND하여 그룹핑, 거래량 상위 5개)
+  const AREA_COLORS = ['#93c5fd', '#3b82f6', '#2563eb', '#1e40af', '#7c3aed'];
+  const MAX_AREA_TYPES = 5;
 
-  const getAreaKey = (ar: number) => {
-    for (const r of areaRanges) {
-      if (ar <= r.max) return r.key;
+  const roundArea = (ar: number) => Math.round(ar);
+
+  const areaCountMap = new Map<number, number>();
+  saleTrades.forEach(t => {
+    if (t.exclu_use_ar != null) {
+      const key = roundArea(t.exclu_use_ar);
+      areaCountMap.set(key, (areaCountMap.get(key) ?? 0) + 1);
     }
-    return 'over135';
+  });
+  // 거래량 상위 면적 타입 (오름차순 정렬)
+  const topAreaTypes = [...areaCountMap.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, MAX_AREA_TYPES)
+    .map(([area]) => area)
+    .sort((a, b) => a - b);
+
+  const areaTypes = topAreaTypes.map((area, idx) => ({
+    key: `a${area}`,
+    label: `${area}㎡`,
+    area,
+    color: AREA_COLORS[idx % AREA_COLORS.length],
+  }));
+
+  const getAreaType = (ar: number) => {
+    const rounded = roundArea(ar);
+    const found = areaTypes.find(t => t.area === rounded);
+    return found ?? null;
   };
 
-  // 이 아파트에 실제로 존재하는 면적 구간만 필터
-  const existingAreaKeys = new Set(
-    saleTrades.filter(t => t.exclu_use_ar != null).map(t => getAreaKey(t.exclu_use_ar))
-  );
-  const activeRanges = areaRanges.filter(r => existingAreaKeys.has(r.key));
-
-  // Monthly trend by area range
+  // Monthly trend by actual area type
   const monthlyByArea = new Map<string, Record<string, { sum: number; cnt: number }>>();
   saleTrades.forEach((t) => {
     if (t.deal_year && t.deal_month && t.deal_amount && t.exclu_use_ar != null) {
+      const aType = getAreaType(t.exclu_use_ar);
+      if (!aType) return;
       const month = `${t.deal_year}-${String(t.deal_month).padStart(2, '0')}`;
-      const areaKey = getAreaKey(t.exclu_use_ar);
       if (!monthlyByArea.has(month)) monthlyByArea.set(month, {});
       const monthData = monthlyByArea.get(month)!;
-      if (!monthData[areaKey]) monthData[areaKey] = { sum: 0, cnt: 0 };
-      monthData[areaKey].sum += t.deal_amount;
-      monthData[areaKey].cnt += 1;
+      if (!monthData[aType.key]) monthData[aType.key] = { sum: 0, cnt: 0 };
+      monthData[aType.key].sum += t.deal_amount;
+      monthData[aType.key].cnt += 1;
     }
   });
 
@@ -321,54 +337,80 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, areas]) => {
       const row: Record<string, unknown> = { month };
-      for (const r of activeRanges) {
-        const d = areas[r.key];
-        row[r.key] = d ? Math.round(d.sum / d.cnt) : null;
+      for (const at of areaTypes) {
+        const d = areas[at.key];
+        row[at.key] = d ? Math.round(d.sum / d.cnt) : null;
       }
       return row;
     });
 
-  // Price by area (bar chart)
-  const areaData = areaRanges.map((r) => {
+  // Price by area type (bar chart)
+  const areaData = areaTypes.map((at) => {
     const matched = saleTrades.filter(
-      (t) => t.exclu_use_ar != null && t.deal_amount != null && t.exclu_use_ar > r.min && t.exclu_use_ar <= r.max
+      (t) => t.exclu_use_ar != null && t.deal_amount != null && roundArea(t.exclu_use_ar) === at.area
     );
-    const matched2 = r.min === 0
-      ? saleTrades.filter((t) => t.exclu_use_ar != null && t.deal_amount != null && t.exclu_use_ar <= r.max)
-      : matched;
-    const avg = matched2.length > 0
-      ? matched2.reduce((s, t) => s + (t.deal_amount ?? 0), 0) / matched2.length / 10000
+    const avg = matched.length > 0
+      ? matched.reduce((s, t) => s + (t.deal_amount ?? 0), 0) / matched.length / 10000
       : 0;
-    return { range: r.label, avg: parseFloat(avg.toFixed(2)), count: matched2.length, color: r.color };
+    return { range: at.label, avg: parseFloat(avg.toFixed(2)), count: matched.length, color: at.color };
   });
 
-  // Jeonse ratio trend
-  const jeonseMap = new Map<string, { tradeSum: number; tradeCnt: number; depositSum: number; depositCnt: number }>();
+  // Jeonse ratio trend by actual area type
+  type JeonseAccum = { tradeSum: number; tradeCnt: number; depositSum: number; depositCnt: number };
+  const jeonseByArea = new Map<string, Record<string, JeonseAccum>>();
+
   saleTrades.forEach((t) => {
-    if (t.deal_year && t.deal_month && t.deal_amount) {
-      const key = `${t.deal_year}-${String(t.deal_month).padStart(2, '0')}`;
-      const cur = jeonseMap.get(key) ?? { tradeSum: 0, tradeCnt: 0, depositSum: 0, depositCnt: 0 };
-      cur.tradeSum += t.deal_amount;
-      cur.tradeCnt += 1;
-      jeonseMap.set(key, cur);
+    if (t.deal_year && t.deal_month && t.deal_amount && t.exclu_use_ar != null) {
+      const aType = getAreaType(t.exclu_use_ar);
+      if (!aType) return;
+      const month = `${t.deal_year}-${String(t.deal_month).padStart(2, '0')}`;
+      if (!jeonseByArea.has(month)) jeonseByArea.set(month, {});
+      const monthData = jeonseByArea.get(month)!;
+      if (!monthData[aType.key]) monthData[aType.key] = { tradeSum: 0, tradeCnt: 0, depositSum: 0, depositCnt: 0 };
+      monthData[aType.key].tradeSum += t.deal_amount;
+      monthData[aType.key].tradeCnt += 1;
     }
   });
+
   rentTrades.forEach((t) => {
-    if (t.deal_year && t.deal_month && t.deposit && (!t.monthly_rent || t.monthly_rent === 0)) {
-      const key = `${t.deal_year}-${String(t.deal_month).padStart(2, '0')}`;
-      const cur = jeonseMap.get(key) ?? { tradeSum: 0, tradeCnt: 0, depositSum: 0, depositCnt: 0 };
-      cur.depositSum += t.deposit;
-      cur.depositCnt += 1;
-      jeonseMap.set(key, cur);
+    if (t.deal_year && t.deal_month && t.deposit && (!t.monthly_rent || t.monthly_rent === 0) && t.exclu_use_ar != null) {
+      const aType = getAreaType(t.exclu_use_ar);
+      if (!aType) return;
+      const month = `${t.deal_year}-${String(t.deal_month).padStart(2, '0')}`;
+      if (!jeonseByArea.has(month)) jeonseByArea.set(month, {});
+      const monthData = jeonseByArea.get(month)!;
+      if (!monthData[aType.key]) monthData[aType.key] = { tradeSum: 0, tradeCnt: 0, depositSum: 0, depositCnt: 0 };
+      monthData[aType.key].depositSum += t.deposit;
+      monthData[aType.key].depositCnt += 1;
     }
   });
-  const jeonseData = [...jeonseMap.entries()]
-    .filter(([, v]) => v.tradeCnt > 0 && v.depositCnt > 0)
+
+  // 전세가율에 실제 데이터가 있는 면적 타입 (매매+전세 모두 있어야 함)
+  const jeonseAreaKeys = new Set<string>();
+  for (const areas of jeonseByArea.values()) {
+    for (const [areaKey, v] of Object.entries(areas)) {
+      if (v.tradeCnt > 0 && v.depositCnt > 0) jeonseAreaKeys.add(areaKey);
+    }
+  }
+  const jeonseActiveTypes = areaTypes.filter(at => jeonseAreaKeys.has(at.key));
+
+  const jeonseData = [...jeonseByArea.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, v]) => ({
-      month,
-      ratio: parseFloat(((v.depositSum / v.depositCnt) / (v.tradeSum / v.tradeCnt) * 100).toFixed(1)),
-    }));
+    .map(([month, areas]) => {
+      const row: Record<string, unknown> = { month };
+      for (const at of jeonseActiveTypes) {
+        const v = areas[at.key];
+        if (v && v.tradeCnt > 0 && v.depositCnt > 0) {
+          const avgTrade = v.tradeSum / v.tradeCnt;
+          const avgDeposit = v.depositSum / v.depositCnt;
+          row[at.key] = parseFloat((avgDeposit / avgTrade * 100).toFixed(1));
+        } else {
+          row[at.key] = null;
+        }
+      }
+      return row;
+    })
+    .filter(row => jeonseActiveTypes.some(at => row[at.key] != null));
 
   // Recent trades
   const recentTrades = [...saleTrades]
@@ -392,23 +434,24 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
                 <YAxis tick={{ fontSize: 11 }} label={{ value: '만원', position: 'insideTopLeft', offset: -5, fontSize: 11 }} />
                 <Tooltip
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- recharts Formatter type is complex
                   formatter={(val: any, name: any) => {
-                    const range = activeRanges.find(r => r.key === name);
-                    return [`${Number(val).toLocaleString()}만원`, range?.label ?? name];
+                    const at = areaTypes.find((t: { key: string }) => t.key === name);
+                    return [`${Number(val).toLocaleString()}만원`, at?.label ?? name];
                   }}
                 />
                 <Legend
                   formatter={(value: string) => {
-                    const range = activeRanges.find(r => r.key === value);
-                    return range?.label ?? value;
+                    const at = areaTypes.find(t => t.key === value);
+                    return at?.label ?? value;
                   }}
                 />
-                {activeRanges.map((r) => (
+                {areaTypes.map((at) => (
                   <Line
-                    key={r.key}
+                    key={at.key}
                     type="monotone"
-                    dataKey={r.key}
-                    stroke={r.color}
+                    dataKey={at.key}
+                    stroke={at.color}
                     strokeWidth={2}
                     dot={{ r: 3 }}
                     activeDot={{ r: 5 }}
@@ -439,18 +482,41 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
         </div>
       )}
 
-      {/* Jeonse ratio */}
+      {/* Jeonse ratio by area */}
       {jeonseData.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">전세가율 추이</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">전세가율 추이 (면적별)</h3>
           <div className="bg-gray-50 rounded-lg p-4">
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={300}>
               <LineChart data={jeonseData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
                 <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} label={{ value: '%', position: 'insideTopLeft', offset: -5, fontSize: 11 }} />
-                <Tooltip formatter={(val) => [`${val}%`, '전세가율']} />
-                <Line type="monotone" dataKey="ratio" stroke={BLUE[2]} strokeWidth={2} dot={{ r: 3 }} />
+                <Tooltip
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- recharts Formatter type is complex
+                  formatter={(val: any, name: any) => {
+                    const at = jeonseActiveTypes.find((t: { key: string }) => t.key === name);
+                    return [`${val}%`, at?.label ?? name];
+                  }}
+                />
+                <Legend
+                  formatter={(value: string) => {
+                    const at = jeonseActiveTypes.find(t => t.key === value);
+                    return at?.label ?? value;
+                  }}
+                />
+                {jeonseActiveTypes.map((at) => (
+                  <Line
+                    key={at.key}
+                    type="monotone"
+                    dataKey={at.key}
+                    stroke={at.color}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                    connectNulls
+                  />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           </div>

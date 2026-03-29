@@ -64,9 +64,11 @@ export default function WeightDrawer({
     return merged;
   }, [defaultWeights, selectedNudges]);
 
-  const [weights, setWeights] = useState<Record<string, number>>({});
+  const [weights, setWeights] = useState<Record<string, number>>(mergedDefaults);
 
+  // Sync weights when mergedDefaults changes (nudge selection change)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync from prop-derived memo
     setWeights({ ...mergedDefaults });
   }, [mergedDefaults]);
 
