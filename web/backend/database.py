@@ -80,7 +80,8 @@ def create_tables(conn) -> None:
             bjd_code TEXT,
             sigungu_code TEXT,
             lat DOUBLE PRECISION,
-            lng DOUBLE PRECISION
+            lng DOUBLE PRECISION,
+            group_pnu TEXT
         );
 
         CREATE TABLE IF NOT EXISTS facilities (
@@ -179,13 +180,6 @@ def create_tables(conn) -> None:
             nearest_cctv_m DOUBLE PRECISION
         );
 
-        CREATE TABLE IF NOT EXISTS apt_cctv_summary (
-            pnu TEXT PRIMARY KEY,
-            nearest_distance_m DOUBLE PRECISION,
-            cctv_count_500m INTEGER,
-            cctv_count_1km INTEGER
-        );
-
         CREATE TABLE IF NOT EXISTS population_by_district (
             sigungu_code TEXT,
             sigungu_name TEXT,
@@ -195,6 +189,18 @@ def create_tables(conn) -> None:
             male_pop INTEGER,
             female_pop INTEGER,
             PRIMARY KEY (sigungu_code, age_group)
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_feedback (
+            id SERIAL PRIMARY KEY,
+            user_message TEXT NOT NULL,
+            assistant_message TEXT NOT NULL,
+            tool_calls TEXT DEFAULT '[]',
+            rating INTEGER NOT NULL,
+            tags TEXT[] DEFAULT '{}',
+            comment TEXT DEFAULT '',
+            session_id TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
         );
     """)
     conn.commit()
@@ -215,6 +221,9 @@ def create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_rent_seq ON rent_history(apt_seq)",
         "CREATE INDEX IF NOT EXISTS idx_apt_sigungu ON apartments(sigungu_code)",
         "CREATE INDEX IF NOT EXISTS idx_trade_map_pnu ON trade_apt_mapping(pnu)",
+        "CREATE INDEX IF NOT EXISTS idx_apt_group_pnu ON apartments(group_pnu)",
+        "CREATE INDEX IF NOT EXISTS idx_feedback_rating ON chat_feedback(rating)",
+        "CREATE INDEX IF NOT EXISTS idx_feedback_created ON chat_feedback(created_at)",
     ]
     for sql in indexes:
         cur.execute(sql)

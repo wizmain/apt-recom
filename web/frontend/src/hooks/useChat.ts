@@ -4,7 +4,7 @@ import { API_BASE } from '../config';
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  tool_calls?: any[];
+  tool_calls?: Record<string, unknown>[];
   map_actions?: MapAction[];
   apartments?: ApartmentCard[];
   isStreaming?: boolean;
@@ -59,8 +59,8 @@ export function useChat() {
     }]);
 
     let collectedContent = '';
-    let toolCalls: any[] = [];
-    let mapActions: MapAction[] = [];
+    let toolCalls: Record<string, unknown>[] = [];
+    const mapActions: MapAction[] = [];
     let toolStatuses: { name: string; status: 'running' | 'done'; preview?: string }[] = [];
 
     try {
@@ -184,8 +184,8 @@ export function useChat() {
       });
 
       return mapActions.length > 0 ? mapActions : undefined;
-    } catch (err: any) {
-      if (err.name === 'AbortError') return undefined;
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return undefined;
       console.error('채팅 스트리밍 실패:', err);
       setMessages(prev => {
         const updated = [...prev];
@@ -210,9 +210,9 @@ export function useChat() {
     rating: 1 | -1,
     tags: string[] = [],
     comment: string = '',
-  ) => {
+  ): Promise<{ success: boolean }> => {
     const assistantMsg = messages[messageIndex];
-    if (!assistantMsg || assistantMsg.role !== 'assistant') return;
+    if (!assistantMsg || assistantMsg.role !== 'assistant') return { success: false };
 
     // Find the preceding user message
     let userContent = '';
@@ -224,7 +224,7 @@ export function useChat() {
     }
 
     try {
-      await fetch(`${API_BASE}/api/chat/feedback`, {
+      const res = await fetch(`${API_BASE}/api/chat/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -236,8 +236,10 @@ export function useChat() {
           comment,
         }),
       });
+      return { success: res.ok };
     } catch (err) {
       console.error('피드백 전송 실패:', err);
+      return { success: false };
     }
   }, [messages]);
 
