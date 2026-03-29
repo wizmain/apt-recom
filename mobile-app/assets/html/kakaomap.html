@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  #map { width: 100%; height: 100%; }
+  #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-family: -apple-system, sans-serif; color: #6B7280; font-size: 14px; text-align: center; }
+</style>
+</head><body>
+<div id="map"></div>
+<div id="loading">지도 로딩 중...</div>
+<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=f9e2029f29a47e5ee43de19a0c90e583&autoload=false"></script>
+<script>
+  kakao.maps.load(function() {
+    document.getElementById('loading').style.display = 'none';
+    var container = document.getElementById('map');
+    var map = new kakao.maps.Map(container, {
+      center: new kakao.maps.LatLng(37.5665, 126.978),
+      level: 8,
+    });
+
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'mapReady' }));
+
+    var overlays = [];
+    var infowindow = null;
+
+    function clearMarkers() {
+      overlays.forEach(function(m) { m.setMap(null); });
+      overlays = [];
+      if (infowindow) infowindow.close();
+    }
+
+    function getRankColor(rank) {
+      if (rank === 1) return '#EF4444';
+      if (rank === 2) return '#F97316';
+      if (rank === 3) return '#EC4899';
+      return '#3B82F6';
+    }
+
+    function addMarkers(apts) {
+      clearMarkers();
+      apts.forEach(function(apt) {
+        var el = document.createElement('div');
+        el.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);background:' + getRankColor(apt.rank);
+        el.innerText = apt.rank;
+
+        var overlay = new kakao.maps.CustomOverlay({
+          position: new kakao.maps.LatLng(apt.lat, apt.lng),
+          content: el,
+          yAnchor: 0.5,
+        });
+        overlay.setMap(map);
+        overlays.push(overlay);
+
+        el.addEventListener('click', function() {
+          if (infowindow) infowindow.close();
+          var iw = new kakao.maps.InfoWindow({
+            content: '<div style="padding:8px 12px;font-size:13px;min-width:150px;background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);">'
+              + '<b>' + apt.name + '</b><br>'
+              + '<span style="color:#3B82F6;font-weight:bold;">' + apt.score.toFixed(1) + '점</span></div>',
+            position: new kakao.maps.LatLng(apt.lat, apt.lng),
+          });
+          iw.open(map);
+          infowindow = iw;
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'aptClick', pnu: apt.pnu }));
+        });
+      });
+
+      if (apts.length > 0) {
+        var bounds = new kakao.maps.LatLngBounds();
+        apts.forEach(function(a) { bounds.extend(new kakao.maps.LatLng(a.lat, a.lng)); });
+        map.setBounds(bounds, 80);
+      }
+    }
+
+    window.addEventListener('message', function(e) {
+      try {
+        var msg = JSON.parse(e.data);
+        if (msg.type === 'updateMarkers') addMarkers(msg.markers);
+        if (msg.type === 'moveTo') {
+          map.setCenter(new kakao.maps.LatLng(msg.lat, msg.lng));
+          map.setLevel(msg.level || 5);
+        }
+      } catch(err) {}
+    });
+    document.addEventListener('message', function(e) {
+      try {
+        var msg = JSON.parse(e.data);
+        if (msg.type === 'updateMarkers') addMarkers(msg.markers);
+        if (msg.type === 'moveTo') {
+          map.setCenter(new kakao.maps.LatLng(msg.lat, msg.lng));
+          map.setLevel(msg.level || 5);
+        }
+      } catch(err) {}
+    });
+
+    kakao.maps.event.addListener(map, 'idle', function() {
+      var b = map.getBounds();
+      var sw = b.getSouthWest();
+      var ne = b.getNorthEast();
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'boundsChanged',
+        sw: { lat: sw.getLat(), lng: sw.getLng() },
+        ne: { lat: ne.getLat(), lng: ne.getLng() },
+      }));
+    });
+  });
+</script>
+</body></html>
