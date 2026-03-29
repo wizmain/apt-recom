@@ -358,11 +358,18 @@ def test_feedback_submit():
         "assistant_message": "테스트 답변",
         "rating": 1,
         "tags": [],
-        "comment": "자동 테스트",
+        "comment": "__test__",
     }, timeout=10)
     assert resp.status_code == 200, f"피드백 API 에러: {resp.status_code}"
     data = resp.json()
     assert data.get("id", 0) > 0, f"피드백 ID 없음: {data}"
+    # 테스트 데이터 정리
+    from database import get_connection
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM chat_feedback WHERE id = %s", [data["id"]])
+    conn.commit()
+    conn.close()
 
 
 @test("피드백: GET /api/chat/feedback/stats 통계")

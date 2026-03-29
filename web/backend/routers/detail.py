@@ -107,10 +107,23 @@ def apartment_detail(pnu: str):
         # CCTV/safety info + crime score
         safety_info = None
         try:
-            cctv_row = conn.execute(
-                "SELECT nearest_distance_m, cctv_count_500m, cctv_count_1km FROM apt_cctv_summary WHERE pnu = %s", [pnu]
-            ).fetchone()
             safety_score_val = safety_row["safety_score"] if safety_row else None
+
+            # CCTV: apt_safety_score (500m) + apt_facility_summary (거리, 1km)
+            cctv_fs = facility_summary.get("cctv", {})
+            cctv_nearest = cctv_fs.get("nearest_distance_m")
+            cctv_1km = cctv_fs.get("count_1km", 0)
+            cctv_500m = 0
+            if safety_row:
+                ss_row = conn.execute(
+                    "SELECT cctv_count_500m, cctv_count_1km, nearest_cctv_m FROM apt_safety_score WHERE pnu = %s", [pnu]
+                ).fetchone()
+                if ss_row:
+                    cctv_500m = ss_row["cctv_count_500m"] or 0
+                    if cctv_nearest is None:
+                        cctv_nearest = ss_row["nearest_cctv_m"]
+                    if cctv_1km == 0 and ss_row["cctv_count_1km"]:
+                        cctv_1km = ss_row["cctv_count_1km"]
 
             # 범죄율 점수 + 상세
             crime_score = None
@@ -148,9 +161,9 @@ def apartment_detail(pnu: str):
                 "safety_score": safety_score_val,
                 "crime_safety_score": crime_score,
                 "crime_detail": crime_detail,
-                "cctv_nearest_m": cctv_row["nearest_distance_m"] if cctv_row else None,
-                "cctv_count_500m": cctv_row["cctv_count_500m"] if cctv_row else 0,
-                "cctv_count_1km": cctv_row["cctv_count_1km"] if cctv_row else 0,
+                "cctv_nearest_m": cctv_nearest,
+                "cctv_count_500m": cctv_500m,
+                "cctv_count_1km": cctv_1km,
                 "police_nearest_m": police_dist,
                 "police_count_3km": facility_summary.get("police", {}).get("count_3km", 0),
                 "fire_nearest_m": fire_dist,
