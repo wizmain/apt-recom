@@ -1,0 +1,23 @@
+name: Weekly Trade Data Batch
+
+on:
+  schedule:
+    - cron: '0 17 * * 0'  # 매주 일요일 17:00 UTC (한국 월요일 02:00)
+  workflow_dispatch:
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install psycopg2-binary requests python-dotenv pandas
+      - name: Run weekly batch
+        run: python -m batch.run --type weekly
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
