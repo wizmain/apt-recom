@@ -73,7 +73,11 @@ function App() {
   }, [addKeyword]);
 
   const handleRemoveKeyword = useCallback((keyword: string) => {
-    setSearchKeywords(prev => prev.filter(k => k !== keyword));
+    setSearchKeywords(prev => {
+      const next = prev.filter(k => k !== keyword);
+      if (next.length === 0) setSelectedNudges([]);
+      return next;
+    });
     removeKeyword(keyword);
   }, [removeKeyword]);
 
