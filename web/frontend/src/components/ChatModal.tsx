@@ -51,7 +51,9 @@ export default function ChatModal({ onClose, onMapAction, onApartmentClick, init
   }, [submitFeedback]);
 
   return (
-    <div className="fixed bottom-20 right-6 z-20 w-96 max-h-[70vh] bg-white rounded-xl shadow-2xl flex flex-col animate-fade-in">
+    <div className="fixed inset-x-0 bottom-0 z-20 w-full h-[85dvh] rounded-t-xl
+                    sm:inset-auto sm:bottom-20 sm:right-6 sm:w-96 sm:h-auto sm:max-h-[70vh] sm:rounded-xl
+                    bg-white shadow-2xl flex flex-col animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
@@ -86,7 +88,7 @@ export default function ChatModal({ onClose, onMapAction, onApartmentClick, init
       ) : (
         <>
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ maxHeight: 'calc(70vh - 120px)' }}>
+          <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 min-h-0">
             {messages.length === 0 && !loading && (
               <div className="text-center text-gray-400 text-sm py-8">
                 <p>안녕하세요! 🐿 <span className="text-amber-600 font-semibold">집토리</span>입니다.</p>

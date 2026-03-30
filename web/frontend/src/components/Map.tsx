@@ -62,9 +62,9 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     const escapedName = displayName.replace(/'/g, "\\'").replace(/\d+위\s*/, '');
     const isCompared = compareSelectedRef.current.includes(pnu);
     const compareFull = compareSelectedRef.current.length >= 2 && !isCompared;
-    const btnStyle = 'padding:3px 10px;font-size:11px;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;';
+    const btnStyle = 'padding:5px 10px;font-size:11px;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;';
     return `
-      <div style="padding:10px 14px;font-size:13px;min-width:280px;position:relative;">
+      <div style="padding:10px 14px;font-size:13px;min-width:280px;max-width:calc(100vw - 40px);position:relative;">
         <button onclick="window.__closeInfoWindow()"
           style="position:absolute;top:4px;right:6px;background:none;border:none;cursor:pointer;font-size:16px;color:#999;line-height:1;"
           title="닫기">&times;</button>

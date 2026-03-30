@@ -5,7 +5,7 @@ interface ChatButtonProps {
 
 export default function ChatButton({ onClick, isOpen }: ChatButtonProps) {
   return (
-    <div className="fixed bottom-6 right-6 z-20 flex items-center gap-2">
+    <div className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-20 ${isOpen ? 'hidden sm:flex' : 'flex'} items-center gap-2`}>
       {/* 안내 문구 */}
       {!isOpen && (
         <div className="bg-white/95 backdrop-blur-sm text-gray-700 text-sm font-medium
@@ -18,7 +18,7 @@ export default function ChatButton({ onClick, isOpen }: ChatButtonProps) {
       {/* 버튼 */}
       <button
         onClick={onClick}
-        className={`w-14 h-14 rounded-full shadow-lg
+        className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-lg
                     hover:scale-105 active:scale-95 transition-all duration-200
                     flex items-center justify-center
                     ${isOpen

@@ -74,8 +74,8 @@ export default function FilterPanel({ isOpen, onClose, filters, onApply, onClear
       {isOpen && <div className="fixed inset-0 bg-black/20 z-20" onClick={onClose} />}
 
       <div
-        className="fixed left-0 right-0 z-30 transition-all duration-300 ease-in-out overflow-hidden"
-        style={{ top: 56, maxHeight: isOpen ? 500 : 0, opacity: isOpen ? 1 : 0 }}
+        className="fixed left-0 right-0 z-30 transition-all duration-300 ease-in-out overflow-hidden top-24 sm:top-14"
+        style={{ maxHeight: isOpen ? '80dvh' : 0, opacity: isOpen ? 1 : 0 }}
       >
         <div className="bg-white border-b border-gray-200 shadow-lg">
           {/* Header */}
@@ -95,7 +95,7 @@ export default function FilterPanel({ isOpen, onClose, filters, onApply, onClear
           </div>
 
           {/* Filters */}
-          <div className="px-4 py-3 max-h-[380px] overflow-y-auto space-y-4">
+          <div className="px-4 py-3 max-h-[60dvh] sm:max-h-[380px] overflow-y-auto space-y-4">
             {/* 면적 */}
             <FilterSection title="면적">
               <ChipGroup

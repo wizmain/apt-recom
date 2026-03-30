@@ -97,8 +97,8 @@ export default function WeightDrawer({
 
       {/* Drop-down panel */}
       <div
-        className="fixed left-0 right-0 z-30 transition-all duration-300 ease-in-out overflow-hidden"
-        style={{ top: 56, maxHeight: isOpen ? 420 : 0, opacity: isOpen ? 1 : 0 }}
+        className="fixed left-0 right-0 z-30 transition-all duration-300 ease-in-out overflow-hidden top-24 sm:top-14"
+        style={{ maxHeight: isOpen ? '80dvh' : 0, opacity: isOpen ? 1 : 0 }}
       >
         <div className="bg-white border-b border-gray-200 shadow-lg">
           {/* Header */}
@@ -119,9 +119,9 @@ export default function WeightDrawer({
           </div>
 
           {/* Sliders */}
-          <div className="px-4 py-3 max-h-[280px] overflow-y-auto">
+          <div className="px-4 py-3 max-h-[50dvh] sm:max-h-[280px] overflow-y-auto">
             {entries.length > 0 ? (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 sm:gap-x-6 gap-y-3">
                 {entries.map(([key, value]) => {
                   const pct = totalWeight > 0 ? ((value / totalWeight) * 100).toFixed(0) : '0';
                   const sliderVal = Math.round(value * 100);
