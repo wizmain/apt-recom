@@ -149,9 +149,9 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"
       onClick={handleBackdrop}
     >
-      <div className="relative w-full max-w-4xl h-[85vh] mx-4 bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative w-full max-w-4xl h-[95dvh] sm:h-[85vh] mx-2 sm:mx-4 bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-gray-100">
+        <div className="flex items-start justify-between px-4 pt-4 pb-2 sm:px-6 sm:pt-5 sm:pb-3 border-b border-gray-100">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-gray-900 truncate">
               {detail?.basic?.bld_nm ?? '로딩 중...'}
@@ -172,12 +172,12 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 px-6">
+        <div className="flex border-b border-gray-200 px-2 sm:px-6 overflow-x-auto scrollbar-hide">
           {TABS.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors relative
+              className={`px-2.5 sm:px-4 py-2 sm:py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap flex-shrink-0
                 ${activeTab === tab
                   ? 'text-blue-600'
                   : 'text-gray-500 hover:text-gray-700'
@@ -192,7 +192,7 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="flex items-center gap-2 text-gray-500 text-sm">
@@ -258,8 +258,8 @@ function TabBasicInfo({ detail }: { detail: ApartmentDetail | null }) {
       {radarData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">라이프 점수</h3>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <ResponsiveContainer width="100%" height={320}>
+          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+            <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="75%">
                 <PolarGrid stroke="#e5e7eb" />
                 <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: '#6b7280' }} />
@@ -427,8 +427,8 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
       {trendData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">월별 매매가 추이 (면적별)</h3>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <ResponsiveContainer width="100%" height={320}>
+          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+            <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
@@ -468,8 +468,8 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
       {areaData.some((d) => d.count > 0) && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">면적별 평균가</h3>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <ResponsiveContainer width="100%" height={250}>
+          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={areaData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="range" tick={{ fontSize: 11 }} />
@@ -486,8 +486,8 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
       {jeonseData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">전세가율 추이 (면적별)</h3>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <ResponsiveContainer width="100%" height={300}>
+          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+            <ResponsiveContainer width="100%" height="100%">
               <LineChart data={jeonseData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
@@ -601,12 +601,12 @@ function TabFacilities({ detail }: { detail: ApartmentDetail | null }) {
       {barData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">1km 내 시설 수</h3>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={barData} layout="vertical" margin={{ left: 80 }}>
+          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barData} layout="vertical" margin={{ left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="type" tick={{ fontSize: 11 }} width={75} />
+                <YAxis type="category" dataKey="type" tick={{ fontSize: 11 }} width={65} />
                 <Tooltip formatter={(val) => [`${val}개`, '시설 수']} />
                 <Bar dataKey="count" fill={BLUE[1]} radius={[0, 4, 4, 0]} />
               </BarChart>

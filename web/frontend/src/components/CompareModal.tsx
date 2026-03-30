@@ -59,10 +59,10 @@ export default function CompareModal({ pnu1, pnu2, onClose, triggerBtnId }: Prop
 
   return (
     <div onClick={e => { if (e.target === e.currentTarget) close(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '5vh', background: 'rgba(0,0,0,0.3)' }}>
 
       <div style={{
-        width: 520, maxHeight: '82vh', margin: '0 12px',
+        width: '100%', maxWidth: 520, maxHeight: '82vh', margin: '0 8px',
         background: '#fff', borderRadius: 16, boxShadow: '0 20px 50px rgba(0,0,0,0.15)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
@@ -83,7 +83,7 @@ export default function CompareModal({ pnu1, pnu2, onClose, triggerBtnId }: Prop
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 20px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 16px' }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: 14 }}>불러오는 중...</div>
           ) : a && b ? (
@@ -182,7 +182,7 @@ export default function CompareModal({ pnu1, pnu2, onClose, triggerBtnId }: Prop
               </div>
 
               {/* 학군 + 안전 */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {/* 학군 */}
                 <div>
                   <STitle>학군</STitle>

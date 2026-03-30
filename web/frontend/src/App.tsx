@@ -73,7 +73,11 @@ function App() {
   }, [addKeyword]);
 
   const handleRemoveKeyword = useCallback((keyword: string) => {
-    setSearchKeywords(prev => prev.filter(k => k !== keyword));
+    setSearchKeywords(prev => {
+      const next = prev.filter(k => k !== keyword);
+      if (next.length === 0) setSelectedNudges([]);
+      return next;
+    });
     removeKeyword(keyword);
   }, [removeKeyword]);
 
@@ -122,10 +126,10 @@ function App() {
   }, []);
 
   // NudgeBar 높이 (검색 키워드가 있으면 더 높아짐)
-  const barHeight = searchKeywords.length > 0 ? 'pt-[4.5rem]' : 'pt-14';
+  const barHeight = searchKeywords.length > 0 ? 'pt-28 sm:pt-[4.5rem]' : 'pt-24 sm:pt-14';
 
   return (
-    <div className="relative w-full h-screen overflow-hidden">
+    <div className="relative w-full h-dvh overflow-hidden">
       {/* Top nudge bar */}
       <NudgeBar
         selectedNudges={selectedNudges}
@@ -189,26 +193,34 @@ function App() {
 
       {/* Compare bar */}
       {compareList.length > 0 && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-20 bg-white border border-gray-200 shadow-lg rounded-full px-4 py-2 flex items-center gap-3">
-          {compareList.map(c => (
-            <span key={c.pnu} className="inline-flex items-center gap-1 text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 rounded-full">
-              {c.name.length > 10 ? c.name.slice(0, 10) + '…' : c.name}
-              <button onClick={() => handleCompareToggle(c.pnu, c.name)} className="text-violet-400 hover:text-violet-700 ml-0.5">&times;</button>
-            </span>
-          ))}
-          {compareList.length < 2 && (
-            <span className="text-xs text-gray-400">+ 아파트 1개 더 선택</span>
-          )}
-          {compareList.length === 2 && (
-            <button
-              onClick={() => {/* open compare modal handled below */}}
-              className="text-xs bg-violet-600 text-white px-3 py-1 rounded-full hover:bg-violet-700 font-medium"
-              id="compare-btn"
-            >
-              비교하기
-            </button>
-          )}
-          <button onClick={() => setCompareList([])} className="text-xs text-gray-400 hover:text-gray-600">초기화</button>
+        <div className={`fixed bottom-0 left-0 right-0
+                        sm:left-1/2 sm:right-auto sm:-translate-x-1/2
+                        ${results.length > 0 ? 'sm:bottom-32' : 'sm:bottom-6'}
+                        z-20 bg-white border-t sm:border border-gray-200 shadow-lg sm:rounded-full
+                        px-4 py-3 sm:px-4 sm:py-2 flex items-center gap-2 sm:gap-3 sm:max-w-[95vw]`}>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {compareList.map(c => (
+              <span key={c.pnu} className="inline-flex items-center gap-1 text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 rounded-full min-w-0">
+                <span className="truncate max-w-[120px] sm:max-w-none">{c.name}</span>
+                <button onClick={() => handleCompareToggle(c.pnu, c.name)} className="text-violet-400 hover:text-violet-700 flex-shrink-0">&times;</button>
+              </span>
+            ))}
+            {compareList.length < 2 && (
+              <span className="text-xs text-gray-400 whitespace-nowrap">+ 1개 더 선택</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {compareList.length === 2 && (
+              <button
+                onClick={() => {/* open compare modal handled below */}}
+                className="text-xs bg-violet-600 text-white px-3 py-1.5 rounded-full hover:bg-violet-700 font-medium whitespace-nowrap"
+                id="compare-btn"
+              >
+                비교하기
+              </button>
+            )}
+            <button onClick={() => setCompareList([])} className="text-xs text-gray-400 hover:text-gray-600 whitespace-nowrap">초기화</button>
+          </div>
         </div>
       )}
 
