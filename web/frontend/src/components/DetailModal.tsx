@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import { useCodes } from '../hooks/useCodes';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   LineChart, Line, BarChart, Bar, Legend,
@@ -76,25 +77,7 @@ interface TradesResponse {
 /*  Labels                                                             */
 /* ------------------------------------------------------------------ */
 
-const nudgeLabels: Record<string, string> = {
-  cost: '가성비', pet: '반려동물', commute: '출퇴근',
-  newlywed: '신혼육아', education: '학군', senior: '시니어',
-  investment: '투자', nature: '자연친화', safety: '안전',
-};
-
-const facilityLabels: Record<string, string> = {
-  // 소분류 (facility_subtype)
-  subway: '지하철역', bus: '버스정류장', mart: '대형마트',
-  school: '학교', kindergarten: '유치원', police: '경찰서',
-  fire_station: '소방서', library: '도서관', park: '공원',
-  convenience_store: '편의점', pharmacy: '약국',
-  hospital: '병원', animal_hospital: '동물병원',
-  pet_facility: '반려동물시설', cctv: 'CCTV',
-  // 대분류 (facility_type)
-  transport: '교통', commerce: '상업', education: '교육',
-  safety: '안전', culture: '문화', living: '생활편의',
-  medical: '의료', pet: '반려동물',
-};
+// nudgeLabels, facilityLabels는 컴포넌트 내부에서 useCodes로 로드
 
 const TABS = ['기본정보', '가격분석', '주변시설', '학군', '안전', '인구'] as const;
 type TabName = (typeof TABS)[number];
@@ -224,6 +207,7 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
 /* ================================================================== */
 
 function TabBasicInfo({ detail }: { detail: ApartmentDetail | null }) {
+  const { codeMap: nudgeLabels } = useCodes('nudge');
   if (!detail) return <EmptyState text="기본 정보를 불러올 수 없습니다." />;
 
   const b = detail.basic;
@@ -564,6 +548,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
 /* ================================================================== */
 
 function TabFacilities({ detail }: { detail: ApartmentDetail | null }) {
+  const { codeMap: facilityLabels } = useCodes('facility_label');
   if (!detail) return <EmptyState text="주변 시설 데이터가 없습니다." />;
 
   const summary = detail.facility_summary;

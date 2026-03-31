@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChat } from '../hooks/useChat';
 import type { MapAction } from '../hooks/useChat';
 import ChatInput from './ChatInput';
+import type { ChatInputHandle } from './ChatInput';
 import ChatMessage, { LoadingIndicator } from './ChatMessage';
 import FeedbackStats from './FeedbackStats';
 
@@ -16,8 +17,14 @@ interface ChatModalProps {
 export default function ChatModal({ onClose, onMapAction, onApartmentClick, initialMessage, analyzeContext }: ChatModalProps) {
   const { messages, loading, sendMessage, submitFeedback } = useChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const initialSentRef = useRef(false);
   const [showStats, setShowStats] = useState(false);
+
+  // 모달 마운트 시 입력박스 포커스
+  useEffect(() => {
+    setTimeout(() => chatInputRef.current?.focus(), 100);
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -109,7 +116,7 @@ export default function ChatModal({ onClose, onMapAction, onApartmentClick, init
           </div>
 
           {/* Input */}
-          <ChatInput onSend={handleSend} disabled={loading} />
+          <ChatInput ref={chatInputRef} onSend={handleSend} disabled={loading} />
         </>
       )}
     </div>

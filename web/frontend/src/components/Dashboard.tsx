@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import TradeHistoryPanel from './TradeHistoryPanel';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -9,8 +10,10 @@ interface Summary {
   current_month: string;
   last_updated: string | null;
   new_today: number;
-  trade: { volume: number; avg_price: number; prev_volume: number; prev_avg_price: number };
-  rent: { volume: number; avg_deposit: number; prev_volume: number; prev_avg_deposit: number };
+  current_period: string;
+  prev_period: string;
+  trade: { volume: number; median_price_m2: number; prev_volume: number; prev_median_price_m2: number };
+  rent: { volume: number; median_deposit_m2: number; prev_volume: number; prev_median_deposit_m2: number };
 }
 
 interface TrendItem {
@@ -33,6 +36,7 @@ interface RankingItem {
 
 interface RecentTrade {
   apt_nm: string;
+  sgg_cd: string;
   sigungu: string;
   area: number | null;
   floor: number | null;
@@ -53,7 +57,7 @@ function formatPrice(val: number): string {
   if (val >= 10000) {
     const eok = Math.floor(val / 10000);
     const rest = val % 10000;
-    return rest > 0 ? `${eok}억${rest.toLocaleString()}` : `${eok}억`;
+    return `${eok}억${String(rest).padStart(4, '0').replace(/(\d)(?=(\d{3})+$)/g, '$1,')}`;
   }
   return `${val.toLocaleString()}`;
 }
@@ -89,6 +93,7 @@ export default function Dashboard() {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [rankingType, setRankingType] = useState<'trade' | 'rent'>('trade');
   const [recentType, setRecentType] = useState<'trade' | 'rent'>('trade');
+  const [selectedApt, setSelectedApt] = useState<{ aptName: string; sggCd: string; area: number | null } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 바깥 클릭 시 드롭다운 닫기
@@ -168,7 +173,7 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [summaryRes, trendRes, rankingRes, recentRes] = await Promise.all([
-        axios.get<Summary>(`${API_BASE}/api/dashboard/summary`),
+        axios.get<Summary>(`${API_BASE}/api/dashboard/summary`, { params: { sigungu: sggFilter } }),
         axios.get<TrendItem[]>(`${API_BASE}/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter } }),
         axios.get<RankingItem[]>(`${API_BASE}/api/dashboard/ranking`, { params: { type: rankingType } }),
         axios.get<RecentTrade[]>(`${API_BASE}/api/dashboard/recent`, { params: { type: recentType, limit: 20, sigungu: sggFilter } }),
@@ -255,16 +260,17 @@ export default function Dashboard() {
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           {[
-            { label: '매매 거래량', value: `${summary.trade.volume.toLocaleString()}건`, change: changeRate(summary.trade.volume, summary.trade.prev_volume) },
-            { label: '평균 매매가', value: formatPrice(summary.trade.avg_price), change: changeRate(summary.trade.avg_price, summary.trade.prev_avg_price) },
-            { label: '전월세 거래량', value: `${summary.rent.volume.toLocaleString()}건`, change: changeRate(summary.rent.volume, summary.rent.prev_volume) },
-            { label: '평균 전세가', value: formatPrice(summary.rent.avg_deposit), change: changeRate(summary.rent.avg_deposit, summary.rent.prev_avg_deposit) },
+            { label: `매매 거래량`, value: `${summary.trade.volume.toLocaleString()}건`, sub: summary.current_period, prev: `이전 30일 ${summary.trade.prev_volume.toLocaleString()}건`, change: changeRate(summary.trade.volume, summary.trade.prev_volume) },
+            { label: '㎡당 중위 매매가', value: `${Math.round(summary.trade.median_price_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.trade.median_price_m2 * 3.3).toLocaleString()}만`, prev: `이전 30일 ${Math.round(summary.trade.prev_median_price_m2).toLocaleString()}만/㎡`, change: changeRate(summary.trade.median_price_m2, summary.trade.prev_median_price_m2) },
+            { label: `전월세 거래량`, value: `${summary.rent.volume.toLocaleString()}건`, sub: summary.current_period, prev: `이전 30일 ${summary.rent.prev_volume.toLocaleString()}건`, change: changeRate(summary.rent.volume, summary.rent.prev_volume) },
+            { label: '㎡당 중위 전세가', value: `${Math.round(summary.rent.median_deposit_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.rent.median_deposit_m2 * 3.3).toLocaleString()}만`, prev: `이전 30일 ${Math.round(summary.rent.prev_median_deposit_m2).toLocaleString()}만/㎡`, change: changeRate(summary.rent.median_deposit_m2, summary.rent.prev_median_deposit_m2) },
           ].map((card) => (
             <div key={card.label} className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm">
               <p className="text-xs text-gray-500">{card.label}</p>
               <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
+              {card.sub && <p className="text-[10px] text-gray-400">{card.sub}</p>}
               <p className={`text-xs mt-0.5 ${card.change.color}`}>
-                전월 대비 {card.change.text}
+                {card.change.text} <span className="text-gray-400">({card.prev})</span>
               </p>
             </div>
           ))}
@@ -312,7 +318,11 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {recent.map((r, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
+                  <tr
+                    key={i}
+                    className="hover:bg-blue-50 cursor-pointer transition-colors"
+                    onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd, area: r.area })}
+                  >
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{r.date}</td>
                     <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{r.sigungu}</td>
                     <td className="px-3 py-2 text-gray-900 font-medium truncate max-w-[160px]">{r.apt_nm}</td>
@@ -334,6 +344,16 @@ export default function Dashboard() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* Trade history modal */}
+      {selectedApt && (
+        <TradeHistoryPanel
+          aptName={selectedApt.aptName}
+          sggCd={selectedApt.sggCd}
+          area={selectedApt.area}
+          onClose={() => setSelectedApt(null)}
+        />
       )}
 
       {/* Volume trend */}

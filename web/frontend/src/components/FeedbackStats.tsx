@@ -1,21 +1,14 @@
 import { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 import type { FeedbackStats as FeedbackStatsType } from '../types/feedback';
-
-const TAG_LABELS: Record<string, string> = {
-  inaccurate: '정보 부정확',
-  too_long: '너무 길다',
-  not_relevant: '원하는 답이 아님',
-  score_wrong: '점수가 이상함',
-  missing_info: '정보 부족',
-  formatting: '가독성 나쁨',
-};
+import { useCodes } from '../hooks/useCodes';
 
 interface FeedbackStatsProps {
   onClose: () => void;
 }
 
 export default function FeedbackStats({ onClose }: FeedbackStatsProps) {
+  const { codeMap: TAG_LABELS } = useCodes('feedback_tag');
   const [stats, setStats] = useState<FeedbackStatsType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);

@@ -335,6 +335,42 @@ def test_tool_school_info():
     assert has_data, f"학군 정보 없음: {data}"
 
 
+@test("챗봇: get_market_trend 금액 단위 표기 검증")
+def test_tool_market_trend_price_format():
+    from services.tools import get_market_trend
+    result = asyncio.run(get_market_trend(region="강남구", period="1y"))
+    data = json.loads(result)
+    trends = data.get("trade_trends", [])
+    assert len(trends) > 0, "거래 추이 데이터 없음"
+    for t in trends:
+        price = t.get("avg_price", "")
+        assert "만원" in price or "억" in price, f"금액 단위 누락: {price}"
+        assert not str(price).replace(",", "").replace(".", "").isdigit(), f"금액이 숫자만: {price} (단위 필요)"
+
+
+@test("챗봇: get_apartment_detail 거래 금액 단위 검증")
+def test_tool_detail_price_format():
+    from services.tools import get_apartment_detail
+    result = asyncio.run(get_apartment_detail("래미안대치팰리스"))
+    data = json.loads(result)
+    trades = data.get("recent_trades", [])
+    if trades:
+        for t in trades:
+            price = t.get("price", "")
+            assert "만원" in price or "억" in price, f"금액 단위 누락: {price}"
+
+
+@test("챗봇: get_dashboard_info 금액 단위 검증")
+def test_tool_dashboard_price_format():
+    from services.tools import get_dashboard_info
+    result = asyncio.run(get_dashboard_info(region="강남구"))
+    data = json.loads(result)
+    med = data.get("trade_summary", {}).get("median_price_m2", "")
+    assert "만" in med or "㎡" in med, f"중위가 단위 누락: {med}"
+    trend = data.get("monthly_trend", "")
+    assert "만원" in trend, f"추이 금액 단위 누락: {trend}"
+
+
 @test("챗봇: 안전 점수 관련 데이터 포함 응답")
 def test_chat_safety_data():
     """get_apartment_detail 결과에 safety + crime_detail 포함 확인."""

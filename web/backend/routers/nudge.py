@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from database import DictConnection
 from services.scoring import (
-    NUDGE_WEIGHTS,
+    get_nudge_weights,
     distance_to_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
@@ -113,7 +113,7 @@ def nudge_score(req: NudgeScoreRequest):
         all_subtypes = set()
         for nid in req.nudges:
             ws = (req.weights or {}).get(nid) if req.weights else None
-            subtypes = ws if ws else NUDGE_WEIGHTS.get(nid, {})
+            subtypes = ws if ws else get_nudge_weights().get(nid, {})
             all_subtypes.update(subtypes.keys())
 
         if not all_subtypes:
@@ -157,8 +157,8 @@ def nudge_score(req: NudgeScoreRequest):
                     pnu = row["pnu"]
                     if pnu not in apt_facility_scores:
                         apt_facility_scores[pnu] = {}
-                    apt_facility_scores[pnu]["_price"] = row["price_score"] or 50.0
-                    apt_facility_scores[pnu]["_jeonse"] = row["jeonse_ratio"] or 50.0
+                    apt_facility_scores[pnu]["score_price"] = row["price_score"] or 50.0
+                    apt_facility_scores[pnu]["score_jeonse"] = row["jeonse_ratio"] or 50.0
 
         # 4c. Safety scores
         safety_nudges = {"cost", "newlywed", "senior", "safety"}
@@ -175,7 +175,7 @@ def nudge_score(req: NudgeScoreRequest):
                         pnu = row["pnu"]
                         if pnu not in apt_facility_scores:
                             apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["_safety"] = row["safety_score"] or 50.0
+                        apt_facility_scores[pnu]["score_safety"] = row["safety_score"] or 50.0
                 except Exception:
                     pass
 
@@ -197,7 +197,7 @@ def nudge_score(req: NudgeScoreRequest):
                         if sgg in sgg_crime:
                             if pnu not in apt_facility_scores:
                                 apt_facility_scores[pnu] = {}
-                            apt_facility_scores[pnu]["_crime"] = sgg_crime[sgg]
+                            apt_facility_scores[pnu]["score_crime"] = sgg_crime[sgg]
             except Exception:
                 pass
 
@@ -236,6 +236,6 @@ def nudge_score(req: NudgeScoreRequest):
 
 
 @router.get("/nudge/weights")
-def get_nudge_weights():
+def nudge_weights_api():
     """Return the nudge weight configuration."""
-    return NUDGE_WEIGHTS
+    return get_nudge_weights()

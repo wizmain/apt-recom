@@ -127,8 +127,10 @@ function App() {
     });
   }, []);
 
-  // NudgeBar 높이 (검색 키워드가 있으면 더 높아짐)
-  const barHeight = searchKeywords.length > 0 ? 'pt-28 sm:pt-[4.5rem]' : 'pt-24 sm:pt-14';
+  // NudgeBar 높이 — 대시보드 모드에서는 탭만 표시되므로 높이 축소
+  const barHeight = viewMode === 'dashboard'
+    ? 'pt-12 sm:pt-14'
+    : searchKeywords.length > 0 ? 'pt-28 sm:pt-[4.5rem]' : 'pt-24 sm:pt-14';
 
   return (
     <div className="relative w-full h-dvh overflow-hidden">

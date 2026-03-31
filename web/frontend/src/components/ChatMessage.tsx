@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ChatMessage as ChatMessageType, ApartmentCard } from '../hooks/useChat';
+import { useMultipleCodes } from '../hooks/useCodes';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -9,16 +10,10 @@ interface ChatMessageProps {
   onFeedback?: (messageIndex: number, rating: 1 | -1, tags?: string[], comment?: string) => Promise<{ success: boolean }>;
 }
 
-const FEEDBACK_TAGS = [
-  { id: 'inaccurate', label: '정보 부정확' },
-  { id: 'too_long', label: '너무 길다' },
-  { id: 'not_relevant', label: '원하는 답이 아님' },
-  { id: 'score_wrong', label: '점수가 이상함' },
-  { id: 'missing_info', label: '정보 부족' },
-  { id: 'formatting', label: '가독성 나쁨' },
-];
-
 export default function ChatMessage({ message, messageIndex, onApartmentClick, onFeedback }: ChatMessageProps) {
+  const { data, maps } = useMultipleCodes('feedback_tag', 'tool_label');
+  const FEEDBACK_TAGS = (data['feedback_tag'] || []).map(c => ({ id: c.code, label: c.name }));
+  const TOOL_LABELS = maps['tool_label'] || {};
   const isUser = message.role === 'user';
   const [feedbackState, setFeedbackState] = useState<'none' | 'liked' | 'liked_confirmed' | 'disliked' | 'tagging'>('none');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -113,6 +108,7 @@ export default function ChatMessage({ message, messageIndex, onApartmentClick, o
             comment={comment}
             isSubmitting={isSubmitting}
             submitError={submitError}
+            feedbackTags={FEEDBACK_TAGS}
             onLike={() => {
               setFeedbackState('liked');
               likeTimerRef.current = setTimeout(async () => {
@@ -159,16 +155,7 @@ export default function ChatMessage({ message, messageIndex, onApartmentClick, o
   );
 }
 
-/* ── Tool name labels ── */
-const TOOL_LABELS: Record<string, string> = {
-  search_apartments: '아파트 검색',
-  get_apartment_detail: '상세 조회',
-  compare_apartments: '아파트 비교',
-  get_market_trend: '시세 분석',
-  get_school_info: '학군 조회',
-  search_knowledge: '지식 검색',
-  search_commute: '출퇴근 조회',
-};
+/* ── Tool name labels — loaded from DB via useCodes in component ── */
 
 /* ── Markdown renderer with styled components ── */
 function MarkdownContent({ content }: { content: string }) {
@@ -314,6 +301,7 @@ function FeedbackBar({
   comment,
   isSubmitting,
   submitError,
+  feedbackTags,
   onLike,
   onUndoLike,
   onDislike,
@@ -327,6 +315,7 @@ function FeedbackBar({
   comment: string;
   isSubmitting: boolean;
   submitError: boolean;
+  feedbackTags: { id: string; label: string }[];
   onLike: () => void;
   onUndoLike: () => void;
   onDislike: () => void;
@@ -379,7 +368,7 @@ function FeedbackBar({
       <div className="mt-2 p-2.5 bg-gray-50 border border-gray-200 rounded-lg space-y-2 animate-slide-down">
         <p className="text-[11px] font-medium text-gray-600">어떤 점이 아쉬웠나요?</p>
         <div className="grid grid-cols-2 gap-1">
-          {FEEDBACK_TAGS.map(tag => (
+          {feedbackTags.map(tag => (
             <button
               key={tag.id}
               onClick={() => onTagToggle(tag.id)}

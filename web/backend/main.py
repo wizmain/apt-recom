@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard
+from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes
 
 app = FastAPI(title="Apartment Recommendation API")
 
@@ -23,6 +23,7 @@ app.include_router(knowledge.router, prefix="/api")
 app.include_router(commute.router, prefix="/api")
 app.include_router(feedback.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+app.include_router(codes.router, prefix="/api")
 
 
 @app.get("/api/health")

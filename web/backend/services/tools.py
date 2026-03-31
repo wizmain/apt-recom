@@ -4,7 +4,7 @@ import json
 
 from database import DictConnection
 from services.scoring import (
-    NUDGE_WEIGHTS,
+    get_nudge_weights,
     distance_to_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
@@ -165,6 +165,26 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": ["pnu", "destination"],
         },
     ),
+    Tool(
+        name="get_dashboard_info",
+        description="수도권/전국 아파트 거래 동향 조회. 월별 거래량, ㎡당 중위 매매가/전세가, 전월 대비 변동률, 시군구별 랭킹 등 시장 현황을 분석합니다. 특정 지역을 지정하면 해당 지역의 동향을 반환합니다.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "region": {
+                    "type": "string",
+                    "description": "지역명 (예: '강남구', '해운대구', '수원'). 비어있으면 전국",
+                    "default": "",
+                },
+                "months": {
+                    "type": "integer",
+                    "description": "추이 조회 개월 수 (기본 6)",
+                    "default": 6,
+                },
+            },
+            "required": [],
+        },
+    ),
 ]
 
 
@@ -174,20 +194,13 @@ TOOL_DEFINITIONS: list[Tool] = [
 
 def _infer_nudges_from_keyword(keyword: str) -> list[str]:
     """Infer nudges from natural language keywords."""
-    nudge_keywords = {
-        "cost": ["가성비", "저렴", "싼", "경제적", "알뜰"],
-        "pet": ["반려동물", "강아지", "고양이", "펫", "애완"],
-        "commute": ["출퇴근", "직장", "교통", "지하철", "30대", "직장인"],
-        "newlywed": ["신혼", "신혼부부", "결혼", "신혼집"],
-        "education": ["교육", "학군", "학교", "아이", "자녀", "초등"],
-        "senior": ["시니어", "노인", "어르신", "은퇴", "노후"],
-        "investment": ["투자", "재테크", "수익", "갭투자"],
-        "nature": ["자연", "공원", "산책", "녹지", "숲"],
-    }
+    from common_codes import get_codes
+    rows = get_codes("nudge_keyword")
     inferred = []
-    for nudge_id, keywords in nudge_keywords.items():
-        if any(kw in keyword for kw in keywords):
-            inferred.append(nudge_id)
+    for r in rows:
+        keywords = r["name"].split(",")
+        if any(kw.strip() in keyword for kw in keywords):
+            inferred.append(r["code"])
     return inferred
 
 
@@ -257,7 +270,7 @@ async def search_apartments(
         # Collect relevant subtypes
         all_subtypes = set()
         for nid in nudges:
-            all_subtypes.update(NUDGE_WEIGHTS.get(nid, {}).keys())
+            all_subtypes.update(get_nudge_weights().get(nid, {}).keys())
 
         # Load facility summaries
         chunk_size = 500
@@ -300,8 +313,8 @@ async def search_apartments(
                         pnu = row["pnu"]
                         if pnu not in apt_facility_scores:
                             apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["_price"] = row["price_score"] or 50.0
-                        apt_facility_scores[pnu]["_jeonse"] = row["jeonse_ratio"] or 50.0
+                        apt_facility_scores[pnu]["score_price"] = row["price_score"] or 50.0
+                        apt_facility_scores[pnu]["score_jeonse"] = row["jeonse_ratio"] or 50.0
                 except Exception:
                     pass
 
@@ -320,7 +333,7 @@ async def search_apartments(
                         pnu = row["pnu"]
                         if pnu not in apt_facility_scores:
                             apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["_safety"] = row["safety_score"] or 50.0
+                        apt_facility_scores[pnu]["score_safety"] = row["safety_score"] or 50.0
                 except Exception:
                     pass
 
@@ -414,8 +427,8 @@ async def get_apartment_detail(query: str) -> str:
             [pnu],
         ).fetchone()
         if price_row:
-            facility_scores["_price"] = price_row["price_score"] or 50.0
-            facility_scores["_jeonse"] = price_row["jeonse_ratio"] or 50.0
+            facility_scores["score_price"] = price_row["price_score"] or 50.0
+            facility_scores["score_jeonse"] = price_row["jeonse_ratio"] or 50.0
 
         # Safety score
         try:
@@ -423,13 +436,13 @@ async def get_apartment_detail(query: str) -> str:
                 "SELECT safety_score FROM apt_safety_score WHERE pnu = %s", [pnu]
             ).fetchone()
             if safety_row:
-                facility_scores["_safety"] = safety_row["safety_score"] or 50.0
+                facility_scores["score_safety"] = safety_row["safety_score"] or 50.0
         except Exception:
             safety_row = None
 
         # Nudge scores
         scores = {
-            nid: calculate_nudge_score(facility_scores, nid) for nid in NUDGE_WEIGHTS
+            nid: calculate_nudge_score(facility_scores, nid) for nid in get_nudge_weights()
         }
 
         # School zone
@@ -456,35 +469,10 @@ async def get_apartment_detail(query: str) -> str:
         address = apt["new_plat_plc"] or apt.get("plat_plc")
         if not address and apt.get("sigungu_code"):
             sgg = apt["sigungu_code"]
-            sgg_map = {
-                "11110": "서울 종로구", "11140": "서울 중구", "11170": "서울 용산구",
-                "11200": "서울 성동구", "11215": "서울 광진구", "11230": "서울 동대문구",
-                "11260": "서울 중랑구", "11290": "서울 성북구", "11305": "서울 강북구",
-                "11320": "서울 도봉구", "11350": "서울 노원구", "11380": "서울 은평구",
-                "11410": "서울 서대문구", "11440": "서울 마포구", "11470": "서울 양천구",
-                "11500": "서울 강서구", "11530": "서울 구로구", "11545": "서울 금천구",
-                "11560": "서울 영등포구", "11590": "서울 동작구", "11620": "서울 관악구",
-                "11650": "서울 서초구", "11680": "서울 강남구", "11710": "서울 송파구",
-                "11740": "서울 강동구",
-                "28110": "인천 중구", "28140": "인천 동구", "28177": "인천 미추홀구",
-                "28185": "인천 연수구", "28200": "인천 남동구", "28237": "인천 부평구",
-                "28245": "인천 계양구", "28260": "인천 서구", "28710": "인천 강화군",
-                "41111": "수원 장안구", "41113": "수원 권선구", "41115": "수원 팔달구",
-                "41117": "수원 영통구", "41131": "성남 수정구", "41133": "성남 중원구",
-                "41135": "성남 분당구", "41150": "의정부시", "41171": "안양 만안구",
-                "41173": "안양 동안구", "41190": "부천시", "41210": "광명시",
-                "41220": "평택시", "41250": "동두천시", "41271": "안산 상록구",
-                "41273": "안산 단원구", "41281": "고양 덕양구", "41285": "고양 일산동구",
-                "41287": "고양 일산서구", "41290": "과천시", "41310": "구리시",
-                "41360": "남양주시", "41370": "오산시", "41390": "시흥시",
-                "41410": "군포시", "41430": "의왕시", "41450": "하남시",
-                "41461": "용인 처인구", "41463": "용인 기흥구", "41465": "용인 수지구",
-                "41480": "파주시", "41500": "이천시", "41550": "안성시",
-                "41570": "김포시", "41590": "화성시", "41610": "광주시",
-                "41630": "양주시", "41650": "포천시", "41670": "여주시",
-                "41800": "연천군", "41820": "가평군", "41830": "양평군",
-            }
-            address = sgg_map.get(sgg[:5], f"시군구코드 {sgg}")
+            from common_codes import get_code_map_with_extra
+            sgg_codes = get_code_map_with_extra("sigungu")
+            name_extra = sgg_codes.get(sgg[:5])
+            address = f"{name_extra[1]} {name_extra[0]}" if name_extra else f"시군구코드 {sgg}"
 
         result = {
             "basic": {
@@ -501,7 +489,15 @@ async def get_apartment_detail(query: str) -> str:
             "nudge_scores": scores,
             "facility_summary": facility_summary,
             "school": school,
-            "recent_trades": recent_trades,
+            "recent_trades": [
+                {
+                    "date": f"{t['deal_year']}.{t['deal_month']:02d}",
+                    "price": f"{t['deal_amount'] // 10000}억{t['deal_amount'] % 10000:,}만원" if t["deal_amount"] >= 10000 else f"{t['deal_amount']:,}만원",
+                    "area": f"{t['exclu_use_ar']}㎡" if t.get("exclu_use_ar") else None,
+                    "floor": t.get("floor"),
+                }
+                for t in recent_trades
+            ],
             "price_info": price_row,
         }
 
@@ -555,12 +551,12 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
                 )
 
         # Trade volume and avg price by year-month
-        trade_stats = conn.execute(
+        trade_rows = conn.execute(
             """
             SELECT deal_year, deal_month,
                    COUNT(*) as volume,
                    ROUND(AVG(deal_amount)::numeric)::float as avg_price,
-                   ROUND(AVG(deal_amount::float / exclu_use_ar)::numeric, 1)::float as avg_price_per_m2
+                   ROUND(AVG(deal_amount::float / NULLIF(exclu_use_ar, 0))::numeric, 1)::float as avg_price_per_m2
             FROM trade_history
             WHERE sgg_cd = %s AND deal_year >= %s
             GROUP BY deal_year, deal_month
@@ -570,7 +566,7 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
         ).fetchall()
 
         # Rent stats
-        rent_stats = conn.execute(
+        rent_rows = conn.execute(
             """
             SELECT deal_year, deal_month,
                    COUNT(*) as volume,
@@ -583,6 +579,34 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
             """,
             [sgg_cd, min_year],
         ).fetchall()
+
+        def _fmt(val):
+            """만원 → 억/만 변환."""
+            v = int(val) if val else 0
+            if v >= 10000:
+                eok, rest = v // 10000, v % 10000
+                return f"{eok}억{rest:,}만원" if rest else f"{eok}억"
+            return f"{v:,}만원"
+
+        trade_stats = [
+            {
+                "month": f"{r['deal_year']}.{r['deal_month']:02d}",
+                "volume": r["volume"],
+                "avg_price": _fmt(r["avg_price"]),
+                "avg_price_per_m2": f"{round(r['avg_price_per_m2'] or 0):,}만원/㎡",
+            }
+            for r in trade_rows
+        ]
+
+        rent_stats = [
+            {
+                "month": f"{r['deal_year']}.{r['deal_month']:02d}",
+                "volume": r["volume"],
+                "avg_deposit": _fmt(r["avg_deposit"]),
+                "avg_monthly_rent": f"{round(r['avg_monthly_rent'] or 0):,}만원",
+            }
+            for r in rent_rows
+        ]
 
         return json.dumps(
             {
@@ -734,7 +758,8 @@ async def search_commute(pnu: str, destination: str) -> str:
     if not paths:
         return json.dumps({"error": "검색된 경로가 없습니다."}, ensure_ascii=False)
 
-    type_labels = {1: "지하철", 2: "버스", 3: "지하철+버스"}
+    from common_codes import get_code_map
+    type_labels = {int(k): v for k, v in get_code_map("path_type").items()}
     routes = []
     for path in paths[:5]:
         info = path.get("info", {})
@@ -767,6 +792,97 @@ async def search_commute(pnu: str, destination: str) -> str:
     }, ensure_ascii=False)
 
 
+async def get_dashboard_info(region: str = "", months: int = 6) -> str:
+    """거래 동향 대시보드 정보 조회."""
+    conn = _get_conn()
+    from datetime import datetime
+
+    now = datetime.now()
+    cur_year, cur_month = now.year, now.month
+    prev_month = cur_month - 1 if cur_month > 1 else 12
+    prev_year = cur_year if cur_month > 1 else cur_year - 1
+
+    # 지역 코드 매핑
+    sgg_cd = ""
+    sgg_name = "전국"
+    if region.strip():
+        from common_codes import get_codes
+        codes = get_codes("sigungu")
+        for c in codes:
+            if region.strip() in c["name"] or region.strip() in (c["extra"] or ""):
+                sgg_cd = c["code"]
+                sgg_name = f"{c['name']}({c['extra']})" if c["extra"] and c["extra"] != c["name"] else c["name"]
+                break
+
+    sgg_filter = ""
+    sgg_params: list = []
+    if sgg_cd:
+        sgg_filter = "AND sgg_cd = %s"
+        sgg_params = [sgg_cd]
+
+    # 이번 달 요약
+    trade_cur = conn.execute(
+        f"SELECT COUNT(*) as vol, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as med "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_year, cur_month] + sgg_params
+    ).fetchone()
+
+    trade_prev = conn.execute(
+        f"SELECT COUNT(*) as vol, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as med "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
+        [prev_year, prev_month] + sgg_params
+    ).fetchone()
+
+    rent_cur = conn.execute(
+        f"SELECT COUNT(*) as vol, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as med "
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_year, cur_month] + sgg_params
+    ).fetchone()
+
+    # 월별 추이
+    start_ym = (cur_year - 1) * 100 + cur_month if months > 12 else cur_year * 100 + max(1, cur_month - months)
+    trend_params = [start_ym] + sgg_params
+    trend = conn.execute(f"""
+        SELECT deal_year, deal_month, COUNT(*) as vol,
+               COALESCE(AVG(deal_amount), 0) as avg_price
+        FROM trade_history
+        WHERE deal_year * 100 + deal_month >= %s {sgg_filter}
+        GROUP BY deal_year, deal_month
+        ORDER BY deal_year, deal_month
+    """, trend_params).fetchall()
+
+    conn.close()
+
+    # 변동률
+    cur_med = float(trade_cur["med"])
+    prev_med = float(trade_prev["med"])
+    change_pct = round((cur_med - prev_med) / prev_med * 100, 1) if prev_med > 0 else 0
+
+    trend_text = ", ".join(
+        f"{r['deal_year']}.{r['deal_month']:02d}: {r['vol']}건(평균 {round(float(r['avg_price'])):,}만원)"
+        for r in trend[-6:]
+    )
+
+    return json.dumps({
+        "region": sgg_name,
+        "current_month": f"{cur_year}년 {cur_month}월",
+        "trade_summary": {
+            "volume": trade_cur["vol"],
+            "median_price_m2": f"{round(cur_med):,}만/㎡ (평당 {round(cur_med * 3.3):,}만)",
+            "prev_median_price_m2": f"{round(prev_med):,}만/㎡",
+            "change_pct": f"{'+' if change_pct > 0 else ''}{change_pct}%",
+        },
+        "rent_summary": {
+            "volume": rent_cur["vol"],
+            "median_deposit_m2": f"{round(float(rent_cur['med'])):,}만/㎡",
+        },
+        "monthly_trend": trend_text,
+    }, ensure_ascii=False)
+
+
 # ---------------------------------------------------------------------------
 # Executor mapping
 # ---------------------------------------------------------------------------
@@ -779,4 +895,5 @@ TOOL_EXECUTORS = {
     "get_school_info": get_school_info,
     "search_knowledge": search_knowledge,
     "search_commute": search_commute,
+    "get_dashboard_info": get_dashboard_info,
 }

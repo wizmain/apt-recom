@@ -8,22 +8,28 @@ router = APIRouter()
 
 
 def _get_sgg_names(conn=None):
-    """sigungu_code 테이블에서 코드→이름 매핑 조회."""
+    """common_code 테이블에서 시군구 코드→이름 매핑 조회."""
     close = False
     if conn is None:
         conn = DictConnection()
         close = True
-    rows = conn.execute("SELECT code, name, sido FROM sigungu_code", []).fetchall()
+    rows = conn.execute(
+        "SELECT code, name, extra FROM common_code WHERE group_id = %s", ["sigungu"]
+    ).fetchall()
     if close:
         conn.close()
-    return {r["code"]: f"{r['name']}({r['sido']})" if r["sido"] not in (r["name"],) else r["name"] for r in rows}
+    return {r["code"]: f"{r['name']}({r['extra']})" if r["extra"] and r["extra"] != r["name"] else r["name"] for r in rows}
 
 
 @router.get("/dashboard/regions")
 def dashboard_regions(q: str = Query("", description="검색어")):
     """시군구 목록 검색."""
-    sgg = _get_sgg_names()
-    results = [{"code": k, "name": v} for k, v in sgg.items()]
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, name, extra FROM common_code WHERE group_id = %s", ["sigungu"]
+    ).fetchall()
+    conn.close()
+    results = [{"code": r["code"], "name": f"{r['name']}({r['extra']})" if r["extra"] and r["extra"] != r["name"] else r["name"]} for r in rows]
     if q.strip():
         results = [r for r in results if q.strip() in r["name"]]
     results.sort(key=lambda x: x["name"])
@@ -31,40 +37,62 @@ def dashboard_regions(q: str = Query("", description="검색어")):
 
 
 @router.get("/dashboard/summary")
-def dashboard_summary():
-    """이번 달 + 전월 요약 통계 + 갱신 정보."""
+def dashboard_summary(
+    sigungu: str = Query("", description="시군구 코드 필터"),
+):
+    """최근 30일 + 이전 30일 비교 요약 통계 + 갱신 정보."""
     conn = DictConnection()
+    from datetime import timedelta
     now = datetime.now()
-    cur_year, cur_month = now.year, now.month
-    prev_month = cur_month - 1 if cur_month > 1 else 12
-    prev_year = cur_year if cur_month > 1 else cur_year - 1
 
-    # 매매 — 이번 달
+    # 최근 30일: today-29 ~ today, 이전 30일: today-59 ~ today-30
+    cur_start = now - timedelta(days=29)
+    prev_start = now - timedelta(days=59)
+    prev_end = now - timedelta(days=30)
+
+    sgg_filter = ""
+    sgg_params: list = []
+    if sigungu:
+        sgg_filter = "AND sgg_cd = %s"
+        sgg_params = [sigungu]
+
+    # 날짜 범위 SQL: deal_year*10000 + deal_month*100 + deal_day 로 비교
+    date_expr = "(deal_year * 10000 + deal_month * 100 + deal_day)"
+    cur_start_val = cur_start.year * 10000 + cur_start.month * 100 + cur_start.day
+    cur_end_val = now.year * 10000 + now.month * 100 + now.day
+    prev_start_val = prev_start.year * 10000 + prev_start.month * 100 + prev_start.day
+    prev_end_val = prev_end.year * 10000 + prev_end.month * 100 + prev_end.day
+
+    # 매매 — 최근 30일
     trade_cur = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
-        "FROM trade_history WHERE deal_year = %s AND deal_month = %s",
-        [cur_year, cur_month]
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
+        f"FROM trade_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_start_val, cur_end_val] + sgg_params
     ).fetchone()
 
-    # 매매 — 전월
+    # 매매 — 이전 30일
     trade_prev = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
-        "FROM trade_history WHERE deal_year = %s AND deal_month = %s",
-        [prev_year, prev_month]
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
+        f"FROM trade_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [prev_start_val, prev_end_val] + sgg_params
     ).fetchone()
 
-    # 전월세 — 이번 달
+    # 전월세 — 최근 30일
     rent_cur = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
-        "FROM rent_history WHERE deal_year = %s AND deal_month = %s",
-        [cur_year, cur_month]
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
+        f"FROM rent_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_start_val, cur_end_val] + sgg_params
     ).fetchone()
 
-    # 전월세 — 전월
+    # 전월세 — 이전 30일
     rent_prev = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
-        "FROM rent_history WHERE deal_year = %s AND deal_month = %s",
-        [prev_year, prev_month]
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
+        f"FROM rent_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [prev_start_val, prev_end_val] + sgg_params
     ).fetchone()
 
     # 갱신 정보
@@ -80,20 +108,21 @@ def dashboard_summary():
     conn.close()
 
     return {
-        "current_month": f"{cur_year}-{cur_month:02d}",
+        "current_period": f"{cur_start.month}/{cur_start.day}~{now.month}/{now.day}",
+        "prev_period": f"{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}",
         "last_updated": last_updated,
         "new_today": (new_today["cnt"] or 0) if new_today else 0,
         "trade": {
             "volume": trade_cur["volume"],
-            "avg_price": round(float(trade_cur["avg_price"])),
+            "median_price_m2": round(float(trade_cur["median_price_m2"]), 1),
             "prev_volume": trade_prev["volume"],
-            "prev_avg_price": round(float(trade_prev["avg_price"])),
+            "prev_median_price_m2": round(float(trade_prev["median_price_m2"]), 1),
         },
         "rent": {
             "volume": rent_cur["volume"],
-            "avg_deposit": round(float(rent_cur["avg_deposit"])),
+            "median_deposit_m2": round(float(rent_cur["median_deposit_m2"]), 1),
             "prev_volume": rent_prev["volume"],
-            "prev_avg_deposit": round(float(rent_prev["avg_deposit"])),
+            "prev_median_deposit_m2": round(float(rent_prev["median_deposit_m2"]), 1),
         },
     }
 
@@ -271,6 +300,7 @@ def dashboard_recent(
         sgg = r.get("sgg_cd", "")
         entry = {
             "apt_nm": r["apt_nm"],
+            "sgg_cd": sgg,
             "sigungu": sgg_names.get(sgg, sgg),
             "area": r.get("exclu_use_ar"),
             "floor": r.get("floor"),
@@ -284,3 +314,62 @@ def dashboard_recent(
         result.append(entry)
 
     return result
+
+
+@router.get("/dashboard/trades")
+def dashboard_trades(
+    apt_nm: str = Query(..., description="아파트명"),
+    sgg_cd: str = Query(..., description="시군구 코드"),
+    area: float | None = Query(None, description="기준 면적 (±5㎡ 필터)"),
+):
+    """특정 아파트의 매매 + 전월세 이력 조회. area 지정 시 비슷한 면적만."""
+    conn = DictConnection()
+
+    area_filter = ""
+    params_trade: list = [apt_nm, sgg_cd]
+    params_rent: list = [apt_nm, sgg_cd]
+    if area is not None:
+        area_filter = "AND exclu_use_ar BETWEEN %s AND %s"
+        params_trade.extend([area - 5, area + 5])
+        params_rent.extend([area - 5, area + 5])
+
+    trades = conn.execute(f"""
+        SELECT deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day
+        FROM trade_history
+        WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
+        ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
+    """, params_trade).fetchall()
+
+    rents = conn.execute(f"""
+        SELECT deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day
+        FROM rent_history
+        WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
+        ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
+    """, params_rent).fetchall()
+
+    sgg_names = _get_sgg_names(conn)
+    conn.close()
+
+    return {
+        "apt_nm": apt_nm,
+        "sigungu": sgg_names.get(sgg_cd, sgg_cd),
+        "trades": [
+            {
+                "date": f"{r['deal_year']}.{r['deal_month']:02d}.{r['deal_day']:02d}",
+                "price": r["deal_amount"],
+                "area": r.get("exclu_use_ar"),
+                "floor": r.get("floor"),
+            }
+            for r in trades
+        ],
+        "rents": [
+            {
+                "date": f"{r['deal_year']}.{r['deal_month']:02d}.{r['deal_day']:02d}",
+                "deposit": r.get("deposit"),
+                "monthly_rent": r.get("monthly_rent"),
+                "area": r.get("exclu_use_ar"),
+                "floor": r.get("floor"),
+            }
+            for r in rents
+        ],
+    }
