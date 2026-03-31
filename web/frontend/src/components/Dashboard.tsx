@@ -86,6 +86,7 @@ export default function Dashboard() {
   const [regionQuery, setRegionQuery] = useState('');
   const [regionResults, setRegionResults] = useState<RegionOption[]>([]);
   const [showRegionDropdown, setShowRegionDropdown] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const [rankingType, setRankingType] = useState<'trade' | 'rent'>('trade');
   const [recentType, setRecentType] = useState<'trade' | 'rent'>('trade');
   const [loading, setLoading] = useState(true);
@@ -112,6 +113,7 @@ export default function Dashboard() {
       try {
         const res = await axios.get<RegionOption[]>(`${API_BASE}/api/dashboard/regions`, { params: { q: regionQuery } });
         setRegionResults(res.data);
+        setHighlightIndex(-1);
       } catch { /* ignore */ }
     }, 200);
     return () => clearTimeout(timer);
@@ -123,7 +125,28 @@ export default function Dashboard() {
     setRegionQuery('');
     setRegionResults([]);
     setShowRegionDropdown(false);
+    setHighlightIndex(-1);
   }, []);
+
+  const handleRegionKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!showRegionDropdown || regionResults.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIndex(prev => (prev + 1) % regionResults.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIndex(prev => (prev <= 0 ? regionResults.length - 1 : prev - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightIndex >= 0 && highlightIndex < regionResults.length) {
+        const r = regionResults[highlightIndex];
+        handleSelectRegion(r.code, r.name);
+      }
+    } else if (e.key === 'Escape') {
+      setShowRegionDropdown(false);
+      setHighlightIndex(-1);
+    }
+  }, [showRegionDropdown, regionResults, highlightIndex, handleSelectRegion]);
 
   const handleClearRegion = useCallback(() => {
     setSggFilter('');
@@ -197,17 +220,19 @@ export default function Dashboard() {
               value={regionQuery}
               onChange={(e) => { setRegionQuery(e.target.value); setShowRegionDropdown(true); }}
               onFocus={() => setShowRegionDropdown(true)}
+              onKeyDown={handleRegionKeyDown}
               placeholder={sggFilter ? '지역 변경...' : '지역 검색 (예: 강남, 해운대)'}
               className="w-36 sm:w-44 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
             />
           </div>
           {showRegionDropdown && regionResults.length > 0 && (
             <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-30 max-h-60 overflow-y-auto">
-              {regionResults.map(r => (
+              {regionResults.map((r, idx) => (
                 <button
                   key={r.code}
                   onClick={() => handleSelectRegion(r.code, r.name)}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors
+                    ${idx === highlightIndex ? 'bg-blue-50 text-blue-700' : 'hover:bg-blue-50 hover:text-blue-700'}`}
                 >
                   {r.name}
                 </button>
