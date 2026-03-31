@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import Map from './components/Map';
 import NudgeBar from './components/NudgeBar';
+import Dashboard from './components/Dashboard';
 import WeightDrawer from './components/WeightDrawer';
 import ResultCards from './components/ResultCards';
 import DetailModal from './components/DetailModal';
@@ -31,6 +32,7 @@ function App() {
   const [compareList, setCompareList] = useState<{ pnu: string; name: string }[]>([]);
   const [chatFocusApts, setChatFocusApts] = useState<{ lat: number; lng: number }[]>([]);
   const [focusPnu, setFocusPnu] = useState<{ pnu: string; lat: number; lng: number; name: string } | null>(null);
+  const [viewMode, setViewMode] = useState<'map' | 'dashboard'>('map');
 
   // Fetch default weights on mount
   useEffect(() => {
@@ -141,35 +143,44 @@ function App() {
         onAddKeyword={handleAddKeyword}
         onRemoveKeyword={handleRemoveKeyword}
         onClearAll={handleClearAllKeywords}
+        viewMode={viewMode}
+        onViewChange={setViewMode}
       />
 
-      {/* Map fills the viewport */}
-      <div className={`absolute inset-0 ${barHeight}`}>
-        <Map
-          apartments={apartments}
-          scoredResults={results}
-          onBoundsChange={handleBoundsChange}
-          onMarkerClick={(pnu) => setSelectedPnu(pnu)}
-          onAnalyzeApartment={handleAnalyzeApartment}
-          onDetailClick={(pnu) => setSelectedPnu(pnu)}
-          onCompareToggle={handleCompareToggle}
-          compareSelected={compareList.map(c => c.pnu)}
-          highlightApts={chatHighlightApts}
-          chatFocusApts={chatFocusApts}
-          focusPnu={focusPnu}
-          onFocusPnuHandled={() => setFocusPnu(null)}
-          searchKeywords={searchKeywords}
-        />
-      </div>
+      {viewMode === 'map' ? (
+        <>
+          {/* Map fills the viewport */}
+          <div className={`absolute inset-0 ${barHeight}`}>
+            <Map
+              apartments={apartments}
+              scoredResults={results}
+              onBoundsChange={handleBoundsChange}
+              onMarkerClick={(pnu) => setSelectedPnu(pnu)}
+              onAnalyzeApartment={handleAnalyzeApartment}
+              onDetailClick={(pnu) => setSelectedPnu(pnu)}
+              onCompareToggle={handleCompareToggle}
+              compareSelected={compareList.map(c => c.pnu)}
+              highlightApts={chatHighlightApts}
+              chatFocusApts={chatFocusApts}
+              focusPnu={focusPnu}
+              onFocusPnuHandled={() => setFocusPnu(null)}
+              searchKeywords={searchKeywords}
+            />
+          </div>
 
-      {/* Bottom result cards */}
-      <ResultCards results={results} loading={loading} onSelect={(pnu) => {
-        // 해당 아파트로 지도 이동 + 팝업
-        const apt = results.find(r => r.pnu === pnu);
-        if (apt?.lat && apt?.lng) {
-          setFocusPnu({ pnu, lat: apt.lat, lng: apt.lng, name: apt.bld_nm });
-        }
-      }} />
+          {/* Bottom result cards */}
+          <ResultCards results={results} loading={loading} onSelect={(pnu) => {
+            const apt = results.find(r => r.pnu === pnu);
+            if (apt?.lat && apt?.lng) {
+              setFocusPnu({ pnu, lat: apt.lat, lng: apt.lng, name: apt.bld_nm });
+            }
+          }} />
+        </>
+      ) : (
+        <div className={`absolute inset-0 ${barHeight} overflow-y-auto`}>
+          <Dashboard />
+        </div>
+      )}
 
       {/* Detail modal */}
       {selectedPnu && (

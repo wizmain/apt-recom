@@ -1,0 +1,29 @@
+name: Initial Nationwide Trade Collection
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  # 매일 15:00 UTC (한국 00:00) — 초기 수집 완료 시 비활성화
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install psycopg2-binary requests python-dotenv pandas
+      - name: Run initial collection (max 900 calls)
+        run: python -m batch.initial_collect --max-calls 900
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+      - name: Upload checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-${{ github.run_number }}
+          path: batch/data/initial_collect_checkpoint.json
+          retention-days: 30

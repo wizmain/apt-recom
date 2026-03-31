@@ -101,3 +101,5 @@ routers/ → services/ → database.py (raw SQL)
 - production DB 직접 접속 (Railway)
 - any 타입 사용 (TypeScript)
 - useEffect 내 직접 API 호출 (hooks 패턴 사용)
+- 문서/코드에 "Generated with Claude Code" 문구 삽입 금지
+- Git 커밋 메시지에 Co-Authored-By: Claude 등 AI 작업자 표기 금지

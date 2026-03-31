@@ -10,6 +10,8 @@ interface NudgeBarProps {
   onAddKeyword: (keyword: string) => void;
   onRemoveKeyword: (keyword: string) => void;
   onClearAll?: () => void;
+  viewMode: 'map' | 'dashboard';
+  onViewChange: (mode: 'map' | 'dashboard') => void;
 }
 
 const NUDGES = [
@@ -34,6 +36,8 @@ export default function NudgeBar({
   onAddKeyword,
   onRemoveKeyword,
   onClearAll,
+  viewMode,
+  onViewChange,
 }: NudgeBarProps) {
   const [inputValue, setInputValue] = useState('');
 
@@ -57,9 +61,25 @@ export default function NudgeBar({
     <div className="fixed top-0 left-0 right-0 z-10 bg-white/95 backdrop-blur-sm shadow-sm">
       {/* Row 1: 타이틀 + 검색 + 필터/가중치 */}
       <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 h-12 sm:h-14">
-        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap mr-0.5 sm:mr-1">
-          🐿<span className="hidden sm:inline"> 라이프스타일 아파트 찾기</span>
-        </span>
+        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap mr-0.5 sm:mr-1">🐿</span>
+
+        {/* 지도/대시보드 탭 */}
+        <div className="flex items-center bg-gray-100 rounded-full p-0.5 flex-shrink-0">
+          <button
+            onClick={() => onViewChange('map')}
+            className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors
+              ${viewMode === 'map' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            지도
+          </button>
+          <button
+            onClick={() => onViewChange('dashboard')}
+            className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors
+              ${viewMode === 'dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            대시보드
+          </button>
+        </div>
 
         {/* 지역/단지 검색 */}
         <div className="relative flex-1 sm:flex-none">
