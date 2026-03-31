@@ -193,6 +193,12 @@ def create_tables(conn) -> None:
             PRIMARY KEY (sigungu_code, age_group)
         );
 
+        CREATE TABLE IF NOT EXISTS sigungu_code (
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            sido TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS chat_feedback (
             id SERIAL PRIMARY KEY,
             user_message TEXT NOT NULL,

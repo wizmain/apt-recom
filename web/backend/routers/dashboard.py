@@ -6,19 +6,24 @@ from datetime import datetime
 
 router = APIRouter()
 
-import sys
-from pathlib import Path
-# batch 모듈을 프로젝트 루트에서 import
-_project_root = Path(__file__).resolve().parents[3]
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-from batch.nationwide_codes import ALL_SGG as SGG_NAMES
+
+def _get_sgg_names(conn=None):
+    """sigungu_code 테이블에서 코드→이름 매핑 조회."""
+    close = False
+    if conn is None:
+        conn = DictConnection()
+        close = True
+    rows = conn.execute("SELECT code, name, sido FROM sigungu_code", []).fetchall()
+    if close:
+        conn.close()
+    return {r["code"]: f"{r['name']}({r['sido']})" if r["sido"] not in (r["name"],) else r["name"] for r in rows}
 
 
 @router.get("/dashboard/regions")
 def dashboard_regions(q: str = Query("", description="검색어")):
     """시군구 목록 검색."""
-    results = [{"code": k, "name": v} for k, v in SGG_NAMES.items()]
+    sgg = _get_sgg_names()
+    results = [{"code": k, "name": v} for k, v in sgg.items()]
     if q.strip():
         results = [r for r in results if q.strip() in r["name"]]
     results.sort(key=lambda x: x["name"])
@@ -212,7 +217,8 @@ def dashboard_ranking(
     result = []
     for r in rows:
         sgg = r["sgg_cd"]
-        name = SGG_NAMES.get(sgg, sgg)
+        sgg_names = _get_sgg_names()
+        name = sgg_names.get(sgg, sgg)
         entry = {"sigungu_code": sgg, "sigungu_name": name, "volume": r["volume"]}
         if type == "trade":
             entry["avg_price"] = round(float(r["avg_price"]))
@@ -253,10 +259,11 @@ def dashboard_recent(
                    t.deal_year, t.deal_month, t.deal_day
             FROM rent_history t
             {sgg_filter}
-            ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deal_amount DESC
+            ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deposit DESC
             LIMIT %s
         """, params + [limit]).fetchall()
 
+    sgg_names = _get_sgg_names(conn)
     conn.close()
 
     result = []
@@ -264,7 +271,7 @@ def dashboard_recent(
         sgg = r.get("sgg_cd", "")
         entry = {
             "apt_nm": r["apt_nm"],
-            "sigungu": SGG_NAMES.get(sgg, sgg),
+            "sigungu": sgg_names.get(sgg, sgg),
             "area": r.get("exclu_use_ar"),
             "floor": r.get("floor"),
             "date": f"{r['deal_year']}.{r['deal_month']:02d}.{r['deal_day']:02d}" if r.get("deal_day") else f"{r['deal_year']}.{r['deal_month']:02d}",
