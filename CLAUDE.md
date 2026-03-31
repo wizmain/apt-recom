@@ -89,6 +89,11 @@ routers/ → services/ → database.py (raw SQL)
 - 커밋: Conventional Commits (feat:, fix:, refactor:, docs:, test:)
 - 한국어 주석 허용, 변수/함수명은 영어
 
+## 변수/키 명명 규칙
+- 모든 변수명, dict 키, DB 컬럼명, API 필드명은 알파벳 소문자로 시작해야 한다
+- underscore(_) prefix는 Python 내부 전용(private) 변수에만 사용하고, API 응답/DB 데이터/프론트엔드에 노출되는 값에는 사용 금지
+- 외부로 전달되는 모든 이름은 snake_case를 따르며, 의미를 명확히 드러내는 접두어를 사용한다 (예: score_, count_, avg_)
+
 ## Git Workflow
 - main 브랜치 직접 push 금지
 - 브랜치명: feature/, bugfix/, hotfix/ 접두어
