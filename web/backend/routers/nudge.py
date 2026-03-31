@@ -157,8 +157,8 @@ def nudge_score(req: NudgeScoreRequest):
                     pnu = row["pnu"]
                     if pnu not in apt_facility_scores:
                         apt_facility_scores[pnu] = {}
-                    apt_facility_scores[pnu]["_price"] = row["price_score"] or 50.0
-                    apt_facility_scores[pnu]["_jeonse"] = row["jeonse_ratio"] or 50.0
+                    apt_facility_scores[pnu]["score_price"] = row["price_score"] or 50.0
+                    apt_facility_scores[pnu]["score_jeonse"] = row["jeonse_ratio"] or 50.0
 
         # 4c. Safety scores
         safety_nudges = {"cost", "newlywed", "senior", "safety"}
@@ -175,7 +175,7 @@ def nudge_score(req: NudgeScoreRequest):
                         pnu = row["pnu"]
                         if pnu not in apt_facility_scores:
                             apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["_safety"] = row["safety_score"] or 50.0
+                        apt_facility_scores[pnu]["score_safety"] = row["safety_score"] or 50.0
                 except Exception:
                     pass
 
@@ -197,7 +197,7 @@ def nudge_score(req: NudgeScoreRequest):
                         if sgg in sgg_crime:
                             if pnu not in apt_facility_scores:
                                 apt_facility_scores[pnu] = {}
-                            apt_facility_scores[pnu]["_crime"] = sgg_crime[sgg]
+                            apt_facility_scores[pnu]["score_crime"] = sgg_crime[sgg]
             except Exception:
                 pass
 
@@ -238,5 +238,4 @@ def nudge_score(req: NudgeScoreRequest):
 @router.get("/nudge/weights")
 def nudge_weights_api():
     """Return the nudge weight configuration."""
-    from fastapi.responses import JSONResponse
-    return JSONResponse(content=get_nudge_weights())
+    return get_nudge_weights()

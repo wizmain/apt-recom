@@ -50,8 +50,8 @@ def apartment_detail(pnu: str):
             "SELECT price_score, jeonse_ratio FROM apt_price_score WHERE pnu = %s", [pnu]
         ).fetchone()
         if price_row:
-            facility_scores["_price"] = price_row["price_score"] or 50.0
-            facility_scores["_jeonse"] = price_row["jeonse_ratio"] or 50.0
+            facility_scores["score_price"] = price_row["price_score"] or 50.0
+            facility_scores["score_jeonse"] = price_row["jeonse_ratio"] or 50.0
 
         safety_row = None
         try:
@@ -61,7 +61,7 @@ def apartment_detail(pnu: str):
         except Exception:
             pass
         if safety_row:
-            facility_scores["_safety"] = safety_row["safety_score"] or 50.0
+            facility_scores["score_safety"] = safety_row["safety_score"] or 50.0
 
         scores = {
             nid: calculate_nudge_score(facility_scores, nid)

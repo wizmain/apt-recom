@@ -293,8 +293,8 @@ async def search_apartments(
                         pnu = row["pnu"]
                         if pnu not in apt_facility_scores:
                             apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["_price"] = row["price_score"] or 50.0
-                        apt_facility_scores[pnu]["_jeonse"] = row["jeonse_ratio"] or 50.0
+                        apt_facility_scores[pnu]["score_price"] = row["price_score"] or 50.0
+                        apt_facility_scores[pnu]["score_jeonse"] = row["jeonse_ratio"] or 50.0
                 except Exception:
                     pass
 
@@ -313,7 +313,7 @@ async def search_apartments(
                         pnu = row["pnu"]
                         if pnu not in apt_facility_scores:
                             apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["_safety"] = row["safety_score"] or 50.0
+                        apt_facility_scores[pnu]["score_safety"] = row["safety_score"] or 50.0
                 except Exception:
                     pass
 
@@ -407,8 +407,8 @@ async def get_apartment_detail(query: str) -> str:
             [pnu],
         ).fetchone()
         if price_row:
-            facility_scores["_price"] = price_row["price_score"] or 50.0
-            facility_scores["_jeonse"] = price_row["jeonse_ratio"] or 50.0
+            facility_scores["score_price"] = price_row["price_score"] or 50.0
+            facility_scores["score_jeonse"] = price_row["jeonse_ratio"] or 50.0
 
         # Safety score
         try:
@@ -416,7 +416,7 @@ async def get_apartment_detail(query: str) -> str:
                 "SELECT safety_score FROM apt_safety_score WHERE pnu = %s", [pnu]
             ).fetchone()
             if safety_row:
-                facility_scores["_safety"] = safety_row["safety_score"] or 50.0
+                facility_scores["score_safety"] = safety_row["safety_score"] or 50.0
         except Exception:
             safety_row = None
 
