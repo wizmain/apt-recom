@@ -4,7 +4,7 @@ import json
 
 from database import DictConnection
 from services.scoring import (
-    NUDGE_WEIGHTS,
+    get_nudge_weights,
     distance_to_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
@@ -174,20 +174,13 @@ TOOL_DEFINITIONS: list[Tool] = [
 
 def _infer_nudges_from_keyword(keyword: str) -> list[str]:
     """Infer nudges from natural language keywords."""
-    nudge_keywords = {
-        "cost": ["가성비", "저렴", "싼", "경제적", "알뜰"],
-        "pet": ["반려동물", "강아지", "고양이", "펫", "애완"],
-        "commute": ["출퇴근", "직장", "교통", "지하철", "30대", "직장인"],
-        "newlywed": ["신혼", "신혼부부", "결혼", "신혼집"],
-        "education": ["교육", "학군", "학교", "아이", "자녀", "초등"],
-        "senior": ["시니어", "노인", "어르신", "은퇴", "노후"],
-        "investment": ["투자", "재테크", "수익", "갭투자"],
-        "nature": ["자연", "공원", "산책", "녹지", "숲"],
-    }
+    from common_codes import get_codes
+    rows = get_codes("nudge_keyword")
     inferred = []
-    for nudge_id, keywords in nudge_keywords.items():
-        if any(kw in keyword for kw in keywords):
-            inferred.append(nudge_id)
+    for r in rows:
+        keywords = r["name"].split(",")
+        if any(kw.strip() in keyword for kw in keywords):
+            inferred.append(r["code"])
     return inferred
 
 
@@ -257,7 +250,7 @@ async def search_apartments(
         # Collect relevant subtypes
         all_subtypes = set()
         for nid in nudges:
-            all_subtypes.update(NUDGE_WEIGHTS.get(nid, {}).keys())
+            all_subtypes.update(get_nudge_weights().get(nid, {}).keys())
 
         # Load facility summaries
         chunk_size = 500
@@ -429,7 +422,7 @@ async def get_apartment_detail(query: str) -> str:
 
         # Nudge scores
         scores = {
-            nid: calculate_nudge_score(facility_scores, nid) for nid in NUDGE_WEIGHTS
+            nid: calculate_nudge_score(facility_scores, nid) for nid in get_nudge_weights()
         }
 
         # School zone
@@ -456,35 +449,10 @@ async def get_apartment_detail(query: str) -> str:
         address = apt["new_plat_plc"] or apt.get("plat_plc")
         if not address and apt.get("sigungu_code"):
             sgg = apt["sigungu_code"]
-            sgg_map = {
-                "11110": "서울 종로구", "11140": "서울 중구", "11170": "서울 용산구",
-                "11200": "서울 성동구", "11215": "서울 광진구", "11230": "서울 동대문구",
-                "11260": "서울 중랑구", "11290": "서울 성북구", "11305": "서울 강북구",
-                "11320": "서울 도봉구", "11350": "서울 노원구", "11380": "서울 은평구",
-                "11410": "서울 서대문구", "11440": "서울 마포구", "11470": "서울 양천구",
-                "11500": "서울 강서구", "11530": "서울 구로구", "11545": "서울 금천구",
-                "11560": "서울 영등포구", "11590": "서울 동작구", "11620": "서울 관악구",
-                "11650": "서울 서초구", "11680": "서울 강남구", "11710": "서울 송파구",
-                "11740": "서울 강동구",
-                "28110": "인천 중구", "28140": "인천 동구", "28177": "인천 미추홀구",
-                "28185": "인천 연수구", "28200": "인천 남동구", "28237": "인천 부평구",
-                "28245": "인천 계양구", "28260": "인천 서구", "28710": "인천 강화군",
-                "41111": "수원 장안구", "41113": "수원 권선구", "41115": "수원 팔달구",
-                "41117": "수원 영통구", "41131": "성남 수정구", "41133": "성남 중원구",
-                "41135": "성남 분당구", "41150": "의정부시", "41171": "안양 만안구",
-                "41173": "안양 동안구", "41190": "부천시", "41210": "광명시",
-                "41220": "평택시", "41250": "동두천시", "41271": "안산 상록구",
-                "41273": "안산 단원구", "41281": "고양 덕양구", "41285": "고양 일산동구",
-                "41287": "고양 일산서구", "41290": "과천시", "41310": "구리시",
-                "41360": "남양주시", "41370": "오산시", "41390": "시흥시",
-                "41410": "군포시", "41430": "의왕시", "41450": "하남시",
-                "41461": "용인 처인구", "41463": "용인 기흥구", "41465": "용인 수지구",
-                "41480": "파주시", "41500": "이천시", "41550": "안성시",
-                "41570": "김포시", "41590": "화성시", "41610": "광주시",
-                "41630": "양주시", "41650": "포천시", "41670": "여주시",
-                "41800": "연천군", "41820": "가평군", "41830": "양평군",
-            }
-            address = sgg_map.get(sgg[:5], f"시군구코드 {sgg}")
+            from common_codes import get_code_map_with_extra
+            sgg_codes = get_code_map_with_extra("sigungu")
+            name_extra = sgg_codes.get(sgg[:5])
+            address = f"{name_extra[1]} {name_extra[0]}" if name_extra else f"시군구코드 {sgg}"
 
         result = {
             "basic": {
@@ -734,7 +702,8 @@ async def search_commute(pnu: str, destination: str) -> str:
     if not paths:
         return json.dumps({"error": "검색된 경로가 없습니다."}, ensure_ascii=False)
 
-    type_labels = {1: "지하철", 2: "버스", 3: "지하철+버스"}
+    from common_codes import get_code_map
+    type_labels = {int(k): v for k, v in get_code_map("path_type").items()}
     routes = []
     for path in paths[:5]:
         info = path.get("info", {})

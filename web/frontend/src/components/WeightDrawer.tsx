@@ -1,47 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useMultipleCodes } from '../hooks/useCodes';
 
 interface WeightDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultWeights: Record<string, Record<string, number>>;  // { cost: { _price: 0.3, subway: 0.15 }, ... }
+  defaultWeights: Record<string, Record<string, number>>;
   selectedNudges: string[];
   onApply: (weights: Record<string, number>) => void;
 }
-
-const FACILITY_LABELS: Record<string, string> = {
-  subway: '지하철역',
-  bus: '버스정류장',
-  bus_stop: '버스정류장',
-  school: '학교',
-  kindergarten: '유치원',
-  hospital: '병원',
-  park: '공원',
-  mart: '대형마트',
-  convenience_store: '편의점',
-  library: '도서관',
-  pharmacy: '약국',
-  pet_facility: '반려동물시설',
-  animal_hospital: '동물병원',
-  police: '경찰서',
-  fire_station: '소방서',
-  cctv: 'CCTV',
-  _price: '가격 경쟁력',
-  _jeonse: '전세가율',
-  _safety: '안전점수',
-  _crime: '범죄안전',
-};
-
-const NUDGE_LABELS: Record<string, string> = {
-  cost: '가성비',
-  pet: '반려동물',
-  commute: '출퇴근',
-  newlywed: '신혼육아',
-  education: '학군',
-  senior: '시니어',
-  investment: '투자',
-  nature: '자연친화',
-  safety: '안전',
-};
 
 export default function WeightDrawer({
   isOpen,
@@ -50,6 +16,10 @@ export default function WeightDrawer({
   selectedNudges,
   onApply,
 }: WeightDrawerProps) {
+  const { maps } = useMultipleCodes('facility_label', 'nudge');
+  const FACILITY_LABELS = maps['facility_label'] || {};
+  const NUDGE_LABELS = maps['nudge'] || {};
+
   // Merge selected nudges' weights into flat map
   const mergedDefaults = useMemo(() => {
     const merged: Record<string, number> = {};

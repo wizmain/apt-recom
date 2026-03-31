@@ -20,7 +20,9 @@ KAKAO_API_KEY = os.getenv("KAKAO_API_KEY", "")
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-PATH_TYPE_LABELS = {1: "지하철", 2: "버스", 3: "지하철+버스"}
+def _get_path_type_labels():
+    from common_codes import get_code_map
+    return {int(k): v for k, v in get_code_map("path_type").items()}
 
 
 class CommuteRequest(BaseModel):
@@ -160,7 +162,7 @@ async def search_commute(req: CommuteRequest):
     for path in paths[:5]:
         info = path.get("info", {})
         routes.append(CommuteRoute(
-            path_type=PATH_TYPE_LABELS.get(path.get("pathType", 0), "기타"),
+            path_type=_get_path_type_labels().get(path.get("pathType", 0), "기타"),
             total_time=info.get("totalTime", 0),
             transit_count=info.get("busTransitCount", 0) + info.get("subwayTransitCount", 0),
             walk_time=info.get("totalWalk", 0),

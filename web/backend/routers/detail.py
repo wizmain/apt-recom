@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from database import DictConnection
 from services.scoring import (
-    NUDGE_WEIGHTS,
+    get_nudge_weights,
     distance_to_score,
     calculate_nudge_score,
 )
@@ -65,7 +65,7 @@ def apartment_detail(pnu: str):
 
         scores = {
             nid: calculate_nudge_score(facility_scores, nid)
-            for nid in NUDGE_WEIGHTS
+            for nid in get_nudge_weights()
         }
 
         # Nearby facilities

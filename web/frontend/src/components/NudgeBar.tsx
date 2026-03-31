@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useCodes } from '../hooks/useCodes';
 
 interface NudgeBarProps {
   selectedNudges: string[];
@@ -14,18 +15,6 @@ interface NudgeBarProps {
   onViewChange: (mode: 'map' | 'dashboard') => void;
 }
 
-const NUDGES = [
-  { id: 'cost', label: '가성비' },
-  { id: 'pet', label: '반려동물' },
-  { id: 'commute', label: '출퇴근' },
-  { id: 'newlywed', label: '신혼육아' },
-  { id: 'education', label: '학군' },
-  { id: 'senior', label: '시니어' },
-  { id: 'investment', label: '투자' },
-  { id: 'nature', label: '자연친화' },
-  { id: 'safety', label: '안전' },
-];
-
 export default function NudgeBar({
   selectedNudges,
   onToggleNudge,
@@ -39,6 +28,8 @@ export default function NudgeBar({
   viewMode,
   onViewChange,
 }: NudgeBarProps) {
+  const { codes: nudgeCodes } = useCodes('nudge');
+  const NUDGES = nudgeCodes.map(c => ({ id: c.code, label: c.name }));
   const [inputValue, setInputValue] = useState('');
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

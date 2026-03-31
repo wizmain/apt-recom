@@ -11,14 +11,9 @@ from database import get_connection
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-VALID_TAGS = [
-    "inaccurate",      # 정보 부정확
-    "too_long",        # 너무 길다
-    "not_relevant",    # 원하는 답이 아님
-    "score_wrong",     # 점수가 이상함
-    "missing_info",    # 정보 부족
-    "formatting",      # 가독성 나쁨
-]
+def _get_valid_tags():
+    from common_codes import get_code_map
+    return list(get_code_map("feedback_tag").keys())
 
 
 class FeedbackRequest(BaseModel):
@@ -43,7 +38,8 @@ async def submit_feedback(req: FeedbackRequest):
         return FeedbackResponse(id=0, message="rating must be 1 or -1")
 
     # Filter valid tags
-    tags = [t for t in req.tags if t in VALID_TAGS]
+    valid_tags = _get_valid_tags()
+    tags = [t for t in req.tags if t in valid_tags]
 
     conn = get_connection()
     try:

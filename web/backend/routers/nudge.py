@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from database import DictConnection
 from services.scoring import (
-    NUDGE_WEIGHTS,
+    get_nudge_weights,
     distance_to_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
@@ -113,7 +113,7 @@ def nudge_score(req: NudgeScoreRequest):
         all_subtypes = set()
         for nid in req.nudges:
             ws = (req.weights or {}).get(nid) if req.weights else None
-            subtypes = ws if ws else NUDGE_WEIGHTS.get(nid, {})
+            subtypes = ws if ws else get_nudge_weights().get(nid, {})
             all_subtypes.update(subtypes.keys())
 
         if not all_subtypes:
@@ -238,4 +238,4 @@ def nudge_score(req: NudgeScoreRequest):
 @router.get("/nudge/weights")
 def get_nudge_weights():
     """Return the nudge weight configuration."""
-    return NUDGE_WEIGHTS
+    return get_nudge_weights()

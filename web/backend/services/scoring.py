@@ -1,104 +1,62 @@
-"""Nudge scoring engine for apartment recommendations."""
+"""Nudge scoring engine for apartment recommendations.
 
-# Maximum expected distance (meters) per facility subtype, used for score normalization.
-# A facility at 0m scores 100; at MAX_DISTANCE or beyond scores 0.
-MAX_DISTANCES: dict[str, float] = {
-    "subway": 3000,
-    "bus": 1500,
-    "park": 2000,
-    "hospital": 3000,
-    "pharmacy": 1500,
-    "school": 2000,
-    "kindergarten": 2000,
-    "library": 3000,
-    "mart": 2000,
-    "convenience_store": 1000,
-    "police": 3000,
-    "fire_station": 5000,
-    "pet_facility": 3000,
-    "animal_hospital": 3000,
-    "cctv": 1000,
-}
+가중치/최대거리를 common_code 테이블에서 로드하고 캐시.
+"""
 
-# Each nudge maps facility_subtypes to weights (must sum to ~1.0 per nudge).
-NUDGE_WEIGHTS: dict[str, dict[str, float]] = {
-    "cost": {
-        "_price": 0.30,
-        "_jeonse": 0.15,
-        "_safety": 0.05,
-        "subway": 0.15,
-        "bus": 0.10,
-        "mart": 0.10,
-        "convenience_store": 0.10,
-        "pharmacy": 0.05,
-    },
-    "pet": {
-        "pet_facility": 0.35,
-        "animal_hospital": 0.30,
-        "park": 0.35,
-    },
-    "commute": {
-        "subway": 0.45,
-        "bus": 0.35,
-        "convenience_store": 0.20,
-    },
-    "newlywed": {
-        "_safety": 0.10,
-        "subway": 0.10,
-        "mart": 0.10,
-        "hospital": 0.15,
-        "park": 0.15,
-        "kindergarten": 0.20,
-        "school": 0.20,
-    },
-    "education": {
-        "school": 0.30,
-        "kindergarten": 0.25,
-        "library": 0.25,
-        "park": 0.20,
-    },
-    "senior": {
-        "_safety": 0.10,
-        "hospital": 0.25,
-        "pharmacy": 0.20,
-        "park": 0.15,
-        "bus": 0.10,
-        "convenience_store": 0.20,
-    },
-    "investment": {
-        "_price": 0.25,
-        "_jeonse": 0.20,
-        "subway": 0.20,
-        "bus": 0.10,
-        "park": 0.10,
-        "school": 0.10,
-        "hospital": 0.05,
-    },
-    "nature": {
-        "park": 0.50,
-        "library": 0.25,
-        "pet_facility": 0.25,
-    },
-    "safety": {
-        "_safety": 0.25,
-        "_crime": 0.25,
-        "police": 0.15,
-        "fire_station": 0.10,
-        "cctv": 0.15,
-        "convenience_store": 0.05,
-        "park": 0.05,
-    },
-}
+from database import DictConnection
+
+# 모듈 레벨 캐시 (서버 프로세스 내 1회 로드)
+_max_distances: dict[str, float] | None = None
+_nudge_weights: dict[str, dict[str, float]] | None = None
+
+
+def _load_max_distances() -> dict[str, float]:
+    global _max_distances
+    if _max_distances is not None:
+        return _max_distances
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, name FROM common_code WHERE group_id = %s", ["facility_distance"]
+    ).fetchall()
+    conn.close()
+    _max_distances = {r["code"]: float(r["name"]) for r in rows}
+    return _max_distances
+
+
+def _load_nudge_weights() -> dict[str, dict[str, float]]:
+    global _nudge_weights
+    if _nudge_weights is not None:
+        return _nudge_weights
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, name, extra FROM common_code WHERE group_id = %s", ["nudge_weight"]
+    ).fetchall()
+    conn.close()
+    _nudge_weights = {}
+    for r in rows:
+        # code = "nudge_id:subtype", name = subtype, extra = weight
+        parts = r["code"].split(":", 1)
+        if len(parts) == 2:
+            nudge_id, _ = parts
+            if nudge_id not in _nudge_weights:
+                _nudge_weights[nudge_id] = {}
+            _nudge_weights[nudge_id][r["name"]] = float(r["extra"])
+    return _nudge_weights
+
+
+def get_max_distances() -> dict[str, float]:
+    return _load_max_distances()
+
+
+def get_nudge_weights() -> dict[str, dict[str, float]]:
+    return _load_nudge_weights()
 
 
 def distance_to_score(distance_m: float | None, facility_subtype: str) -> float:
-    """Convert a distance in meters to a 0-100 score.
-
-    Closer is better. Returns 0 if distance is None or >= MAX_DISTANCE.
-    """
+    """Convert a distance in meters to a 0-100 score."""
     if distance_m is None:
         return 0.0
-    max_d = MAX_DISTANCES.get(facility_subtype, 3000)
+    max_d = _load_max_distances().get(facility_subtype, 3000)
     if distance_m >= max_d:
         return 0.0
     return round(100.0 * (1.0 - distance_m / max_d), 2)
@@ -109,14 +67,8 @@ def calculate_nudge_score(
     nudge_id: str,
     custom_weights: dict[str, float] | None = None,
 ) -> float:
-    """Calculate weighted average score for a single nudge.
-
-    Args:
-        facility_scores: {facility_subtype: score_0_to_100}
-        nudge_id: one of the NUDGE_WEIGHTS keys
-        custom_weights: optional override for the weights of this nudge
-    """
-    weights = custom_weights if custom_weights else NUDGE_WEIGHTS.get(nudge_id, {})
+    """Calculate weighted average score for a single nudge."""
+    weights = custom_weights if custom_weights else _load_nudge_weights().get(nudge_id, {})
     if not weights:
         return 0.0
 
