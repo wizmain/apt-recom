@@ -10,8 +10,8 @@ interface Summary {
   current_month: string;
   last_updated: string | null;
   new_today: number;
-  trade: { volume: number; avg_price: number; prev_volume: number; prev_avg_price: number };
-  rent: { volume: number; avg_deposit: number; prev_volume: number; prev_avg_deposit: number };
+  trade: { volume: number; median_price_m2: number; prev_volume: number; prev_median_price_m2: number };
+  rent: { volume: number; median_deposit_m2: number; prev_volume: number; prev_median_deposit_m2: number };
 }
 
 interface TrendItem {
@@ -258,14 +258,15 @@ export default function Dashboard() {
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           {[
-            { label: '매매 거래량', value: `${summary.trade.volume.toLocaleString()}건`, change: changeRate(summary.trade.volume, summary.trade.prev_volume) },
-            { label: '평균 매매가', value: formatPrice(summary.trade.avg_price), change: changeRate(summary.trade.avg_price, summary.trade.prev_avg_price) },
-            { label: '전월세 거래량', value: `${summary.rent.volume.toLocaleString()}건`, change: changeRate(summary.rent.volume, summary.rent.prev_volume) },
-            { label: '평균 전세가', value: formatPrice(summary.rent.avg_deposit), change: changeRate(summary.rent.avg_deposit, summary.rent.prev_avg_deposit) },
+            { label: '매매 거래량', value: `${summary.trade.volume.toLocaleString()}건`, sub: '', change: changeRate(summary.trade.volume, summary.trade.prev_volume) },
+            { label: '㎡당 중위 매매가', value: `${Math.round(summary.trade.median_price_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.trade.median_price_m2 * 3.3).toLocaleString()}만`, change: changeRate(summary.trade.median_price_m2, summary.trade.prev_median_price_m2) },
+            { label: '전월세 거래량', value: `${summary.rent.volume.toLocaleString()}건`, sub: '', change: changeRate(summary.rent.volume, summary.rent.prev_volume) },
+            { label: '㎡당 중위 전세가', value: `${Math.round(summary.rent.median_deposit_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.rent.median_deposit_m2 * 3.3).toLocaleString()}만`, change: changeRate(summary.rent.median_deposit_m2, summary.rent.prev_median_deposit_m2) },
           ].map((card) => (
             <div key={card.label} className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm">
               <p className="text-xs text-gray-500">{card.label}</p>
               <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
+              {card.sub && <p className="text-[10px] text-gray-400">{card.sub}</p>}
               <p className={`text-xs mt-0.5 ${card.change.color}`}>
                 전월 대비 {card.change.text}
               </p>

@@ -53,31 +53,35 @@ def dashboard_summary(
         sgg_filter = "AND sgg_cd = %s"
         sgg_params = [sigungu]
 
-    # 매매 — 이번 달
+    # 매매 — 이번 달 (거래량 + ㎡당 중위가격)
     trade_cur = conn.execute(
-        f"SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
-        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
         [cur_year, cur_month] + sgg_params
     ).fetchone()
 
     # 매매 — 전월
     trade_prev = conn.execute(
-        f"SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
-        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
         [prev_year, prev_month] + sgg_params
     ).fetchone()
 
-    # 전월세 — 이번 달
+    # 전월세 — 이번 달 (거래량 + ㎡당 중위 보증금)
     rent_cur = conn.execute(
-        f"SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
-        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
         [cur_year, cur_month] + sgg_params
     ).fetchone()
 
     # 전월세 — 전월
     rent_prev = conn.execute(
-        f"SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
-        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        f"SELECT COUNT(*) as volume, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
         [prev_year, prev_month] + sgg_params
     ).fetchone()
 
@@ -99,15 +103,15 @@ def dashboard_summary(
         "new_today": (new_today["cnt"] or 0) if new_today else 0,
         "trade": {
             "volume": trade_cur["volume"],
-            "avg_price": round(float(trade_cur["avg_price"])),
+            "median_price_m2": round(float(trade_cur["median_price_m2"]), 1),
             "prev_volume": trade_prev["volume"],
-            "prev_avg_price": round(float(trade_prev["avg_price"])),
+            "prev_median_price_m2": round(float(trade_prev["median_price_m2"]), 1),
         },
         "rent": {
             "volume": rent_cur["volume"],
-            "avg_deposit": round(float(rent_cur["avg_deposit"])),
+            "median_deposit_m2": round(float(rent_cur["median_deposit_m2"]), 1),
             "prev_volume": rent_prev["volume"],
-            "prev_avg_deposit": round(float(rent_prev["avg_deposit"])),
+            "prev_median_deposit_m2": round(float(rent_prev["median_deposit_m2"]), 1),
         },
     }
 
