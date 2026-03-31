@@ -40,12 +40,15 @@ def dashboard_regions(q: str = Query("", description="검색어")):
 def dashboard_summary(
     sigungu: str = Query("", description="시군구 코드 필터"),
 ):
-    """이번 달 + 전월 동일기간 요약 통계 + 갱신 정보."""
+    """최근 30일 + 이전 30일 비교 요약 통계 + 갱신 정보."""
     conn = DictConnection()
+    from datetime import timedelta
     now = datetime.now()
-    cur_year, cur_month, cur_day = now.year, now.month, now.day
-    prev_month = cur_month - 1 if cur_month > 1 else 12
-    prev_year = cur_year if cur_month > 1 else cur_year - 1
+
+    # 최근 30일: today-29 ~ today, 이전 30일: today-59 ~ today-30
+    cur_start = now - timedelta(days=29)
+    prev_start = now - timedelta(days=59)
+    prev_end = now - timedelta(days=30)
 
     sgg_filter = ""
     sgg_params: list = []
@@ -53,39 +56,43 @@ def dashboard_summary(
         sgg_filter = "AND sgg_cd = %s"
         sgg_params = [sigungu]
 
-    # 동일기간 필터: 이번 달 1일~오늘 vs 전월 1일~같은 일자
-    day_filter = "AND deal_day <= %s"
+    # 날짜 범위 SQL: deal_year*10000 + deal_month*100 + deal_day 로 비교
+    date_expr = "(deal_year * 10000 + deal_month * 100 + deal_day)"
+    cur_start_val = cur_start.year * 10000 + cur_start.month * 100 + cur_start.day
+    cur_end_val = now.year * 10000 + now.month * 100 + now.day
+    prev_start_val = prev_start.year * 10000 + prev_start.month * 100 + prev_start.day
+    prev_end_val = prev_end.year * 10000 + prev_end.month * 100 + prev_end.day
 
-    # 매매 — 이번 달 1일~오늘
+    # 매매 — 최근 30일
     trade_cur = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
-        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
-        [cur_year, cur_month, cur_day] + sgg_params
+        f"FROM trade_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_start_val, cur_end_val] + sgg_params
     ).fetchone()
 
-    # 매매 — 전월 1일~같은 일자
+    # 매매 — 이전 30일
     trade_prev = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
-        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
-        [prev_year, prev_month, cur_day] + sgg_params
+        f"FROM trade_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [prev_start_val, prev_end_val] + sgg_params
     ).fetchone()
 
-    # 전월세 — 이번 달 1일~오늘
+    # 전월세 — 최근 30일
     rent_cur = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
-        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
-        [cur_year, cur_month, cur_day] + sgg_params
+        f"FROM rent_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_start_val, cur_end_val] + sgg_params
     ).fetchone()
 
-    # 전월세 — 전월 1일~같은 일자
+    # 전월세 — 이전 30일
     rent_prev = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
-        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
-        [prev_year, prev_month, cur_day] + sgg_params
+        f"FROM rent_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
+        [prev_start_val, prev_end_val] + sgg_params
     ).fetchone()
 
     # 갱신 정보
@@ -101,8 +108,8 @@ def dashboard_summary(
     conn.close()
 
     return {
-        "current_month": f"{cur_year}-{cur_month:02d}",
-        "compare_period": f"1~{cur_day}일 기준",
+        "current_period": f"{cur_start.month}/{cur_start.day}~{now.month}/{now.day}",
+        "prev_period": f"{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}",
         "last_updated": last_updated,
         "new_today": (new_today["cnt"] or 0) if new_today else 0,
         "trade": {
