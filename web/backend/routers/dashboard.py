@@ -297,23 +297,32 @@ def dashboard_recent(
 def dashboard_trades(
     apt_nm: str = Query(..., description="아파트명"),
     sgg_cd: str = Query(..., description="시군구 코드"),
+    area: float | None = Query(None, description="기준 면적 (±5㎡ 필터)"),
 ):
-    """특정 아파트의 매매 + 전월세 이력 조회."""
+    """특정 아파트의 매매 + 전월세 이력 조회. area 지정 시 비슷한 면적만."""
     conn = DictConnection()
 
-    trades = conn.execute("""
+    area_filter = ""
+    params_trade: list = [apt_nm, sgg_cd]
+    params_rent: list = [apt_nm, sgg_cd]
+    if area is not None:
+        area_filter = "AND exclu_use_ar BETWEEN %s AND %s"
+        params_trade.extend([area - 5, area + 5])
+        params_rent.extend([area - 5, area + 5])
+
+    trades = conn.execute(f"""
         SELECT deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day
         FROM trade_history
-        WHERE apt_nm = %s AND sgg_cd = %s
+        WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
         ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
-    """, [apt_nm, sgg_cd]).fetchall()
+    """, params_trade).fetchall()
 
-    rents = conn.execute("""
+    rents = conn.execute(f"""
         SELECT deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day
         FROM rent_history
-        WHERE apt_nm = %s AND sgg_cd = %s
+        WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
         ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
-    """, [apt_nm, sgg_cd]).fetchall()
+    """, params_rent).fetchall()
 
     sgg_names = _get_sgg_names(conn)
     conn.close()

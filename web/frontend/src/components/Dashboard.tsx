@@ -91,7 +91,7 @@ export default function Dashboard() {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [rankingType, setRankingType] = useState<'trade' | 'rent'>('trade');
   const [recentType, setRecentType] = useState<'trade' | 'rent'>('trade');
-  const [selectedApt, setSelectedApt] = useState<{ aptName: string; sggCd: string } | null>(null);
+  const [selectedApt, setSelectedApt] = useState<{ aptName: string; sggCd: string; area: number | null } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 바깥 클릭 시 드롭다운 닫기
@@ -318,7 +318,7 @@ export default function Dashboard() {
                   <tr
                     key={i}
                     className="hover:bg-blue-50 cursor-pointer transition-colors"
-                    onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd })}
+                    onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd, area: r.area })}
                   >
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{r.date}</td>
                     <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{r.sigungu}</td>
@@ -343,11 +343,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Trade history panel */}
+      {/* Trade history modal */}
       {selectedApt && (
         <TradeHistoryPanel
           aptName={selectedApt.aptName}
           sggCd={selectedApt.sggCd}
+          area={selectedApt.area}
           onClose={() => setSelectedApt(null)}
         />
       )}
