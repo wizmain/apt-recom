@@ -10,6 +10,7 @@ interface Summary {
   current_month: string;
   last_updated: string | null;
   new_today: number;
+  compare_period: string;
   trade: { volume: number; median_price_m2: number; prev_volume: number; prev_median_price_m2: number };
   rent: { volume: number; median_deposit_m2: number; prev_volume: number; prev_median_deposit_m2: number };
 }
@@ -258,10 +259,10 @@ export default function Dashboard() {
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           {[
-            { label: '매매 거래량', value: `${summary.trade.volume.toLocaleString()}건`, sub: '', prev: `전월 ${summary.trade.prev_volume.toLocaleString()}건`, change: changeRate(summary.trade.volume, summary.trade.prev_volume) },
-            { label: '㎡당 중위 매매가', value: `${Math.round(summary.trade.median_price_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.trade.median_price_m2 * 3.3).toLocaleString()}만`, prev: `전월 ${Math.round(summary.trade.prev_median_price_m2).toLocaleString()}만/㎡`, change: changeRate(summary.trade.median_price_m2, summary.trade.prev_median_price_m2) },
-            { label: '전월세 거래량', value: `${summary.rent.volume.toLocaleString()}건`, sub: '', prev: `전월 ${summary.rent.prev_volume.toLocaleString()}건`, change: changeRate(summary.rent.volume, summary.rent.prev_volume) },
-            { label: '㎡당 중위 전세가', value: `${Math.round(summary.rent.median_deposit_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.rent.median_deposit_m2 * 3.3).toLocaleString()}만`, prev: `전월 ${Math.round(summary.rent.prev_median_deposit_m2).toLocaleString()}만/㎡`, change: changeRate(summary.rent.median_deposit_m2, summary.rent.prev_median_deposit_m2) },
+            { label: `매매 거래량 (${summary.compare_period})`, value: `${summary.trade.volume.toLocaleString()}건`, sub: '', prev: `전월 동기간 ${summary.trade.prev_volume.toLocaleString()}건`, change: changeRate(summary.trade.volume, summary.trade.prev_volume) },
+            { label: '㎡당 중위 매매가', value: `${Math.round(summary.trade.median_price_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.trade.median_price_m2 * 3.3).toLocaleString()}만`, prev: `전월 동기간 ${Math.round(summary.trade.prev_median_price_m2).toLocaleString()}만/㎡`, change: changeRate(summary.trade.median_price_m2, summary.trade.prev_median_price_m2) },
+            { label: `전월세 거래량 (${summary.compare_period})`, value: `${summary.rent.volume.toLocaleString()}건`, sub: '', prev: `전월 동기간 ${summary.rent.prev_volume.toLocaleString()}건`, change: changeRate(summary.rent.volume, summary.rent.prev_volume) },
+            { label: '㎡당 중위 전세가', value: `${Math.round(summary.rent.median_deposit_m2).toLocaleString()}만`, sub: `평당 ${Math.round(summary.rent.median_deposit_m2 * 3.3).toLocaleString()}만`, prev: `전월 동기간 ${Math.round(summary.rent.prev_median_deposit_m2).toLocaleString()}만/㎡`, change: changeRate(summary.rent.median_deposit_m2, summary.rent.prev_median_deposit_m2) },
           ].map((card) => (
             <div key={card.label} className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 shadow-sm">
               <p className="text-xs text-gray-500">{card.label}</p>

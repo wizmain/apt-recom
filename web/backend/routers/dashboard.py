@@ -40,10 +40,10 @@ def dashboard_regions(q: str = Query("", description="검색어")):
 def dashboard_summary(
     sigungu: str = Query("", description="시군구 코드 필터"),
 ):
-    """이번 달 + 전월 요약 통계 + 갱신 정보."""
+    """이번 달 + 전월 동일기간 요약 통계 + 갱신 정보."""
     conn = DictConnection()
     now = datetime.now()
-    cur_year, cur_month = now.year, now.month
+    cur_year, cur_month, cur_day = now.year, now.month, now.day
     prev_month = cur_month - 1 if cur_month > 1 else 12
     prev_year = cur_year if cur_month > 1 else cur_year - 1
 
@@ -53,36 +53,39 @@ def dashboard_summary(
         sgg_filter = "AND sgg_cd = %s"
         sgg_params = [sigungu]
 
-    # 매매 — 이번 달 (거래량 + ㎡당 중위가격)
+    # 동일기간 필터: 이번 달 1일~오늘 vs 전월 1일~같은 일자
+    day_filter = "AND deal_day <= %s"
+
+    # 매매 — 이번 달 1일~오늘
     trade_cur = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
-        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
-        [cur_year, cur_month] + sgg_params
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
+        [cur_year, cur_month, cur_day] + sgg_params
     ).fetchone()
 
-    # 매매 — 전월
+    # 매매 — 전월 1일~같은 일자
     trade_prev = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
-        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
-        [prev_year, prev_month] + sgg_params
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
+        [prev_year, prev_month, cur_day] + sgg_params
     ).fetchone()
 
-    # 전월세 — 이번 달 (거래량 + ㎡당 중위 보증금)
+    # 전월세 — 이번 달 1일~오늘
     rent_cur = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
-        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
-        [cur_year, cur_month] + sgg_params
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
+        [cur_year, cur_month, cur_day] + sgg_params
     ).fetchone()
 
-    # 전월세 — 전월
+    # 전월세 — 전월 1일~같은 일자
     rent_prev = conn.execute(
         f"SELECT COUNT(*) as volume, "
         f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
-        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
-        [prev_year, prev_month] + sgg_params
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {day_filter} {sgg_filter}",
+        [prev_year, prev_month, cur_day] + sgg_params
     ).fetchone()
 
     # 갱신 정보
@@ -99,6 +102,7 @@ def dashboard_summary(
 
     return {
         "current_month": f"{cur_year}-{cur_month:02d}",
+        "compare_period": f"1~{cur_day}일 기준",
         "last_updated": last_updated,
         "new_today": (new_today["cnt"] or 0) if new_today else 0,
         "trade": {
