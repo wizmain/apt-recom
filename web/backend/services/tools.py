@@ -165,6 +165,26 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": ["pnu", "destination"],
         },
     ),
+    Tool(
+        name="get_dashboard_info",
+        description="수도권/전국 아파트 거래 동향 조회. 월별 거래량, ㎡당 중위 매매가/전세가, 전월 대비 변동률, 시군구별 랭킹 등 시장 현황을 분석합니다. 특정 지역을 지정하면 해당 지역의 동향을 반환합니다.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "region": {
+                    "type": "string",
+                    "description": "지역명 (예: '강남구', '해운대구', '수원'). 비어있으면 전국",
+                    "default": "",
+                },
+                "months": {
+                    "type": "integer",
+                    "description": "추이 조회 개월 수 (기본 6)",
+                    "default": 6,
+                },
+            },
+            "required": [],
+        },
+    ),
 ]
 
 
@@ -736,6 +756,97 @@ async def search_commute(pnu: str, destination: str) -> str:
     }, ensure_ascii=False)
 
 
+async def get_dashboard_info(region: str = "", months: int = 6) -> str:
+    """거래 동향 대시보드 정보 조회."""
+    conn = _get_conn()
+    from datetime import datetime
+
+    now = datetime.now()
+    cur_year, cur_month = now.year, now.month
+    prev_month = cur_month - 1 if cur_month > 1 else 12
+    prev_year = cur_year if cur_month > 1 else cur_year - 1
+
+    # 지역 코드 매핑
+    sgg_cd = ""
+    sgg_name = "전국"
+    if region.strip():
+        from common_codes import get_codes
+        codes = get_codes("sigungu")
+        for c in codes:
+            if region.strip() in c["name"] or region.strip() in (c["extra"] or ""):
+                sgg_cd = c["code"]
+                sgg_name = f"{c['name']}({c['extra']})" if c["extra"] and c["extra"] != c["name"] else c["name"]
+                break
+
+    sgg_filter = ""
+    sgg_params: list = []
+    if sgg_cd:
+        sgg_filter = "AND sgg_cd = %s"
+        sgg_params = [sgg_cd]
+
+    # 이번 달 요약
+    trade_cur = conn.execute(
+        f"SELECT COUNT(*) as vol, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as med "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_year, cur_month] + sgg_params
+    ).fetchone()
+
+    trade_prev = conn.execute(
+        f"SELECT COUNT(*) as vol, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as med "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
+        [prev_year, prev_month] + sgg_params
+    ).fetchone()
+
+    rent_cur = conn.execute(
+        f"SELECT COUNT(*) as vol, "
+        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as med "
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s AND exclu_use_ar > 0 {sgg_filter}",
+        [cur_year, cur_month] + sgg_params
+    ).fetchone()
+
+    # 월별 추이
+    start_ym = (cur_year - 1) * 100 + cur_month if months > 12 else cur_year * 100 + max(1, cur_month - months)
+    trend_params = [start_ym] + sgg_params
+    trend = conn.execute(f"""
+        SELECT deal_year, deal_month, COUNT(*) as vol,
+               COALESCE(AVG(deal_amount), 0) as avg_price
+        FROM trade_history
+        WHERE deal_year * 100 + deal_month >= %s {sgg_filter}
+        GROUP BY deal_year, deal_month
+        ORDER BY deal_year, deal_month
+    """, trend_params).fetchall()
+
+    conn.close()
+
+    # 변동률
+    cur_med = float(trade_cur["med"])
+    prev_med = float(trade_prev["med"])
+    change_pct = round((cur_med - prev_med) / prev_med * 100, 1) if prev_med > 0 else 0
+
+    trend_text = ", ".join(
+        f"{r['deal_year']}.{r['deal_month']:02d}: {r['vol']}건(평균 {round(float(r['avg_price'])):,}만)"
+        for r in trend[-6:]
+    )
+
+    return json.dumps({
+        "region": sgg_name,
+        "current_month": f"{cur_year}년 {cur_month}월",
+        "trade_summary": {
+            "volume": trade_cur["vol"],
+            "median_price_m2": f"{round(cur_med):,}만/㎡ (평당 {round(cur_med * 3.3):,}만)",
+            "prev_median_price_m2": f"{round(prev_med):,}만/㎡",
+            "change_pct": f"{'+' if change_pct > 0 else ''}{change_pct}%",
+        },
+        "rent_summary": {
+            "volume": rent_cur["vol"],
+            "median_deposit_m2": f"{round(float(rent_cur['med'])):,}만/㎡",
+        },
+        "monthly_trend": trend_text,
+    }, ensure_ascii=False)
+
+
 # ---------------------------------------------------------------------------
 # Executor mapping
 # ---------------------------------------------------------------------------
@@ -748,4 +859,5 @@ TOOL_EXECUTORS = {
     "get_school_info": get_school_info,
     "search_knowledge": search_knowledge,
     "search_commute": search_commute,
+    "get_dashboard_info": get_dashboard_info,
 }

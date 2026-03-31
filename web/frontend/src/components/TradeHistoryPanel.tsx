@@ -35,7 +35,7 @@ function formatPrice(val: number): string {
   if (val >= 10000) {
     const eok = Math.floor(val / 10000);
     const rest = val % 10000;
-    return rest > 0 ? `${eok}억${rest.toLocaleString()}` : `${eok}억`;
+    return `${eok}억${String(rest).padStart(4, '0').replace(/(\d)(?=(\d{3})+$)/g, '$1,')}`;
   }
   return `${val.toLocaleString()}`;
 }
