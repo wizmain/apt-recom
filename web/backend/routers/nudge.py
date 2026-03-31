@@ -236,6 +236,6 @@ def nudge_score(req: NudgeScoreRequest):
 
 
 @router.get("/nudge/weights")
-def get_nudge_weights():
+def nudge_weights_api():
     """Return the nudge weight configuration."""
     return get_nudge_weights()
