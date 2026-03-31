@@ -1,5 +1,11 @@
 # Backend Rules (FastAPI + psycopg2)
 
+## 배포 환경 제약
+- Railway 배포 시 `web/backend/` 디렉토리만 존재함
+- **web/backend/ 코드에서 batch/, apt_eda/ 등 프로젝트 루트의 외부 모듈을 직접 import 금지**
+- 모듈 간 공유 데이터는 DB 테이블로 관리 (예: sigungu_code 테이블)
+- sys.path 조작으로 외부 모듈을 import하는 것도 금지 (배포 환경에서 동작하지 않음)
+
 ## 라우터 (web/backend/routers/)
 - `apartments.py` — 아파트 목록/검색 (뷰포트 기반, 키워드 검색)
 - `nudge.py` — 넛지 스코어링 (라이프스타일 기반 추천)
