@@ -45,7 +45,7 @@ def dashboard_summary(
     from datetime import timedelta
     now = datetime.now()
 
-    # 최근 30일: today-29 ~ today, 이전 30일: today-59 ~ today-30
+    # 최근 30일 / 이전 30일
     cur_start = now - timedelta(days=29)
     prev_start = now - timedelta(days=59)
     prev_end = now - timedelta(days=30)
@@ -56,48 +56,66 @@ def dashboard_summary(
         sgg_filter = "AND sgg_cd = %s"
         sgg_params = [sigungu]
 
-    # 날짜 범위 SQL: deal_year*10000 + deal_month*100 + deal_day 로 비교
-    date_expr = "(deal_year * 10000 + deal_month * 100 + deal_day)"
-    cur_start_val = cur_start.year * 10000 + cur_start.month * 100 + cur_start.day
-    cur_end_val = now.year * 10000 + now.month * 100 + now.day
-    prev_start_val = prev_start.year * 10000 + prev_start.month * 100 + prev_start.day
-    prev_end_val = prev_end.year * 10000 + prev_end.month * 100 + prev_end.day
+    # 날짜 범위를 year/month/day 직접 비교 (인덱스 활용)
+    def _date_range_sql(start, end):
+        """(deal_year, deal_month, deal_day) BETWEEN start AND end 조건 생성."""
+        return (
+            f"((deal_year > %s OR (deal_year = %s AND deal_month > %s) OR "
+            f"(deal_year = %s AND deal_month = %s AND deal_day >= %s)) AND "
+            f"(deal_year < %s OR (deal_year = %s AND deal_month < %s) OR "
+            f"(deal_year = %s AND deal_month = %s AND deal_day <= %s)))"
+        )
 
-    # 매매 — 최근 30일
-    trade_cur = conn.execute(
-        f"SELECT COUNT(*) as volume, "
-        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
-        f"FROM trade_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
-        [cur_start_val, cur_end_val] + sgg_params
-    ).fetchone()
+    def _date_params(start, end):
+        return [start.year, start.year, start.month, start.year, start.month, start.day,
+                end.year, end.year, end.month, end.year, end.month, end.day]
 
-    # 매매 — 이전 30일
-    trade_prev = conn.execute(
-        f"SELECT COUNT(*) as volume, "
-        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_amount / NULLIF(exclu_use_ar, 0)), 0) as median_price_m2 "
-        f"FROM trade_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
-        [prev_start_val, prev_end_val] + sgg_params
-    ).fetchone()
+    cur_range = _date_range_sql(cur_start, now)
+    prev_range = _date_range_sql(prev_start, prev_end)
+    cur_params = _date_params(cur_start, now)
+    prev_params = _date_params(prev_start, prev_end)
 
-    # 전월세 — 최근 30일
-    rent_cur = conn.execute(
-        f"SELECT COUNT(*) as volume, "
-        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
-        f"FROM rent_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
-        [cur_start_val, cur_end_val] + sgg_params
-    ).fetchone()
+    # 매매 — 최근 30일 + 이전 30일을 1쿼리로
+    trade_rows = conn.execute(f"""
+        SELECT period,
+               COUNT(*) as volume,
+               COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_m2), 0) as median_price_m2
+        FROM (
+            SELECT CASE WHEN {cur_range} THEN 'cur' WHEN {prev_range} THEN 'prev' END as period,
+                   deal_amount / NULLIF(exclu_use_ar, 0) as price_m2
+            FROM trade_history
+            WHERE exclu_use_ar > 0 AND ({cur_range} OR {prev_range}) {sgg_filter}
+        ) sub
+        WHERE period IS NOT NULL
+        GROUP BY period
+    """, cur_params + prev_params + cur_params + prev_params + sgg_params).fetchall()
 
-    # 전월세 — 이전 30일
-    rent_prev = conn.execute(
-        f"SELECT COUNT(*) as volume, "
-        f"COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deposit / NULLIF(exclu_use_ar, 0)), 0) as median_deposit_m2 "
-        f"FROM rent_history WHERE {date_expr} BETWEEN %s AND %s AND exclu_use_ar > 0 {sgg_filter}",
-        [prev_start_val, prev_end_val] + sgg_params
-    ).fetchone()
+    trade_map = {r["period"]: r for r in trade_rows}
+    trade_cur = trade_map.get("cur", {"volume": 0, "median_price_m2": 0})
+    trade_prev = trade_map.get("prev", {"volume": 0, "median_price_m2": 0})
+
+    # 전월세 — 최근 30일 + 이전 30일을 1쿼리로
+    rent_rows = conn.execute(f"""
+        SELECT period,
+               COUNT(*) as volume,
+               COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY dep_m2), 0) as median_deposit_m2
+        FROM (
+            SELECT CASE WHEN {cur_range} THEN 'cur' WHEN {prev_range} THEN 'prev' END as period,
+                   deposit / NULLIF(exclu_use_ar, 0) as dep_m2
+            FROM rent_history
+            WHERE exclu_use_ar > 0 AND ({cur_range} OR {prev_range}) {sgg_filter}
+        ) sub
+        WHERE period IS NOT NULL
+        GROUP BY period
+    """, cur_params + prev_params + cur_params + prev_params + sgg_params).fetchall()
+
+    rent_map = {r["period"]: r for r in rent_rows}
+    rent_cur = rent_map.get("cur", {"volume": 0, "median_deposit_m2": 0})
+    rent_prev = rent_map.get("prev", {"volume": 0, "median_deposit_m2": 0})
 
     # 갱신 정보
     last_updated_row = conn.execute(
-        "SELECT MAX(created_at) as last_updated FROM trade_history WHERE created_at IS NOT NULL"
+        "SELECT MAX(created_at) as last_updated FROM trade_history WHERE created_at IS NOT NULL", []
     ).fetchone()
     last_updated = last_updated_row["last_updated"].isoformat() if last_updated_row and last_updated_row["last_updated"] else None
 
@@ -241,12 +259,12 @@ def dashboard_ranking(
             LIMIT 10
         """, [now.year, now.month]).fetchall()
 
+    sgg_names = _get_sgg_names(conn)
     conn.close()
 
     result = []
     for r in rows:
         sgg = r["sgg_cd"]
-        sgg_names = _get_sgg_names()
         name = sgg_names.get(sgg, sgg)
         entry = {"sigungu_code": sgg, "sigungu_name": name, "volume": r["volume"]}
         if type == "trade":

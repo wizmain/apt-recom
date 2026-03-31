@@ -235,6 +235,14 @@ def create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_apt_group_pnu ON apartments(group_pnu)",
         "CREATE INDEX IF NOT EXISTS idx_feedback_rating ON chat_feedback(rating)",
         "CREATE INDEX IF NOT EXISTS idx_feedback_created ON chat_feedback(created_at)",
+        # 대시보드 성능용 복합 인덱스
+        "CREATE INDEX IF NOT EXISTS idx_trade_ymd ON trade_history(deal_year, deal_month, deal_day)",
+        "CREATE INDEX IF NOT EXISTS idx_rent_ymd ON rent_history(deal_year, deal_month, deal_day)",
+        "CREATE INDEX IF NOT EXISTS idx_trade_sgg_date ON trade_history(sgg_cd, deal_year, deal_month)",
+        "CREATE INDEX IF NOT EXISTS idx_rent_sgg_date ON rent_history(sgg_cd, deal_year, deal_month)",
+        "CREATE INDEX IF NOT EXISTS idx_trade_apt_sgg ON trade_history(apt_nm, sgg_cd)",
+        "CREATE INDEX IF NOT EXISTS idx_rent_apt_sgg ON rent_history(apt_nm, sgg_cd)",
+        "CREATE INDEX IF NOT EXISTS idx_trade_created ON trade_history(created_at)",
     ]
     for sql in indexes:
         cur.execute(sql)

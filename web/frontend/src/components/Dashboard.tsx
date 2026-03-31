@@ -111,6 +111,7 @@ export default function Dashboard() {
   // 지역 검색
   useEffect(() => {
     if (!regionQuery.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear results on empty query
       setRegionResults([]);
       return;
     }
@@ -172,24 +173,30 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [summaryRes, trendRes, rankingRes, recentRes] = await Promise.all([
+      // 요약 카드 + 최근 거래를 먼저 로드 (가장 빠름)
+      const [summaryRes, recentRes] = await Promise.all([
         axios.get<Summary>(`${API_BASE}/api/dashboard/summary`, { params: { sigungu: sggFilter } }),
-        axios.get<TrendItem[]>(`${API_BASE}/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter } }),
-        axios.get<RankingItem[]>(`${API_BASE}/api/dashboard/ranking`, { params: { type: rankingType } }),
         axios.get<RecentTrade[]>(`${API_BASE}/api/dashboard/recent`, { params: { type: recentType, limit: 20, sigungu: sggFilter } }),
       ]);
       setSummary(summaryRes.data);
+      setRecent(recentRes.data);
+      setLoading(false);
+
+      // 차트 + 랭킹은 백그라운드 로드 (이전 데이터 유지하며 업데이트)
+      const [trendRes, rankingRes] = await Promise.all([
+        axios.get<TrendItem[]>(`${API_BASE}/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter } }),
+        axios.get<RankingItem[]>(`${API_BASE}/api/dashboard/ranking`, { params: { type: rankingType } }),
+      ]);
       setTrend(trendRes.data);
       setRanking(rankingRes.data);
-      setRecent(recentRes.data);
     } catch (err) {
       console.error('대시보드 데이터 로드 실패:', err);
-    } finally {
       setLoading(false);
     }
   }, [sggFilter, rankingType, recentType]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading reset on filter change
     setLoading(true);
     fetchData();
     const timer = setInterval(fetchData, REFRESH_INTERVAL);
