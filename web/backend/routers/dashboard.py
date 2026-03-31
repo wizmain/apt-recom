@@ -8,22 +8,28 @@ router = APIRouter()
 
 
 def _get_sgg_names(conn=None):
-    """sigungu_code 테이블에서 코드→이름 매핑 조회."""
+    """common_code 테이블에서 시군구 코드→이름 매핑 조회."""
     close = False
     if conn is None:
         conn = DictConnection()
         close = True
-    rows = conn.execute("SELECT code, name, sido FROM sigungu_code", []).fetchall()
+    rows = conn.execute(
+        "SELECT code, name, extra FROM common_code WHERE group_id = %s", ["sigungu"]
+    ).fetchall()
     if close:
         conn.close()
-    return {r["code"]: f"{r['name']}({r['sido']})" if r["sido"] not in (r["name"],) else r["name"] for r in rows}
+    return {r["code"]: f"{r['name']}({r['extra']})" if r["extra"] and r["extra"] != r["name"] else r["name"] for r in rows}
 
 
 @router.get("/dashboard/regions")
 def dashboard_regions(q: str = Query("", description="검색어")):
     """시군구 목록 검색."""
-    sgg = _get_sgg_names()
-    results = [{"code": k, "name": v} for k, v in sgg.items()]
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, name, extra FROM common_code WHERE group_id = %s", ["sigungu"]
+    ).fetchall()
+    conn.close()
+    results = [{"code": r["code"], "name": f"{r['name']}({r['extra']})" if r["extra"] and r["extra"] != r["name"] else r["name"]} for r in rows]
     if q.strip():
         results = [r for r in results if q.strip() in r["name"]]
     results.sort(key=lambda x: x["name"])
