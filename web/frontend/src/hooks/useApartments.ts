@@ -86,11 +86,16 @@ export function useApartments() {
 
   // 검색 결과 캐시 (검색 후 지도 이동 시 합산용)
   const searchResultsRef = useRef<Apartment[]>([]);
+  const isFirstBoundsRef = useRef(true);
 
-  // 지도 영역 변경 시 호출 (디바운스)
+  // 지도 영역 변경 시 호출 (첫 호출은 즉시, 이후 디바운스)
   const onBoundsChange = useCallback((bounds: MapBounds) => {
     boundsRef.current = bounds;
+    const isFirst = isFirstBoundsRef.current;
+    if (isFirst) isFirstBoundsRef.current = false;
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const delay = isFirst ? 0 : 300;
     debounceRef.current = setTimeout(async () => {
       try {
         setLoading(true);
@@ -115,7 +120,7 @@ export function useApartments() {
       } finally {
         setLoading(false);
       }
-    }, 300);
+    }, delay);
   }, []);
 
   // 키워드 추가

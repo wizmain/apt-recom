@@ -113,10 +113,9 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     };
   }, []);
 
-  // 지도 초기화 (한번만)
+  // 지도 초기화 (한번만) — SDK async 로딩 대비 재시도
   useEffect(() => {
     if (!containerRef.current || isInitializedRef.current) return;
-    if (!window.kakao) return;
 
     const initMap = () => {
       if (!containerRef.current || isInitializedRef.current) return;
@@ -161,15 +160,25 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
       // 지도 이동/줌 시 bounds 전달
       window.kakao.maps.event.addListener(map, 'idle', emitBounds);
 
-      // 초기 로딩: 지도 생성 직후 현재 영역 마커 로딩
-      setTimeout(emitBounds, 100);
+      // 초기 로딩: 지도 생성 직후 즉시 bounds 전달 (지연 없음)
+      emitBounds();
     };
 
-    if (window.kakao.maps && window.kakao.maps.LatLng) {
-      initMap();
-    } else {
-      window.kakao.maps.load(initMap);
-    }
+    // SDK async 로딩 대비: kakao 객체가 없으면 대기 후 재시도
+    const tryInit = () => {
+      if (!window.kakao) {
+        const timer = setInterval(() => {
+          if (window.kakao) { clearInterval(timer); tryInit(); }
+        }, 50);
+        return;
+      }
+      if (window.kakao.maps && window.kakao.maps.LatLng) {
+        initMap();
+      } else {
+        window.kakao.maps.load(initMap);
+      }
+    };
+    tryInit();
   }, []);
 
   // 아파트 마커 (클러스터링)
