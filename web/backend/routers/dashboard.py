@@ -37,7 +37,9 @@ def dashboard_regions(q: str = Query("", description="검색어")):
 
 
 @router.get("/dashboard/summary")
-def dashboard_summary():
+def dashboard_summary(
+    sigungu: str = Query("", description="시군구 코드 필터"),
+):
     """이번 달 + 전월 요약 통계 + 갱신 정보."""
     conn = DictConnection()
     now = datetime.now()
@@ -45,32 +47,38 @@ def dashboard_summary():
     prev_month = cur_month - 1 if cur_month > 1 else 12
     prev_year = cur_year if cur_month > 1 else cur_year - 1
 
+    sgg_filter = ""
+    sgg_params: list = []
+    if sigungu:
+        sgg_filter = "AND sgg_cd = %s"
+        sgg_params = [sigungu]
+
     # 매매 — 이번 달
     trade_cur = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
-        "FROM trade_history WHERE deal_year = %s AND deal_month = %s",
-        [cur_year, cur_month]
+        f"SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        [cur_year, cur_month] + sgg_params
     ).fetchone()
 
     # 매매 — 전월
     trade_prev = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
-        "FROM trade_history WHERE deal_year = %s AND deal_month = %s",
-        [prev_year, prev_month]
+        f"SELECT COUNT(*) as volume, COALESCE(AVG(deal_amount), 0) as avg_price "
+        f"FROM trade_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        [prev_year, prev_month] + sgg_params
     ).fetchone()
 
     # 전월세 — 이번 달
     rent_cur = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
-        "FROM rent_history WHERE deal_year = %s AND deal_month = %s",
-        [cur_year, cur_month]
+        f"SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        [cur_year, cur_month] + sgg_params
     ).fetchone()
 
     # 전월세 — 전월
     rent_prev = conn.execute(
-        "SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
-        "FROM rent_history WHERE deal_year = %s AND deal_month = %s",
-        [prev_year, prev_month]
+        f"SELECT COUNT(*) as volume, COALESCE(AVG(deposit), 0) as avg_deposit "
+        f"FROM rent_history WHERE deal_year = %s AND deal_month = %s {sgg_filter}",
+        [prev_year, prev_month] + sgg_params
     ).fetchone()
 
     # 갱신 정보

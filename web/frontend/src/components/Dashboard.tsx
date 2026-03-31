@@ -171,7 +171,7 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [summaryRes, trendRes, rankingRes, recentRes] = await Promise.all([
-        axios.get<Summary>(`${API_BASE}/api/dashboard/summary`),
+        axios.get<Summary>(`${API_BASE}/api/dashboard/summary`, { params: { sigungu: sggFilter } }),
         axios.get<TrendItem[]>(`${API_BASE}/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter } }),
         axios.get<RankingItem[]>(`${API_BASE}/api/dashboard/ranking`, { params: { type: rankingType } }),
         axios.get<RecentTrade[]>(`${API_BASE}/api/dashboard/recent`, { params: { type: recentType, limit: 20, sigungu: sggFilter } }),
