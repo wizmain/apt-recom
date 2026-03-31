@@ -277,6 +277,7 @@ def dashboard_recent(
         sgg = r.get("sgg_cd", "")
         entry = {
             "apt_nm": r["apt_nm"],
+            "sgg_cd": sgg,
             "sigungu": sgg_names.get(sgg, sgg),
             "area": r.get("exclu_use_ar"),
             "floor": r.get("floor"),
@@ -290,3 +291,53 @@ def dashboard_recent(
         result.append(entry)
 
     return result
+
+
+@router.get("/dashboard/trades")
+def dashboard_trades(
+    apt_nm: str = Query(..., description="아파트명"),
+    sgg_cd: str = Query(..., description="시군구 코드"),
+):
+    """특정 아파트의 매매 + 전월세 이력 조회."""
+    conn = DictConnection()
+
+    trades = conn.execute("""
+        SELECT deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day
+        FROM trade_history
+        WHERE apt_nm = %s AND sgg_cd = %s
+        ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
+    """, [apt_nm, sgg_cd]).fetchall()
+
+    rents = conn.execute("""
+        SELECT deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day
+        FROM rent_history
+        WHERE apt_nm = %s AND sgg_cd = %s
+        ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
+    """, [apt_nm, sgg_cd]).fetchall()
+
+    sgg_names = _get_sgg_names(conn)
+    conn.close()
+
+    return {
+        "apt_nm": apt_nm,
+        "sigungu": sgg_names.get(sgg_cd, sgg_cd),
+        "trades": [
+            {
+                "date": f"{r['deal_year']}.{r['deal_month']:02d}.{r['deal_day']:02d}",
+                "price": r["deal_amount"],
+                "area": r.get("exclu_use_ar"),
+                "floor": r.get("floor"),
+            }
+            for r in trades
+        ],
+        "rents": [
+            {
+                "date": f"{r['deal_year']}.{r['deal_month']:02d}.{r['deal_day']:02d}",
+                "deposit": r.get("deposit"),
+                "monthly_rent": r.get("monthly_rent"),
+                "area": r.get("exclu_use_ar"),
+                "floor": r.get("floor"),
+            }
+            for r in rents
+        ],
+    }

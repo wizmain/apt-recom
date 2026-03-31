@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import TradeHistoryPanel from './TradeHistoryPanel';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -33,6 +34,7 @@ interface RankingItem {
 
 interface RecentTrade {
   apt_nm: string;
+  sgg_cd: string;
   sigungu: string;
   area: number | null;
   floor: number | null;
@@ -89,6 +91,7 @@ export default function Dashboard() {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [rankingType, setRankingType] = useState<'trade' | 'rent'>('trade');
   const [recentType, setRecentType] = useState<'trade' | 'rent'>('trade');
+  const [selectedApt, setSelectedApt] = useState<{ aptName: string; sggCd: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 바깥 클릭 시 드롭다운 닫기
@@ -312,7 +315,11 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {recent.map((r, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
+                  <tr
+                    key={i}
+                    className="hover:bg-blue-50 cursor-pointer transition-colors"
+                    onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd })}
+                  >
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{r.date}</td>
                     <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{r.sigungu}</td>
                     <td className="px-3 py-2 text-gray-900 font-medium truncate max-w-[160px]">{r.apt_nm}</td>
@@ -334,6 +341,15 @@ export default function Dashboard() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* Trade history panel */}
+      {selectedApt && (
+        <TradeHistoryPanel
+          aptName={selectedApt.aptName}
+          sggCd={selectedApt.sggCd}
+          onClose={() => setSelectedApt(null)}
+        />
       )}
 
       {/* Volume trend */}
