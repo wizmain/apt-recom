@@ -124,7 +124,8 @@ def create_tables(conn) -> None:
             deal_year INTEGER,
             deal_month INTEGER,
             deal_day INTEGER,
-            build_year INTEGER
+            build_year INTEGER,
+            created_at TIMESTAMPTZ DEFAULT NOW()
         );
 
         CREATE TABLE IF NOT EXISTS rent_history (
@@ -138,7 +139,8 @@ def create_tables(conn) -> None:
             floor INTEGER,
             deal_year INTEGER,
             deal_month INTEGER,
-            deal_day INTEGER
+            deal_day INTEGER,
+            created_at TIMESTAMPTZ DEFAULT NOW()
         );
 
         CREATE TABLE IF NOT EXISTS trade_apt_mapping (
