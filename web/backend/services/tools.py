@@ -489,7 +489,15 @@ async def get_apartment_detail(query: str) -> str:
             "nudge_scores": scores,
             "facility_summary": facility_summary,
             "school": school,
-            "recent_trades": recent_trades,
+            "recent_trades": [
+                {
+                    "date": f"{t['deal_year']}.{t['deal_month']:02d}",
+                    "price": f"{t['deal_amount'] // 10000}억{t['deal_amount'] % 10000:,}만원" if t["deal_amount"] >= 10000 else f"{t['deal_amount']:,}만원",
+                    "area": f"{t['exclu_use_ar']}㎡" if t.get("exclu_use_ar") else None,
+                    "floor": t.get("floor"),
+                }
+                for t in recent_trades
+            ],
             "price_info": price_row,
         }
 
@@ -543,12 +551,12 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
                 )
 
         # Trade volume and avg price by year-month
-        trade_stats = conn.execute(
+        trade_rows = conn.execute(
             """
             SELECT deal_year, deal_month,
                    COUNT(*) as volume,
                    ROUND(AVG(deal_amount)::numeric)::float as avg_price,
-                   ROUND(AVG(deal_amount::float / exclu_use_ar)::numeric, 1)::float as avg_price_per_m2
+                   ROUND(AVG(deal_amount::float / NULLIF(exclu_use_ar, 0))::numeric, 1)::float as avg_price_per_m2
             FROM trade_history
             WHERE sgg_cd = %s AND deal_year >= %s
             GROUP BY deal_year, deal_month
@@ -558,7 +566,7 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
         ).fetchall()
 
         # Rent stats
-        rent_stats = conn.execute(
+        rent_rows = conn.execute(
             """
             SELECT deal_year, deal_month,
                    COUNT(*) as volume,
@@ -571,6 +579,34 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
             """,
             [sgg_cd, min_year],
         ).fetchall()
+
+        def _fmt(val):
+            """만원 → 억/만 변환."""
+            v = int(val) if val else 0
+            if v >= 10000:
+                eok, rest = v // 10000, v % 10000
+                return f"{eok}억{rest:,}만원" if rest else f"{eok}억"
+            return f"{v:,}만원"
+
+        trade_stats = [
+            {
+                "month": f"{r['deal_year']}.{r['deal_month']:02d}",
+                "volume": r["volume"],
+                "avg_price": _fmt(r["avg_price"]),
+                "avg_price_per_m2": f"{round(r['avg_price_per_m2'] or 0):,}만원/㎡",
+            }
+            for r in trade_rows
+        ]
+
+        rent_stats = [
+            {
+                "month": f"{r['deal_year']}.{r['deal_month']:02d}",
+                "volume": r["volume"],
+                "avg_deposit": _fmt(r["avg_deposit"]),
+                "avg_monthly_rent": f"{round(r['avg_monthly_rent'] or 0):,}만원",
+            }
+            for r in rent_rows
+        ]
 
         return json.dumps(
             {
@@ -826,7 +862,7 @@ async def get_dashboard_info(region: str = "", months: int = 6) -> str:
     change_pct = round((cur_med - prev_med) / prev_med * 100, 1) if prev_med > 0 else 0
 
     trend_text = ", ".join(
-        f"{r['deal_year']}.{r['deal_month']:02d}: {r['vol']}건(평균 {round(float(r['avg_price'])):,}만)"
+        f"{r['deal_year']}.{r['deal_month']:02d}: {r['vol']}건(평균 {round(float(r['avg_price'])):,}만원)"
         for r in trend[-6:]
     )
 
