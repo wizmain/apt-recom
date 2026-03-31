@@ -238,4 +238,5 @@ def nudge_score(req: NudgeScoreRequest):
 @router.get("/nudge/weights")
 def nudge_weights_api():
     """Return the nudge weight configuration."""
-    return get_nudge_weights()
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=get_nudge_weights())
