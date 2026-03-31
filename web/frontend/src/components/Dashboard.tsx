@@ -128,6 +128,15 @@ export default function Dashboard() {
     setHighlightIndex(-1);
   }, []);
 
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 하이라이트 변경 시 스크롤 추적
+  useEffect(() => {
+    if (highlightIndex < 0 || !dropdownRef.current) return;
+    const item = dropdownRef.current.children[highlightIndex] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: 'nearest' });
+  }, [highlightIndex]);
+
   const handleRegionKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!showRegionDropdown || regionResults.length === 0) return;
     if (e.key === 'ArrowDown') {
@@ -226,7 +235,7 @@ export default function Dashboard() {
             />
           </div>
           {showRegionDropdown && regionResults.length > 0 && (
-            <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-30 max-h-60 overflow-y-auto">
+            <div ref={dropdownRef} className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-30 max-h-60 overflow-y-auto">
               {regionResults.map((r, idx) => (
                 <button
                   key={r.code}
