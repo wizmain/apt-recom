@@ -185,6 +185,30 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": [],
         },
     ),
+    Tool(
+        name="get_similar_apartments",
+        description="선택한 아파트와 유사한 특성의 아파트를 추천합니다. 면적, 가격대, 주변 시설, 교통, 학군 등 34가지 특성을 기반으로 코사인 유사도를 계산하여 가장 비슷한 아파트를 찾습니다.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "아파트명 또는 PNU 코드",
+                },
+                "top_n": {
+                    "type": "integer",
+                    "description": "추천할 아파트 수 (기본 5)",
+                    "default": 5,
+                },
+                "exclude_same_area": {
+                    "type": "boolean",
+                    "description": "같은 시군구 제외 여부 (기본 true)",
+                    "default": True,
+                },
+            },
+            "required": ["query"],
+        },
+    ),
 ]
 
 
@@ -887,6 +911,73 @@ async def get_dashboard_info(region: str = "", months: int = 6) -> str:
 # Executor mapping
 # ---------------------------------------------------------------------------
 
+async def get_similar_apartments(query: str, top_n: int = 5, exclude_same_area: bool = True) -> str:
+    """유사 아파트 추천."""
+    import numpy as np
+    conn = _get_conn()
+
+    # 아파트 검색 (PNU 또는 이름)
+    apt = conn.execute("SELECT pnu FROM apartments WHERE pnu = %s", [query]).fetchone()
+    if not apt:
+        import re as _re
+        norm = _re.sub(r'[\s()\-·]', '', query)
+        rows = conn.execute(
+            "SELECT pnu, bld_nm FROM apartments WHERE group_pnu = pnu AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 1",
+            [f"%{query}%", f"%{norm}%"]
+        ).fetchall()
+        if not rows:
+            conn.close()
+            return json.dumps({"error": f"'{query}' 아파트를 찾을 수 없습니다."}, ensure_ascii=False)
+        apt = rows[0]
+
+    pnu = apt["pnu"]
+
+    # 벡터 조회
+    target = conn.execute("SELECT vector FROM apt_vectors WHERE pnu = %s", [pnu]).fetchone()
+    if not target:
+        conn.close()
+        return json.dumps({"error": "해당 아파트의 유사도 벡터가 없습니다."}, ensure_ascii=False)
+
+    target_vec = np.array(target["vector"])
+
+    # 시군구 조회
+    target_apt = conn.execute("SELECT bld_nm, sigungu_code FROM apartments WHERE pnu = %s", [pnu]).fetchone()
+    target_sgg = (target_apt["sigungu_code"] or "")[:5] if exclude_same_area else ""
+
+    # 전체 벡터 + 아파트 정보
+    rows = conn.execute("""
+        SELECT v.pnu, v.vector, a.bld_nm, a.sigungu_code, p.price_per_m2
+        FROM apt_vectors v
+        JOIN apartments a ON v.pnu = a.pnu
+        LEFT JOIN apt_price_score p ON v.pnu = p.pnu
+        WHERE v.pnu != %s AND a.group_pnu = a.pnu
+    """, [pnu]).fetchall()
+    conn.close()
+
+    # 유사도 계산
+    results = []
+    for r in rows:
+        if exclude_same_area and (r["sigungu_code"] or "")[:5] == target_sgg:
+            continue
+        vec = np.array(r["vector"])
+        dot = np.dot(target_vec, vec)
+        norm = np.linalg.norm(target_vec) * np.linalg.norm(vec)
+        sim = float(dot / norm) if norm > 0 else 0
+        results.append({
+            "name": r["bld_nm"],
+            "pnu": r["pnu"],
+            "similarity": f"{sim * 100:.1f}%",
+            "price_m2": f"{round(float(r['price_per_m2'])):,}만원/㎡" if r["price_per_m2"] else "가격정보 없음",
+        })
+
+    results.sort(key=lambda x: float(x["similarity"].replace("%", "")), reverse=True)
+
+    return json.dumps({
+        "target": target_apt["bld_nm"],
+        "similar_apartments": results[:top_n],
+    }, ensure_ascii=False)
+
+
 TOOL_EXECUTORS = {
     "search_apartments": search_apartments,
     "get_apartment_detail": get_apartment_detail,
@@ -896,4 +987,5 @@ TOOL_EXECUTORS = {
     "search_knowledge": search_knowledge,
     "search_commute": search_commute,
     "get_dashboard_info": get_dashboard_info,
+    "get_similar_apartments": get_similar_apartments,
 }
