@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install dependencies
@@ -22,7 +22,7 @@ jobs:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
       - name: Upload checkpoint
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: checkpoint-${{ github.run_number }}
           path: batch/data/initial_collect_checkpoint.json
