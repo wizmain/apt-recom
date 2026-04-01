@@ -8,7 +8,7 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -21,9 +21,3 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
-      - name: Upload checkpoint
-        uses: actions/upload-artifact@v5
-        with:
-          name: checkpoint-${{ github.run_number }}
-          path: batch/data/initial_collect_checkpoint.json
-          retention-days: 30

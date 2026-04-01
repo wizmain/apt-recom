@@ -1,7 +1,7 @@
 """비수도권 과거 3년치 거래 데이터 초기 수집.
 
 일일 API 한도(1000콜)를 고려하여 분할 실행.
-실행할 때마다 체크포인트에서 이어서 수집.
+체크포인트를 DB(common_code 테이블)에 저장하여 GitHub Actions에서도 이어서 수집.
 
 사용법:
   python -m batch.initial_collect [--max-calls 900]
@@ -10,7 +10,6 @@
 import argparse
 import json
 import time
-from pathlib import Path
 from datetime import datetime
 
 from batch.config import DATA_GO_KR_RATE, TRADE_URL, RENT_URL
@@ -20,7 +19,7 @@ from batch.nationwide_codes import get_nonmetro_codes
 from batch.db import get_connection
 from batch.logger import setup_logger
 
-CHECKPOINT_FILE = Path(__file__).parent / "data" / "initial_collect_checkpoint.json"
+CHECKPOINT_GROUP = "initial_collect_checkpoint"
 
 
 def generate_months(start="202301", end=None):
@@ -39,28 +38,43 @@ def generate_months(start="202301", end=None):
     return months
 
 
-def load_checkpoint():
-    if CHECKPOINT_FILE.exists():
-        return json.loads(CHECKPOINT_FILE.read_text())
-    return {"completed": []}  # list of "sgg_cd:YYYYMM"
+def load_checkpoint(conn):
+    """DB에서 체크포인트 로드."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT name FROM common_code WHERE group_id = %s AND code = %s",
+        [CHECKPOINT_GROUP, "completed"]
+    )
+    row = cur.fetchone()
+    if row:
+        return set(json.loads(row[0]))
+    return set()
 
 
-def save_checkpoint(ckpt):
-    CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CHECKPOINT_FILE.write_text(json.dumps(ckpt, ensure_ascii=False))
+def save_checkpoint(conn, completed):
+    """DB에 체크포인트 저장."""
+    data = json.dumps(sorted(completed), ensure_ascii=False)
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO common_code (group_id, code, name, extra, sort_order)
+           VALUES (%s, %s, %s, %s, 0)
+           ON CONFLICT (group_id, code) DO UPDATE SET name = EXCLUDED.name""",
+        [CHECKPOINT_GROUP, "completed", data, str(len(completed))]
+    )
+    conn.commit()
 
 
 def main():
     parser = argparse.ArgumentParser(description="비수도권 과거 3년 거래 데이터 초기 수집")
-    parser.add_argument("--max-calls", type=int, default=900, help="이번 실행 최대 API 호출 수 (일 한도 고려)")
+    parser.add_argument("--max-calls", type=int, default=900, help="이번 실행 최대 API 호출 수")
     args = parser.parse_args()
 
     logger = setup_logger("initial")
     codes = get_nonmetro_codes()
     months = generate_months("202301")
 
-    ckpt = load_checkpoint()
-    completed = set(ckpt["completed"])
+    conn = get_connection()
+    completed = load_checkpoint(conn)
 
     total_pairs = len(codes) * len(months)
     remaining = [(c, m) for c in codes for m in months if f"{c}:{m}" not in completed]
@@ -68,13 +82,12 @@ def main():
     logger.info(f"전체: {total_pairs}쌍, 완료: {len(completed)}쌍, 남은: {len(remaining)}쌍")
     logger.info(f"이번 실행 최대: {args.max_calls}콜 ({args.max_calls // 2}쌍)")
 
-    conn = get_connection()
     call_count = 0
     pair_count = 0
 
     for code, month in remaining:
         if call_count >= args.max_calls:
-            logger.info(f"일일 한도 도달 ({call_count}콜). 내일 이어서 실행하세요.")
+            logger.info(f"한도 도달 ({call_count}콜). 다음 실행에서 이어서 수집.")
             break
 
         # 매매 수집
@@ -98,11 +111,11 @@ def main():
         pair_count += 1
 
         if pair_count % 50 == 0:
-            save_checkpoint({"completed": list(completed)})
+            save_checkpoint(conn, completed)
             logger.info(f"  진행: {pair_count}쌍 완료 ({call_count}콜), 매매 {len(trade_rows)}건, 전월세 {len(rent_rows)}건")
 
     # 최종 체크포인트 저장
-    save_checkpoint({"completed": list(completed)})
+    save_checkpoint(conn, completed)
 
     logger.info(f"이번 실행 완료: {pair_count}쌍, {call_count}콜")
     logger.info(f"전체 진행: {len(completed)}/{total_pairs}쌍 ({len(completed) * 100 // total_pairs}%)")
