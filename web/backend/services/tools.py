@@ -5,7 +5,7 @@ import json
 from database import DictConnection
 from services.scoring import (
     get_nudge_weights,
-    distance_to_score,
+    facility_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
 )
@@ -252,14 +252,28 @@ async def search_apartments(
         import re as _re
         kw = keyword.strip()
         norm_kw = _re.sub(r'[\s()\-·]', '', kw)
+        # 시군구명→코드 매칭 (주소 없는 비수도권 아파트 지원)
+        sgg_rows = conn.execute(
+            "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s)",
+            [f"%{kw}%", f"%{kw}%"],
+        ).fetchall()
+        sgg_codes = [r["code"] for r in sgg_rows]
+
+        addr_condition = "(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s"
+        params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
+        if sgg_codes:
+            ph = ",".join(["%s"] * len(sgg_codes))
+            addr_condition += f" OR a.sigungu_code IN ({ph})"
+            params.extend(sgg_codes)
+        addr_condition += ")"
+
         apt_sql = (
             "SELECT a.pnu, a.bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc "
             "FROM apartments a "
             "LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu "
             "LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu "
-            "WHERE a.lat IS NOT NULL AND a.group_pnu = a.pnu AND (a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
+            f"WHERE a.lat IS NOT NULL AND a.group_pnu = a.pnu AND {addr_condition}"
         )
-        params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
 
         if min_area is not None:
             apt_sql += " AND ai.max_area >= %s"
@@ -305,7 +319,7 @@ async def search_apartments(
             ph_sub = ",".join("%s" for _ in all_subtypes)
             if all_subtypes:
                 rows = conn.execute(
-                    f"SELECT pnu, facility_subtype, nearest_distance_m "
+                    f"SELECT pnu, facility_subtype, nearest_distance_m, count_1km "
                     f"FROM apt_facility_summary "
                     f"WHERE pnu IN ({ph_pnu}) AND facility_subtype IN ({ph_sub})",
                     chunk + list(all_subtypes),
@@ -318,8 +332,8 @@ async def search_apartments(
             pnu = row["pnu"]
             if pnu not in apt_facility_scores:
                 apt_facility_scores[pnu] = {}
-            apt_facility_scores[pnu][row["facility_subtype"]] = distance_to_score(
-                row["nearest_distance_m"], row["facility_subtype"]
+            apt_facility_scores[pnu][row["facility_subtype"]] = facility_score(
+                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
             )
 
         # Load price scores if needed
@@ -439,8 +453,8 @@ async def get_apartment_detail(query: str) -> str:
         }
 
         facility_scores = {
-            row["facility_subtype"]: distance_to_score(
-                row["nearest_distance_m"], row["facility_subtype"]
+            row["facility_subtype"]: facility_score(
+                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
             )
             for row in summary_rows
         }
@@ -562,17 +576,25 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
         # Find sgg_cd from region name
         sgg_cd = region
         if not region.isdigit():
-            # Try to find matching apartments to get sgg_cd
-            apt = conn.execute(
-                "SELECT sigungu_code FROM apartments WHERE new_plat_plc LIKE %s LIMIT 1",
-                [f"%{region}%"],
+            # common_code에서 시군구명→코드 매칭
+            sgg_row = conn.execute(
+                "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s) LIMIT 1",
+                [f"%{region}%", f"%{region}%"],
             ).fetchone()
-            if apt and apt["sigungu_code"]:
-                sgg_cd = apt["sigungu_code"][:5]
+            if sgg_row:
+                sgg_cd = sgg_row["code"]
             else:
-                return json.dumps(
-                    {"error": f"'{region}' 지역을 찾을 수 없습니다."}, ensure_ascii=False
-                )
+                # 주소에서 검색 (fallback)
+                apt = conn.execute(
+                    "SELECT sigungu_code FROM apartments WHERE new_plat_plc LIKE %s LIMIT 1",
+                    [f"%{region}%"],
+                ).fetchone()
+                if apt and apt["sigungu_code"]:
+                    sgg_cd = apt["sigungu_code"][:5]
+                else:
+                    return json.dumps(
+                        {"error": f"'{region}' 지역을 찾을 수 없습니다."}, ensure_ascii=False
+                    )
 
         # Trade volume and avg price by year-month
         trade_rows = conn.execute(
