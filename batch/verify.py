@@ -3,9 +3,9 @@
 from batch.db import query_one, query_all
 
 
-def verify_weekly(conn, logger):
-    """Weekly 배치 검증."""
-    logger.info("Weekly 검증 시작...")
+def verify_trade(conn, logger):
+    """거래 배치 검증."""
+    logger.info("거래 배치 검증 시작...")
     ok = True
 
     r = query_one(conn, "SELECT COUNT(*) as cnt FROM trade_history")

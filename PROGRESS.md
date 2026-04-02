@@ -274,7 +274,7 @@
 ## Phase 8: 배치 파이프라인 (2026-03-30 ~ 04-01)
 
 ### 8.1 GitHub Actions 배치
-- [x] 거래 데이터 12시간 수집 (batch-weekly.yml)
+- [x] 거래 데이터 12시간 수집 (batch-trade.yml)
 - [x] 비수도권 초기 수집 (batch-initial-collect.yml) — 진행 중 (~14%)
 - [x] 시설 데이터 분기 갱신 (batch-quarterly.yml)
 - [x] 인구/범죄 데이터 연간 갱신 (batch-annual.yml)

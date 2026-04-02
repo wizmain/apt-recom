@@ -12,7 +12,7 @@
 
 ```
 batch/
-├── run.py                    # CLI 진입점 (--type weekly|quarterly|annual)
+├── run.py                    # CLI 진입점 (--type trade|quarterly|annual)
 ├── config.py                 # DB URL, API 키, rate limit
 ├── db.py                     # DB 연결 헬퍼
 ├── logger.py                 # 로깅 + BatchResult
@@ -20,10 +20,11 @@ batch/
 ├── sync_from_railway.py      # Railway → 로컬 동기화
 ├── initial_collect.py        # 비수도권 초기 수집 (체크포인트 분할)
 ├── nationwide_codes.py       # 전국 시군구 코드 목록
-├── weekly/                   # 거래 데이터 (12시간 간격)
+├── trade/                    # 거래 데이터 (12시간 간격)
 │   ├── collect_trades.py     # API 수집 (RTMSDataSvc)
 │   ├── load_trades.py        # 중복 제거 후 DB 적재
-│   └── recalc_price.py       # apt_price_score 재계산
+│   ├── recalc_price.py       # apt_price_score 재계산
+│   └── enrich_apartments.py  # 신규 아파트 등록 + 건물정보 보충
 ├── quarterly/                # 시설 데이터 (분기별)
 │   ├── collect_facilities.py # 시설 6종 API 수집
 │   ├── update_facilities.py  # facilities 테이블 UPSERT
@@ -37,7 +38,7 @@ batch/
 
 | 배치 | 주기 | GitHub Actions | 대상 DB |
 |------|------|---------------|---------|
-| Weekly (거래) | 12시간 | `batch-weekly.yml` (`0 3,15 * * *`) | Railway |
+| Trade (거래) | 12시간 | `batch-trade.yml` (`0 3,15 * * *`) | Railway |
 | Quarterly (시설) | 분기 첫째날 | `batch-quarterly.yml` (`0 18 1 1,4,7,10 *`) | Railway |
 | Annual (인구/범죄) | 1월 15일 | `batch-annual.yml` (`0 19 15 1 *`) | Railway |
 | 초기 수집 (비수도권) | 매일 | `batch-initial-collect.yml` (`0 15 * * *`) | Railway |
@@ -45,8 +46,8 @@ batch/
 ### CLI 실행 방법
 
 ```bash
-# Weekly: 거래 데이터 증분 수집 → 적재 → 가격 점수 재계산
-.venv/bin/python -m batch.run --type weekly
+# Trade: 거래 데이터 증분 수집 → 적재 → 가격 점수 재계산 → 신규 아파트 보충
+.venv/bin/python -m batch.run --type trade
 
 # Quarterly: 시설 수집 → DB 갱신 → BallTree 집계
 .venv/bin/python -m batch.run --type quarterly
@@ -55,7 +56,7 @@ batch/
 .venv/bin/python -m batch.run --type annual
 
 # Dry-run (수집만, DB 적재 안 함)
-.venv/bin/python -m batch.run --type weekly --dry-run
+.venv/bin/python -m batch.run --type trade --dry-run
 
 # 비수도권 초기 수집 (일 900콜 제한)
 .venv/bin/python -m batch.initial_collect --max-calls 900
@@ -64,7 +65,7 @@ batch/
 ### 로컬에서 Railway DB에 직접 실행
 
 ```bash
-DATABASE_URL=$RAILWAY_DATABASE_URL .venv/bin/python -m batch.run --type weekly
+DATABASE_URL=$RAILWAY_DATABASE_URL .venv/bin/python -m batch.run --type trade
 ```
 
 ---
@@ -167,7 +168,7 @@ grep KAKAO_API_KEY .env | cut -d= -f2- | gh secret set KAKAO_API_KEY
 ```bash
 # 특정 워크플로우 수동 트리거
 gh workflow run batch-initial-collect.yml
-gh workflow run batch-weekly.yml
+gh workflow run batch-trade.yml
 
 # 실행 상태 확인
 gh run list --workflow=batch-initial-collect.yml --limit 3
@@ -200,7 +201,7 @@ on:
             ▼                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              GitHub Actions (배치 실행)                       │
-│  batch-weekly (12h) │ batch-quarterly │ batch-initial-collect │
+│  batch-trade (12h) │ batch-quarterly │ batch-initial-collect │
 └───────────┬─────────┴────────────────┴──────────────────────┘
             │
             ▼

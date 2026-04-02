@@ -16,8 +16,8 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install psycopg2-binary requests python-dotenv pandas
-      - name: Run weekly batch
-        run: python -m batch.run --type weekly
+      - name: Run trade batch
+        run: python -m batch.run --type trade
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
