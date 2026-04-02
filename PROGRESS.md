@@ -1,12 +1,12 @@
 # 아파트 추천 서비스 프로젝트 진행 현황
 
-> 최종 업데이트: 2026-03-28
+> 최종 업데이트: 2026-04-02
 
 ---
 
 ## 프로젝트 개요
 
-서울+경기+인천 아파트 데이터를 수집·분석하여 라이프스타일 기반 아파트 추천 웹서비스 **"집토리"**를 구축하는 프로젝트.
+서울+경기+인천+전국 아파트 데이터를 수집·분석하여 라이프스타일 기반 아파트 추천 웹서비스 **"집토리"**를 구축하는 프로젝트.
 
 ---
 
@@ -21,28 +21,28 @@
 - [x] 마스터 통합: `fm_apt_master_all.csv` (10,093건)
 
 ### 1.2 시설 데이터 수집 (15종)
-- [x] 병원 (41,683건) — 건강보험심사평가원 API
-- [x] 학교 (4,398건) — data.go.kr 표준데이터
-- [x] 공원 (7,326건) — data.go.kr 표준데이터
-- [x] 지하철역 (777건) — KRIC 데이터
+- [x] 병원 (21,658건) — 건강보험심사평가원 API
+- [x] 학교 (4,182건) — data.go.kr 표준데이터
+- [x] 공원 (7,213건) — data.go.kr 표준데이터
+- [x] 지하철역 (756건) — KRIC 데이터
 - [x] 버스정류장 (64,339건) — data.go.kr 파일
-- [x] 도서관 (1,251건) — data.go.kr API
-- [x] 경찰서/소방서 (460건) — data.go.kr 파일
-- [x] CCTV (38,856건) — data.go.kr API
-- [x] 편의점 (27,377건) — 소상공인 상가업소
-- [x] 약국 (11,983건) — 소상공인 상가업소
-- [x] 대형마트 (2,673건) — localdata.go.kr
-- [x] 유치원 (2,724건) — 학교알리미/Kakao API
-- [x] 동물병원 (331건) — 동물병원 인허가 데이터
-- [x] 반려동물시설 (11,387건) — 반려동물 동반 가능 문화시설 (동물약국 제외)
-- [x] 시설 통합: `fm_facilities_all.csv` (182,902건)
+- [x] 도서관 (1,231건) — data.go.kr API
+- [x] 경찰서/소방서 (459건) — data.go.kr 파일
+- [x] CCTV (32,494건) — data.go.kr API
+- [x] 편의점 (21,480건) — 소상공인 상가업소
+- [x] 약국 (9,943건) — 소상공인 상가업소
+- [x] 대형마트 (1,326건) — localdata.go.kr
+- [x] 유치원 (2,617건) — 학교알리미/Kakao API
+- [x] 동물병원 (135건) — 동물병원 인허가 데이터
+- [x] 반려동물시설 (6,195건) — 반려동물 동반 가능 문화시설
+- [x] 시설 통합: 174,028건 (중복 제거 완료, UNIQUE 인덱스 적용)
 
 ### 1.3 거래 데이터 수집
-- [x] 매매 실거래가 2016~2026 서울+경기 (2,014,557건)
-- [x] 전월세 실거래가 2016~2026 서울+경기 (4,935,673건)
-- [x] 매매 실거래가 2016~2026 인천 (344,782건)
-- [x] 전월세 실거래가 2016~2026 인천 (579,399건)
-- [x] **총 거래: 7,874,411건 (10년치)**
+- [x] 매매 실거래가 2016~2026 서울+경기+인천 (2,508,556건)
+- [x] 전월세 실거래가 2016~2026 서울+경기+인천 (5,520,938건)
+- [x] 부천시(원미/소사/오정), 화성시(동부/서부) 누락분 수집 (2026-04-01)
+- [x] 중복 제거 + UNIQUE 인덱스 적용 (2026-04-02)
+- [x] **총 거래: 8,029,494건 (중복 제거 후)**
 
 ### 1.4 학군 데이터 수집
 - [x] 초등학교 통학구역 Shapefile → Spatial Join (99.8% 매칭)
@@ -71,10 +71,9 @@
 - [x] 시군구코드 주소 파싱 보완 (55,075건)
 
 ### 2.2 아파트-시설 거리 계산
-- [x] BallTree (haversine) 5km 반경 매핑
-- [x] 서울+경기: ~56M행
-- [x] 인천: ~12M행
-- [x] apt_facility_summary 요약 테이블 생성
+- [x] BallTree (haversine) 기반 apt_facility_summary 생성
+- [x] 17,086개 아파트 × 15종 시설 = 256,290건
+- [x] apt_facility_mapping 폐기 (4,900만건, 7.3GB → 좌표 기반 실시간 조회로 대체, 2026-04-02)
 
 ### 2.3 거래-아파트 매핑
 - [x] 1차: 정확 이름 매칭 (39.8%)
@@ -86,19 +85,23 @@
 ### 2.4 가격 점수 계산
 - [x] 시군구 평균 대비 ㎡당 가격 점수 (0~100)
 - [x] 전세가율 계산
-- [x] apt_price_score 테이블 (15,859건)
+- [x] apt_price_score 테이블 (16,745건)
 
 ### 2.5 안전 점수 계산
-- [x] CCTV 목적별 가중치 적용 (생활방범 1.0, 어린이보호 1.2, 교통단속 0.2 등)
 - [x] 안전점수 = CCTV 40% + 경찰서 30% + 소방서 30%
-- [x] apt_safety_score 테이블 (10,077건 → 16,311건 재매핑, 2026-03-28)
-- [x] CCTV 재매핑 — PostgreSQL 아파트 전체 대상 BallTree 재실행, 100% 커버리지 달성 (2026-03-28)
+- [x] apt_safety_score 테이블 (17,086건)
 
 ### 2.6 아파트 좌표 복원 (2026-03-27)
 - [x] 3단계 좌표 복원: Vworld 도로명 → Kakao 지번 → PNU 지번 → 아파트명 검색
-- [x] 1,862건 복원 (PNU 지번 1,755 + Vworld 84 + Kakao 23)
 - [x] 좌표 커버리지: 86.2% → 97.3%
 - [x] 통계적 이상치 탐지 (3σ per 시군구) → 492건 잘못된 좌표 정리
+
+### 2.7 주소 데이터 보충 (2026-04-01)
+- [x] Phase 1: Kakao 역지오코딩 (TRADE PNU + 좌표) → 2,050건
+- [x] Phase 2: 건축물대장 API (정상 PNU) → ~5,371건
+- [x] Phase 3: Kakao 키워드 검색 (fallback) → 311건
+- [x] 주소 커버리지: **47.1% → 98.1%** (잔여 316건)
+- [x] GitHub Actions 배치(batch-fill-addresses.yml)로 잔여분 주기적 재시도
 
 ---
 
@@ -138,61 +141,48 @@
 
 ### 4.1 DB 구축
 - [x] SQLite → PostgreSQL 마이그레이션 완료 (2026-03-27)
-- [x] 12개 테이블 + chat_feedback 테이블 = 13개 테이블
-- [x] apartments: 16,755건
-- [x] facilities: 182,902건
-- [x] apt_facility_mapping: ~56M행
-- [x] trade_history: 2,359,339건
-- [x] rent_history: 5,515,072건
+- [x] 테이블 구조 정비 + UNIQUE 인덱스 적용 (2026-04-02)
+- [x] apartments: 16,870건
+- [x] facilities: 174,028건 (중복 제거 후)
+- [x] apt_facility_summary: 256,290건
+- [x] trade_history: 2,508,556건 (UNIQUE 인덱스)
+- [x] rent_history: 5,520,938건 (UNIQUE 인덱스)
 - [x] school_zones: 10,077건
 - [x] population_by_district: 2,068행
 
 ### 4.2 FastAPI 백엔드
 - [x] 아파트 목록 API (GET /api/apartments)
-- [x] 아파트 검색 API (GET /api/apartments/search)
-- [x] 라이프 점수 스코어링 API (POST /api/nudge/score) — 커스텀 가중치 반영
-- [x] 라이프 점수 가중치 API (GET /api/nudge/weights)
+- [x] 아파트 검색 API (GET /api/apartments/search) — sigungu_code 매칭 추가
+- [x] 넛지 스코어링 API (POST /api/nudge/score) — 비선형 거리함수 + 밀도 블렌딩
+- [x] 넛지 가중치 API (GET /api/nudge/weights)
 - [x] 아파트 상세 API (GET /api/apartment/{pnu})
 - [x] 거래 내역 API (GET /api/apartment/{pnu}/trades)
 - [x] 채팅 API (POST /api/chat) + SSE 스트리밍 (POST /api/chat/stream)
 - [x] 출퇴근 시간 조회 API (POST /api/commute) — ODSay 대중교통
 - [x] 챗봇 피드백 API (POST /api/chat/feedback, GET /api/chat/feedback/stats)
 - [x] Knowledge 관리 API (POST/GET/DELETE /api/knowledge/*)
+- [x] 대시보드 API (GET /api/dashboard/*) — 요약/추이/랭킹/최근거래/지역/거래상세
+- [x] 공통코드 API (GET /api/codes/{group})
+- [x] 유사 아파트 API (GET /api/apartment/{pnu}/similar) — 코사인 유사도
 
 ### 4.3 React 프론트엔드
 - [x] Kakao Maps 지도 (클러스터링, 마커, 인포윈도우)
-- [x] 라이프 항목 태그 바 (9개 항목: 가성비, 반려동물, 출퇴근, 신혼육아, 학군, 시니어, 투자, 자연친화, 안전)
-- [x] 다중 키워드 검색 — Enter로 태그 추가, 개별/전체 삭제, 한글 IME 이중입력 방지 (2026-03-28)
-- [x] 검색어 미입력 시 넛지 항목 선택 비활성화
-- [x] 지역명/단지명 검색 + 지도 자동 이동/줌인
-- [x] 가중치 설정 드롭다운 패널 (상단 바 아래로 펼침, 2열 슬라이더, 한글 라벨)
-- [x] 하단 결과 카드 (Top 5 추천, 클릭 시 지도 이동 + 마커 팝업)
-- [x] 순위별 색상 마커 (1위 빨강, 2위 주황, 3~5위 로즈, 순위 숫자 표시)
-- [x] 마커 팝업 (닫기 X, 상세보기, 챗봇 분석, 비교담기 버튼)
-- [x] 상세 모달 (6탭: 기본정보, 가격분석, 주변시설, 학군, 안전, 인구) — 고정 높이 85vh
-  - 라이프 점수 레이더 차트
-  - 월별 매매가 추이 (면적별 멀티 라인)
-  - 면적별 평균가 바 차트
-  - 전세가율 추이
-  - 최근 거래 내역 테이블
-  - 시설 요약 카드 + 바 차트
-  - 학군 정보 (초/중/고 + 교육지원청)
-  - 인구 피라미드 (구별 연령대/성별)
-- [x] 아파트 비교 모달 (2개 선택 → 비교하기)
-  - 좌우 분할 아파트 카드 (A 파랑 / B 보라)
-  - 라이프 점수 대결 바 차트 (승자 색상 강조)
-  - 주변 시설 3열 비교 테이블 (승자 볼드)
-  - 학군/안전 점수 비교 (SVG 링 게이지)
-  - 승패 집계 배지
+- [x] 넛지 태그 바 (9개 항목) — NudgeBar 구조 분리 (ViewTabs + MapControls + NudgeChips)
+- [x] 다중 키워드 검색 — Enter로 태그 추가, 개별/전체 삭제
+- [x] 가중치 설정 드롭다운 패널
+- [x] 하단 결과 카드 (Top 5 추천)
+- [x] 순위별 색상 마커 (1위 빨강, 2위 주황, 3~5위 로즈)
+- [x] 상세 모달 (6탭: 기본정보, 가격분석, 주변시설, 학군, 안전, 인구)
+- [x] 아파트 비교 모달
+- [x] 모바일 반응형 전환 (전 컴포넌트)
+- [x] 대시보드 (요약카드, 차트 4종, 최근거래, 지역검색, 거래이력 팝업)
 
-### 4.4 라이프 점수 스코어링 엔진
+### 4.4 넛지 스코어링 엔진
 - [x] 9개 항목: 가성비, 반려동물, 출퇴근, 신혼육아, 학군, 시니어, 투자, 자연친화, 안전
-- [x] 가격 점수 반영 (_price, _jeonse)
-- [x] 안전 점수 반영 (_safety, _crime)
-- [x] 범죄 안전 점수 — 검찰 범죄분석 데이터 + 유동인구 보정 (2026-03-27)
-- [x] 사용자 커스텀 가중치 반영 (API + 프론트 연동 완료)
-- [x] 다중 키워드 넛지 스코어링 — OR 조건 검색 지원 (2026-03-28)
-- [x] 아파트 필터 연동 (면적, 가격, 층수, 세대수, 준공연도)
+- [x] ML 기반 넛지 가중치 재조정 (60% 수동 + 40% ML, 2026-04-01)
+- [x] 로그감쇠 비선형 distance_to_score (시설별 decay 파라미터, 2026-04-01)
+- [x] 시설 밀도(count_1km) 30% 블렌딩 (2026-04-01)
+- [x] common_code 테이블로 가중치/최대거리 관리 (하드코딩 제거)
 
 ---
 
@@ -200,109 +190,125 @@
 
 ### 5.1 LLM 추상화 레이어
 - [x] LLMProvider ABC (chat_with_tools, chat, stream_chat, embed)
-- [x] OpenAI Provider (GPT-4o)
-- [x] Claude Provider (Claude Sonnet)
-- [x] Gemini Provider (Gemini 2.0 Flash)
+- [x] OpenAI / Claude / Gemini Provider
 - [x] .env 기반 전환 (LLM_PROVIDER=openai|claude|gemini)
-- [x] Tool 스키마 자동 변환 (OpenAI/Claude/Gemini 형식)
 
-### 5.2 Tool 함수 (7개)
-- [x] search_apartments — 라이프 점수 기반 아파트 검색
-- [x] get_apartment_detail — 상세 정보 조회 (PNU 직접 조회 지원)
+### 5.2 Tool 함수 (9개)
+- [x] search_apartments — 넛지 점수 기반 아파트 검색
+- [x] get_apartment_detail — 상세 정보 조회
 - [x] compare_apartments — 아파트 비교
 - [x] get_market_trend — 시세 동향
 - [x] get_school_info — 학군 정보
 - [x] search_knowledge — RAG 기반 PDF 검색
-- [x] search_commute — ODSay 대중교통 출퇴근 시간 조회 (2026-03-27)
+- [x] search_commute — ODSay 대중교통 출퇴근 시간 조회
+- [x] get_dashboard_info — 대시보드 요약 정보
+- [x] get_similar_apartments — 유사 아파트 추천
 
 ### 5.3 RAG 파이프라인
-- [x] PDF 업로드 → PyMuPDF 텍스트 추출
-- [x] LangChain TextSplitter 청킹 (800토큰)
-- [x] OpenAI 임베딩 → ChromaDB 벡터 저장
-- [x] Knowledge 검색 API
+- [x] PDF 업로드 → PyMuPDF 텍스트 추출 → ChromaDB 벡터 저장
 
 ### 5.4 채팅 프론트엔드
-- [x] 우측 하단 채팅 버튼
-- [x] 채팅 모달 (메시지 + 아파트 카드 + 로딩)
-- [x] 지도 양방향 연동 (챗봇→지도 하이라이트, 지도→챗봇 분석)
-- [x] 챗봇 추천 아파트 빨간 마커 표시 — 좌표 데이터 직접 사용 (2026-03-28)
-- [x] 추천 아파트 카드 클릭 시 지도 포커스 이동 + 마커 팝업 (2026-03-28)
-- [x] 답변 완료 시 입력박스 자동 포커스 (2026-03-28)
-- [x] 채팅창 닫기 시 추천 마커 제거 (2026-03-28)
-- [x] SSE 스트리밍 응답 (실시간 글자 단위 출력) (2026-03-27)
-- [x] 마크다운 렌더링 (react-markdown, 테이블/리스트/볼드 스타일링)
-- [x] 인포그래픽 UI (점수 색상 배지, 가격 강조, 미니 바 차트)
-- [x] Tool 실행 상태 태그 (실행 중/완료 표시)
-- [x] 스트리밍 커서 + "답변 생성 중" 인디케이터
-- [x] 피드백 UI (👍👎 + 태그 6종 + 자유 코멘트) (2026-03-27)
-- [x] PNU 기반 정확한 아파트 조회 (지도 클릭 → 챗봇 context 전달)
+- [x] SSE 스트리밍 응답 (실시간 글자 단위 출력)
+- [x] 마크다운 렌더링 + 인포그래픽 UI
+- [x] 지도 양방향 연동 (챗봇↔지도 하이라이트)
+- [x] 피드백 UI (👍👎 + 태그 6종 + 자유 코멘트)
 
 ---
 
-## Phase 6: 데이터 품질 개선 (2026-03-27 ~ 03-28)
+## Phase 6: 데이터 품질 개선 (2026-03-27 ~ 04-02)
 
-### 6.1 인천 아파트 데이터 재구축
-- [x] 지오코딩 좌표 검증 — 인천 범위 밖 좌표 153건 수정 → 0건
-- [x] `_is_incheon()` 좌표 범위 검증 함수 추가
-- [x] Kakao 검색 시 "인천광역시" 접두어 강제
+### 6.1 인천 아파트 데이터 재구축 (2026-03-27)
+- [x] 지오코딩 좌표 검증 — 인천 범위 밖 좌표 153건 수정
 - [x] DB 전체 퍼지 → integrate_incheon.py 재실행
-- [x] 시설 매핑, 학군, 가격/안전 점수 전체 재계산
 
-### 6.2 SQLite → PostgreSQL 마이그레이션
-- [x] psycopg2 기반 database.py 전면 재작성 (DictConnection 클래스)
-- [x] 모든 라우터/서비스 SQL 플레이스홀더 변환 (`?` → `%s`)
-- [x] 12개 테이블 데이터 마이그레이션 (49M행 포함, 24분 소요)
-- [x] `DATABASE_URL` 환경변수 기반 연결
+### 6.2 SQLite → PostgreSQL 마이그레이션 (2026-03-27)
+- [x] psycopg2 기반 database.py 전면 재작성
+- [x] 12개 테이블 데이터 마이그레이션
 
-### 6.3 읍면동 단위 인구통계 수집
-- [x] KOSIS API DT_1B04005N 읍면동 레벨 수집
-- [x] 수도권 1,192개 읍면동 총인구/남/여 (서울 427, 경기 604, 인천 161)
+### 6.3 공통코드 테이블 도입 (2026-03-31)
+- [x] common_code 통합 테이블 생성
+- [x] 시군구코드, 넛지가중치, 최대거리, 시설라벨 등 하드코딩 → DB 전환
+- [x] 프론트엔드 useCodes() 훅으로 동적 로드
 
-### 6.4 CCTV 데이터 전체 재매핑 (2026-03-28)
-- [x] 서울+경기+인천 CCTV 원본 38,538건 합산
-- [x] PostgreSQL 아파트 기준 BallTree 재매핑 (`remap_cctv_pg.py`)
-- [x] apt_cctv_summary: 10,077 → 16,311건 (서울 100%, 경기 100%, 인천 100%)
-- [x] apt_safety_score 재계산 + Railway DB 동기화
+### 6.4 데이터 중복 제거 + UNIQUE 인덱스 (2026-04-02)
+- [x] trade_history: 84,738건 중복 삭제 + UNIQUE 인덱스
+- [x] rent_history: 528,351건 중복 삭제 + UNIQUE 인덱스
+- [x] facilities: 34,890건 중복 삭제 + UNIQUE 인덱스
+- [x] CSV 원본 파일 중복 제거 (facilities, trade, rent)
+- [x] apt_facility_mapping 폐기 (4,900만건, 7.3GB) → 좌표 기반 실시간 조회
 
-### 6.5 아파트명 정규화 (2026-03-27)
-- [x] `bld_nm_norm` 컬럼 추가 — 띄어쓰기/특수문자 제거
-- [x] 검색 API + 넛지 스코어링 + 챗봇 도구에 정규화 검색 적용
+### 6.5 부천시/화성시 수집 누락 해결 (2026-04-01)
+- [x] 원인: 국토교통부 API가 통합코드(41190, 41590) 미지원
+- [x] nationwide_codes.py 구 단위 코드로 교체 (41192/41194/41196, 41591/41593)
+- [x] 거래 데이터 수집: 매매 26,844건, 전월세 90,364건
+- [x] 아파트 963건 생성 + Kakao 지오코딩 + 시설/가격/안전 점수 계산
+
+### 6.6 주소 데이터 보충 (2026-04-01)
+- [x] Kakao 역지오코딩 + 건축물대장 API + Kakao 키워드 검색
+- [x] 주소 커버리지: 47.1% → 98.1%
+- [x] 검색 API에 sigungu_code 기반 매칭 추가
 
 ---
 
-## Phase 7: 호스팅 & DevOps (2026-03-27 ~ 03-28)
+## Phase 7: ML 기능 (2026-03-31 ~ 04-01)
 
-### 7.1 Railway 배포 (백엔드)
+### 7.1 유사 아파트 추천
+- [x] 39차원 특성 벡터 생성 (기본4 + 가격3 + 시설거리15 + 시설밀도15 + 안전2)
+- [x] StandardScaler 정규화 + 코사인 유사도 검색
+- [x] API: GET /api/apartment/{pnu}/similar?top_n=5
+- [x] 챗봇 tool 연동: get_similar_apartments
+
+### 7.2 넛지 스코어링 모델 학습
+- [x] XGBoost 회귀 모델 (R²=0.59, MAE=187만원/㎡)
+- [x] Feature Importance → 시설별 가격 기여도 분석
+- [x] PDP 기반 비선형 거리→점수 곡선 추출
+
+### 7.3 스코어링 고도화 적용 (2026-04-01)
+- [x] 넛지 가중치 49건 ML 기반 재조정 (batch/ml/update_weights.py)
+- [x] distance_to_score 로그감쇠 비선형화 (시설별 FACILITY_DECAY)
+- [x] 시설 밀도 30% 블렌딩 (facility_score = 거리 70% + 밀도 30%)
+- [x] docs/scoring-ml-enhancement.md 작업 기록
+
+---
+
+## Phase 8: 배치 파이프라인 (2026-03-30 ~ 04-01)
+
+### 8.1 GitHub Actions 배치
+- [x] 거래 데이터 12시간 수집 (batch-weekly.yml)
+- [x] 비수도권 초기 수집 (batch-initial-collect.yml) — 진행 중 (~14%)
+- [x] 시설 데이터 분기 갱신 (batch-quarterly.yml)
+- [x] 인구/범죄 데이터 연간 갱신 (batch-annual.yml)
+- [x] 주소 보충 일배치 (batch-fill-addresses.yml)
+
+### 8.2 Railway↔로컬 동기화
+- [x] 증분 동기화: created_at 기반 (batch/sync_from_railway.py)
+- [x] 전체 동기화: pg_dump/pg_restore
+
+---
+
+## Phase 9: 호스팅 & DevOps (2026-03-27 ~ 03-28)
+
+### 9.1 Railway 배포 (백엔드)
 - [x] FastAPI + PostgreSQL Railway 배포
-- [x] GitHub 연동 자동 배포 (push → build → deploy)
-- [x] 환경변수 설정 (DATABASE_URL, API 키 등)
+- [x] GitHub 연동 자동 배포
 
-### 7.2 Cloudflare Pages 배포 (프론트엔드)
+### 9.2 Cloudflare Pages 배포 (프론트엔드)
 - [x] Vite 빌드 + Cloudflare Pages 배포
-- [x] `VITE_API_URL` 빌드타임 환경변수로 API 연결
 
-### 7.3 CI/CD 품질 관리
-- [x] Git pre-commit hook — `web/frontend/src/` 변경 시 `tsc -b` 자동 실행 (2026-03-28)
-- [x] `npm run check` 스크립트 추가 — Railway 빌드와 동일한 TypeScript 체크
-- [x] 통합 테스트 26개 (`web/backend/tests/test_core.py`)
+### 9.3 CI/CD 품질 관리
+- [x] Git pre-commit hook — TypeScript 체크
+- [x] 통합 테스트 29개 (`web/backend/tests/test_core.py`)
+- [x] DB 설계 원칙 + 테이블 생성 체크리스트 (CLAUDE.md)
 
 ---
 
-## Phase 8: 문서화 (2026-03-24 ~ 03-26)
+## Phase 10: 문서화 (2026-03-24 ~ 04-01)
 
-### 8.1 ERD
-- [x] processed CSV 파일 ERD (`apt_eda/docs/data_erd.md`)
-- [x] apt_web.db ERD (`apt_eda/docs/db_erd.md`)
-
-### 8.2 컬럼 매핑
-- [x] 전체 CSV 영문-한글 매핑 (`apt_eda/docs/column_mapping.md`)
-
-### 8.3 설계 문서
-- [x] 가성비 아파트 데이터 수집 전략 (`가성비_아파트_데이터_수집_전략.md`)
-- [x] 아파트 추천 넛지 전략 (`아파트_추천_넛지_전략.md`)
-- [x] 시설 매핑 설계 (`2026-03-20-apt-facility-mapping-design.md`)
-- [x] 웹 서비스 설계 (`2026-03-21-apt-web-design.md`)
-- [x] 챗봇 설계 (`2026-03-25-chatbot-design.md`)
+- [x] ERD, 컬럼 매핑, 설계 문서 16종
+- [x] ADR (Architecture Decision Records) 11개
+- [x] 배치 작업 가이드 (docs/batch-operations.md)
+- [x] ML 기능 가이드 (docs/ml-features.md)
+- [x] 스코어링 보완 기록 (docs/scoring-ml-enhancement.md)
 
 ---
 
@@ -310,17 +316,16 @@
 
 | 항목 | 규모 |
 |------|------|
-| 대상 지역 | 서울(25구) + 경기(40시군구) + 인천(10구군) |
-| 아파트 | 16,755개 (마스터 10,093 + 거래 기반 6,662), 좌표 보유 16,311개 (97.3%) |
-| 시설 | 182,902개 (15종) |
-| 시설 매핑 | ~56M행 |
-| 매매 거래 | 2,359,339건 (2016~2026) |
-| 전월세 거래 | 5,515,072건 (2016~2026) |
+| 대상 지역 | 서울(25) + 경기(41) + 인천(10) + 비수도권 수집 중 |
+| 아파트 | 16,870건, 좌표 98.1%, 주소 98.1% |
+| 시설 | 174,028건 (15종, 중복 제거 + UNIQUE) |
+| 시설 요약 | 256,290건 (BallTree 기반) |
+| 매매 거래 | 2,508,556건 (UNIQUE 인덱스) |
+| 전월세 거래 | 5,520,938건 (UNIQUE 인덱스) |
 | 학군 매핑 | 10,077건 |
 | 인구 데이터 | 94개 시군구 × 22개 연령대 |
 | EDA 차트 | 200개+ |
-| PDF 리포트 | 16개 |
-| DB 크기 | 8.3GB |
+| ML 모델 | XGBoost (R²=0.59), 39차원 벡터 |
 
 ---
 
@@ -329,118 +334,24 @@
 | 영역 | 기술 |
 |------|------|
 | 백엔드 | Python 3.12, FastAPI, PostgreSQL, psycopg2, uvicorn |
-| 프론트엔드 | React 19, TypeScript, Vite, TailwindCSS, Recharts, react-markdown |
+| 프론트엔드 | React 19, TypeScript, Vite 8, TailwindCSS 4, Recharts |
 | 지도 | Kakao Maps JavaScript API |
 | AI/LLM | OpenAI GPT-4o (기본), Claude, Gemini (전환 가능), SSE 스트리밍 |
-| 외부 API | ODSay (대중교통), Kakao (지도/지오코딩), Vworld (지오코딩), KOSIS (인구) |
+| ML | XGBoost, scikit-learn (BallTree, StandardScaler), numpy |
+| 외부 API | ODSay, Kakao, Vworld, KOSIS, 국토교통부, 건축물대장 |
 | RAG | ChromaDB, PyMuPDF, LangChain TextSplitters |
-| 데이터 | pandas, scikit-learn (BallTree), geopandas, pyproj |
-| 시각화 | matplotlib, koreanize_matplotlib, Plotly, seaborn |
-| 호스팅 | Railway (백엔드+PostgreSQL), Cloudflare Pages (프론트엔드) |
-| DevOps | Git pre-commit hook (tsc -b), GitHub 연동 자동 배포 |
-
----
-
-## 프로젝트 구조
-
-```
-fcicb6-proj3/
-├── .env                          # API 키 설정
-├── CLAUDE.md                     # 프로젝트 규칙
-├── PROGRESS.md                   # 이 파일
-├── pet_friendly_cultural_facilities.csv  # 반려동물 원본 (전국)
-│
-├── apt_eda/
-│   ├── data/
-│   │   ├── raw/                  # 원본 수집 데이터 (47개 CSV)
-│   │   ├── processed/            # 가공 데이터 (32개 CSV)
-│   │   ├── polished/             # 핵심 데이터 복사본 (18개)
-│   │   └── hakguzi/              # 학군 Shapefile
-│   ├── docs/                     # EDA 리포트 (MD + PDF + HTML)
-│   ├── images/                   # 분석 차트 이미지
-│   ├── scripts/                  # EDA 스크립트
-│   └── src/                      # 데이터 수집/가공 스크립트
-│
-├── web/
-│   ├── backend/
-│   │   ├── main.py               # FastAPI 앱
-│   │   ├── database.py           # PostgreSQL 연결 (DictConnection)
-│   │   ├── build_db.py           # CSV→DB 빌드
-│   │   ├── routers/              # API 엔드포인트
-│   │   │   ├── apartments.py
-│   │   │   ├── nudge.py
-│   │   │   ├── detail.py
-│   │   │   ├── chat.py           # + SSE 스트리밍
-│   │   │   ├── commute.py        # ODSay 통근시간
-│   │   │   ├── feedback.py       # 챗봇 피드백
-│   │   │   └── knowledge.py
-│   │   ├── services/             # 비즈니스 로직
-│   │   │   ├── scoring.py        # 라이프 점수 스코어링
-│   │   │   ├── chat_engine.py    # 챗봇 엔진 (스트리밍)
-│   │   │   ├── tools.py          # 7개 Tool 함수
-│   │   │   ├── rag.py            # RAG 파이프라인
-│   │   │   ├── knowledge_manager.py
-│   │   │   └── llm/              # LLM 추상화
-│   │   │       ├── base.py
-│   │   │       ├── openai_provider.py
-│   │   │       ├── claude_provider.py
-│   │   │       ├── gemini_provider.py
-│   │   │       ├── factory.py
-│   │   │       └── tool_adapter.py
-│   │   ├── knowledge_db/         # ChromaDB
-│   │   └── uploaded_pdfs/        # PDF 저장소
-│   │
-│   └── frontend/
-│       ├── src/
-│       │   ├── App.tsx
-│       │   ├── components/
-│       │   │   ├── Map.tsx
-│       │   │   ├── NudgeBar.tsx
-│       │   │   ├── WeightDrawer.tsx
-│       │   │   ├── ResultCards.tsx
-│       │   │   ├── DetailModal.tsx
-│       │   │   ├── ChatButton.tsx
-│       │   │   ├── ChatModal.tsx
-│       │   │   ├── ChatMessage.tsx  # 마크다운 + 인포그래픽 + 피드백
-│       │   │   ├── ChatInput.tsx    # forwardRef + 자동 포커스
-│       │   │   ├── CompareModal.tsx # 아파트 비교
-│       │   │   └── FilterPanel.tsx  # 5종 필터 (면적/가격/층수/세대수/준공연도)
-│       │   ├── hooks/
-│       │   │   ├── useApartments.ts
-│       │   │   ├── useNudge.ts
-│       │   │   └── useChat.ts
-│       │   └── types/
-│       │       └── apartment.ts
-│       └── .env
-│
-└── docs/superpowers/
-    ├── specs/                    # 설계 문서
-    └── plans/                    # 구현 계획
-```
+| 호스팅 | Railway (백엔드+DB), Cloudflare Pages (프론트엔드) |
+| CI/CD | GitHub Actions (배치 5종), pre-commit hook |
 
 ---
 
 ## 향후 계획
 
-### 완료 (2026-03-27 ~ 03-28)
-- [x] ~~SQLite → PostgreSQL 마이그레이션~~
-- [x] ~~인천 좌표 오류 수정~~
-- [x] ~~챗봇 스트리밍 응답~~
-- [x] ~~출퇴근 시간 조회 (ODSay)~~
-- [x] ~~아파트 비교 기능~~
-- [x] ~~챗봇 피드백 수집~~
-- [x] ~~가중치 설정 UI 개선~~
-- [x] ~~Railway + Cloudflare 배포~~
-- [x] ~~안전 넛지 (범죄 데이터 + CCTV)~~
-- [x] ~~다중 키워드 검색~~
-- [x] ~~CCTV 전체 재매핑 (100% 커버리지)~~
-- [x] ~~챗봇 추천 마커 표시 수정~~
-- [x] ~~pre-commit TypeScript 체크~~
-
 ### 미완료 / 개선 가능
-- [ ] 모바일 반응형 UI (PWA)
-- [ ] 챗봇 피드백 2단계: 대시보드 + Few-shot 예시 DB + 프롬프트 자동 보강
-- [ ] ML 모델: 가격 예측 (XGBoost), 유사 아파트 추천 (KNN)
-- [ ] 인천 지하철역 107개 반영 (현재 6개만)
+- [ ] 비수도권 초기 수집 완료 (현재 ~14%)
+- [ ] React Native 모바일 앱 완성
+- [ ] ML 가격 예측 모델 (XGBoost → "예상 시세: 5억2천")
+- [ ] 사용자 피드백 기반 개인화 가중치 학습
+- [ ] 아파트 클러스터링 (K-Means → "이 아파트는 학군형입니다")
 - [ ] 사용자 인증 + 관심 아파트 저장
 - [ ] A/B 프롬프트 테스트
