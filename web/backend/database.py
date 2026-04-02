@@ -94,15 +94,6 @@ def create_tables(conn) -> None:
             address TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS apt_facility_mapping (
-            pnu TEXT,
-            facility_id TEXT,
-            facility_type TEXT,
-            facility_subtype TEXT,
-            distance_m DOUBLE PRECISION,
-            PRIMARY KEY (pnu, facility_id)
-        );
-
         CREATE TABLE IF NOT EXISTS apt_facility_summary (
             pnu TEXT,
             facility_subtype TEXT,
@@ -229,8 +220,6 @@ def create_indexes(conn) -> None:
     """Create indexes after all data is loaded."""
     cur = conn.cursor()
     indexes = [
-        "CREATE INDEX IF NOT EXISTS idx_mapping_pnu ON apt_facility_mapping(pnu)",
-        "CREATE INDEX IF NOT EXISTS idx_mapping_type ON apt_facility_mapping(facility_subtype)",
         "CREATE INDEX IF NOT EXISTS idx_summary_pnu ON apt_facility_summary(pnu)",
         "CREATE INDEX IF NOT EXISTS idx_trade_sgg ON trade_history(sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_trade_seq ON trade_history(apt_seq)",

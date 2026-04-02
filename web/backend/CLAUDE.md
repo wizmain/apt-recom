@@ -50,7 +50,6 @@ finally:
 |--------|-----|------|
 | apartments | pnu | 건물 마스터 (좌표, 세대수, 준공일) |
 | facilities | facility_id | 시설 마스터 (유형, 좌표) |
-| apt_facility_mapping | (pnu, facility_id) | 아파트↔시설 거리 매핑 |
 | apt_facility_summary | (pnu, facility_subtype) | 시설별 거리/개수 집계 |
 | trade_history | id (SERIAL) | 매매 이력 |
 | rent_history | id (SERIAL) | 전월세 이력 |
