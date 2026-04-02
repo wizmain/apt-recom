@@ -13,8 +13,8 @@ import time
 from datetime import datetime
 
 from batch.config import DATA_GO_KR_RATE, TRADE_URL, RENT_URL
-from batch.weekly.collect_trades import _call_api, _parse_xml, TRADE_COL_MAP, RENT_COL_MAP
-from batch.weekly.load_trades import load_trades
+from batch.trade.collect_trades import _call_api, _parse_xml, TRADE_COL_MAP, RENT_COL_MAP
+from batch.trade.load_trades import load_trades
 from batch.nationwide_codes import get_nonmetro_codes
 from batch.db import get_connection
 from batch.logger import setup_logger

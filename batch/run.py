@@ -1,10 +1,10 @@
 """배치 데이터 수집/갱신 CLI 진입점.
 
 사용법:
-  python batch/run.py --type weekly
+  python batch/run.py --type trade
   python batch/run.py --type quarterly
   python batch/run.py --type annual
-  python batch/run.py --type weekly --dry-run
+  python batch/run.py --type trade --dry-run
 """
 
 import sys
@@ -14,11 +14,11 @@ from batch.logger import setup_logger, BatchResult
 from batch.db import get_connection
 
 
-def run_weekly(args, logger, result):
-    from batch.weekly.collect_trades import collect_trades
-    from batch.weekly.load_trades import load_trades
-    from batch.weekly.recalc_price import recalc_price
-    from batch.weekly.enrich_apartments import enrich_new_apartments
+def run_trade(args, logger, result):
+    from batch.trade.collect_trades import collect_trades
+    from batch.trade.load_trades import load_trades
+    from batch.trade.recalc_price import recalc_price
+    from batch.trade.enrich_apartments import enrich_new_apartments
 
     conn = get_connection()
     try:
@@ -47,8 +47,8 @@ def run_weekly(args, logger, result):
         result.record("신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0)
 
     except Exception as e:
-        logger.error(f"Weekly 배치 실패: {e}")
-        result.record("Weekly 배치", "critical", error=str(e))
+        logger.error(f"거래 배치 실패: {e}")
+        result.record("거래 배치", "critical", error=str(e))
     finally:
         conn.close()
 
@@ -121,8 +121,8 @@ def run_annual(args, logger, result):
 
 def main():
     parser = argparse.ArgumentParser(description="집토리 배치 데이터 수집/갱신")
-    parser.add_argument("--type", choices=["weekly", "quarterly", "annual"], required=True,
-                        help="배치 유형: weekly(거래), quarterly(시설), annual(인구/범죄)")
+    parser.add_argument("--type", choices=["trade", "quarterly", "annual"], required=True,
+                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄)")
     parser.add_argument("--dry-run", action="store_true", help="수집만 하고 DB 적재 생략")
     args = parser.parse_args()
 
@@ -131,8 +131,8 @@ def main():
 
     logger.info(f"배치 시작: {args.type} {'(dry-run)' if args.dry_run else ''}")
 
-    if args.type == "weekly":
-        run_weekly(args, logger, result)
+    if args.type == "trade":
+        run_trade(args, logger, result)
     elif args.type == "quarterly":
         run_quarterly(args, logger, result)
     elif args.type == "annual":
