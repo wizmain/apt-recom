@@ -186,10 +186,70 @@ def full_sync(logger):
             os.remove(dump_file)
 
 
+def push_to_railway(logger):
+    """로컬 DB → Railway DB 전체 동기화 (pg_dump/pg_restore)."""
+    local_url = os.getenv("DATABASE_URL")
+    railway_url = os.getenv("RAILWAY_DATABASE_URL")
+    dump_file = os.path.join(tempfile.gettempdir(), "local_backup.dump")
+
+    pg_dump = "/opt/homebrew/opt/postgresql@18/bin/pg_dump"
+    pg_restore = "/opt/homebrew/opt/postgresql@18/bin/pg_restore"
+    if not os.path.exists(pg_dump):
+        pg_dump = "pg_dump"
+        pg_restore = "pg_restore"
+
+    try:
+        logger.info("1/3 로컬 DB dump 시작...")
+        result = subprocess.run(
+            [pg_dump, local_url, "--format=custom", "--no-owner", "--no-acl", f"--file={dump_file}"],
+            capture_output=True, text=True, timeout=600,
+        )
+        if result.returncode != 0:
+            logger.error(f"pg_dump 실패: {result.stderr}")
+            return
+
+        size_mb = os.path.getsize(dump_file) / 1024 / 1024
+        logger.info(f"   dump 완료: {size_mb:.1f}MB")
+
+        logger.info("2/3 Railway DB restore 시작...")
+        result = subprocess.run(
+            [pg_restore, "--clean", "--if-exists", "--no-owner", "--no-acl", f"--dbname={railway_url}", dump_file],
+            capture_output=True, text=True, timeout=600,
+        )
+        if result.returncode != 0 and "error" in result.stderr.lower():
+            logger.warning(f"pg_restore 경고: {result.stderr[:500]}")
+        logger.info("   restore 완료")
+
+        logger.info("3/3 정합성 검증...")
+        local = psycopg2.connect(local_url)
+        railway = psycopg2.connect(railway_url)
+
+        tables = ["apartments", "trade_history", "rent_history", "common_code",
+                   "facilities", "apt_facility_summary", "apt_safety_score",
+                   "trade_apt_mapping", "apt_price_score"]
+        for table in tables:
+            lcur = local.cursor()
+            rcur = railway.cursor()
+            lcur.execute(f"SELECT COUNT(*) FROM {table}")
+            l = lcur.fetchone()[0]
+            rcur.execute(f"SELECT COUNT(*) FROM {table}")
+            r = rcur.fetchone()[0]
+            ok = "OK" if l == r else "MISMATCH"
+            logger.info(f"  {table:25s} 로컬: {l:>10,}  Railway: {r:>10,}  [{ok}]")
+
+        local.close()
+        railway.close()
+        logger.info("로컬 → Railway 동기화 완료")
+
+    finally:
+        if os.path.exists(dump_file):
+            os.remove(dump_file)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Railway → 로컬 DB 동기화")
-    parser.add_argument("--mode", choices=["incremental", "full"], default="incremental",
-                        help="incremental: 신규 건만 (기본) / full: pg_dump 전체 교체")
+    parser = argparse.ArgumentParser(description="DB 동기화 (Railway ↔ 로컬)")
+    parser.add_argument("--mode", choices=["incremental", "full", "push"], default="incremental",
+                        help="incremental: Railway→로컬 신규 건 (기본) / full: Railway→로컬 전체 / push: 로컬→Railway 전체")
     args = parser.parse_args()
 
     logger = setup_logger("sync")
@@ -202,6 +262,8 @@ def main():
 
     if args.mode == "full":
         full_sync(logger)
+    elif args.mode == "push":
+        push_to_railway(logger)
     else:
         incremental_sync(logger)
 

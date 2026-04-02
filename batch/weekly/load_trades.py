@@ -83,7 +83,8 @@ def load_trades(conn, trade_rows, rent_rows, logger):
 
         if new_rows:
             cnt = execute_values_chunked(conn,
-                "INSERT INTO trade_history (apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year) VALUES %s",
+                "INSERT INTO trade_history (apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year) VALUES %s"
+                " ON CONFLICT (sgg_cd, apt_nm, exclu_use_ar, floor, deal_year, deal_month, deal_day, deal_amount) DO NOTHING",
                 new_rows)
             total_inserted += cnt
             logger.info(f"  매매 신규 {cnt:,}건 적재 (기존 {len(existing_keys):,}건 스킵)")
@@ -138,7 +139,8 @@ def load_trades(conn, trade_rows, rent_rows, logger):
 
         if new_rows:
             cnt = execute_values_chunked(conn,
-                "INSERT INTO rent_history (apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day) VALUES %s",
+                "INSERT INTO rent_history (apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day) VALUES %s"
+                " ON CONFLICT (sgg_cd, apt_nm, exclu_use_ar, floor, deal_year, deal_month, deal_day, deposit) DO NOTHING",
                 new_rows)
             total_inserted += cnt
             logger.info(f"  전월세 신규 {cnt:,}건 적재 (기존 {len(existing_keys):,}건 스킵)")
