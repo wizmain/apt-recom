@@ -108,14 +108,29 @@ def search_apartments(q: str = Query(..., min_length=1)):
 
         if sgg_code_list:
             ph = ",".join(["%s"] * len(sgg_code_list))
-            rows = conn.execute(f"""
+            # 지역 매칭 (sigungu_code 기준)
+            region_rows = conn.execute(f"""
+                SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
+                FROM apartments
+                WHERE group_pnu = pnu AND sigungu_code IN ({ph})
+                LIMIT 100
+            """, sgg_code_list).fetchall()
+            region_pnus = {r["pnu"] for r in region_rows}
+
+            # 이름 매칭 (지역 매칭과 중복 제외)
+            name_rows = conn.execute("""
                 SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
                 FROM apartments
                 WHERE group_pnu = pnu
-                  AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s
-                       OR sigungu_code IN ({ph}))
+                  AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
                 LIMIT 100
-            """, [pattern, pattern, pattern, norm_pattern] + sgg_code_list).fetchall()
+            """, [pattern, pattern, pattern, norm_pattern]).fetchall()
+
+            results = [{**dict(r), "match_type": "region"} for r in region_rows]
+            for r in name_rows:
+                if r["pnu"] not in region_pnus:
+                    results.append({**dict(r), "match_type": "name"})
+            return results[:100]
         else:
             rows = conn.execute("""
                 SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
@@ -124,6 +139,6 @@ def search_apartments(q: str = Query(..., min_length=1)):
                   AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
                 LIMIT 100
             """, [pattern, pattern, pattern, norm_pattern]).fetchall()
-        return [dict(r) for r in rows]
+        return [{**dict(r), "match_type": "name"} for r in rows]
     finally:
         conn.close()

@@ -391,17 +391,19 @@ def _kakao_reverse_geocode(headers: dict, lat: float, lng: float) -> tuple[str |
 def _kakao_keyword_search(headers: dict, query: str) -> tuple[str | None, str | None, float | None, float | None]:
     """Kakao 키워드 검색 → (도로명주소, 지번주소, lat, lng)."""
     try:
-        # 먼저 키워드 검색
+        # 먼저 키워드 검색 (카테고리 필터 없이 → 아파트 카테고리 우선)
         resp = requests.get(
             "https://dapi.kakao.com/v2/local/search/keyword.json",
             headers=headers,
-            params={"query": query, "size": 1, "category_group_code": "AP4"},
+            params={"query": query, "size": 5},
             timeout=5,
         )
         resp.raise_for_status()
         docs = resp.json().get("documents", [])
         if docs:
-            doc = docs[0]
+            # 아파트 카테고리 결과 우선 선택
+            apt_docs = [d for d in docs if "아파트" in (d.get("category_name") or "")]
+            doc = apt_docs[0] if apt_docs else docs[0]
             return (
                 doc.get("road_address_name") or None,
                 doc.get("address_name") or None,
@@ -433,6 +435,255 @@ def _kakao_keyword_search(headers: dict, query: str) -> tuple[str | None, str | 
         return None, None, None, None
 
 
+def phase4_fill_building_info(dry_run: bool = False, max_calls: int = 10000, batch_size: int = 50):
+    """Phase 4: TRADE_ 아파트 → 주소 기반 건축물대장 API로 세대수/동수/층수 보충."""
+    logger = setup_logger("fill_addresses_p4")
+    conn = get_connection()
+    cur = get_dict_cursor(conn)
+
+    if not DATA_GO_KR_API_KEY:
+        logger.error("DATA_GO_KR_API_KEY 환경변수 필요")
+        conn.close()
+        return
+    if not KAKAO_API_KEY:
+        logger.error("KAKAO_API_KEY 환경변수 필요")
+        conn.close()
+        return
+
+    headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
+
+    # 체크포인트 로드
+    cur.execute(
+        "SELECT extra FROM common_code WHERE group_id = %s AND code = %s",
+        ["batch_checkpoint", "fill_addr_p4"],
+    )
+    cp_row = cur.fetchone()
+    last_pnu = cp_row["extra"] if cp_row else ""
+
+    # 대상: TRADE_ 아파트 중 세대수 없는 것
+    cur.execute("""
+        SELECT pnu, bld_nm, sigungu_code, new_plat_plc, plat_plc, lat, lng
+        FROM apartments
+        WHERE pnu LIKE 'TRADE%%'
+          AND group_pnu = pnu
+          AND (total_hhld_cnt IS NULL OR total_hhld_cnt = 0)
+          AND pnu > %s
+        ORDER BY pnu
+    """, [last_pnu])
+    targets = cur.fetchall()
+    logger.info(f"Phase 4 대상: {len(targets)}건 (TRADE_ + 세대수 없음, 체크포인트 이후)")
+
+    # 시군구 코드→이름 매핑
+    cur.execute("SELECT code, name, extra FROM common_code WHERE group_id = 'sigungu'")
+    sgg_map = {}
+    for r in cur.fetchall():
+        region = f"{r['extra']} {r['name']}" if r["extra"] and r["extra"] != r["name"] else r["name"]
+        sgg_map[r["code"]] = region
+
+    updated = 0
+    failed = 0
+    api_calls = 0
+
+    for i, apt in enumerate(targets):
+        if api_calls >= max_calls:
+            logger.info(f"API 호출 한도 도달: {max_calls}건")
+            break
+
+        pnu = apt["pnu"]
+        address = apt["new_plat_plc"] or apt["plat_plc"]
+
+        # 주소가 없으면 Kakao 키워드 검색으로 확보
+        if not address:
+            region = sgg_map.get(apt["sigungu_code"], "")
+            query = f"{region} {apt['bld_nm']} 아파트"
+            new_plat, plat, lat, lng = _kakao_keyword_search(headers, query)
+            if new_plat or plat:
+                address = new_plat or plat
+                # 주소/좌표도 함께 업데이트
+                if not dry_run:
+                    upd = []
+                    prm = []
+                    if new_plat:
+                        upd.append("new_plat_plc = %s")
+                        prm.append(new_plat)
+                    if plat:
+                        upd.append("plat_plc = %s")
+                        prm.append(plat)
+                    if lat and lng and not apt["lat"]:
+                        upd.append("lat = %s")
+                        prm.append(lat)
+                        upd.append("lng = %s")
+                        prm.append(lng)
+                    if upd:
+                        prm.append(pnu)
+                        cur.execute(f"UPDATE apartments SET {', '.join(upd)} WHERE pnu = %s", prm)
+                time.sleep(KAKAO_RATE)
+            else:
+                failed += 1
+                if failed <= 10:
+                    logger.warning(f"  주소 확보 실패: {apt['bld_nm']} ({apt['sigungu_code']})")
+                time.sleep(KAKAO_RATE)
+                continue
+
+        # 주소 → 건축물대장 파라미터 변환 (Kakao 주소검색)
+        bld_params = _address_to_bld_params(headers, address, apt["bld_nm"])
+        if not bld_params:
+            failed += 1
+            if failed <= 10:
+                logger.warning(f"  주소→파라미터 변환 실패: {apt['bld_nm']} ({address})")
+            time.sleep(KAKAO_RATE)
+            continue
+
+        time.sleep(KAKAO_RATE)
+
+        # 건축물대장 API 호출
+        try:
+            params = {
+                "serviceKey": DATA_GO_KR_API_KEY,
+                "sigunguCd": bld_params["sigungu_cd"],
+                "bjdongCd": bld_params["bjdong_cd"],
+                "platGbCd": bld_params.get("plat_gb_cd", "0"),
+                "bun": bld_params["bun"],
+                "ji": bld_params["ji"],
+                "numOfRows": "50",
+                "pageNo": "1",
+            }
+            resp = requests.get(BLD_TITLE_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            api_calls += 1
+
+            root = ET.fromstring(resp.text)
+            result_code = root.findtext(".//resultCode")
+            if result_code and result_code != "00":
+                failed += 1
+                if failed <= 10:
+                    logger.warning(f"  건축물대장 API 오류: {apt['bld_nm']} — {root.findtext('.//resultMsg', '')}")
+                time.sleep(DATA_GO_KR_RATE)
+                continue
+
+            items = root.findall(".//item")
+            if not items:
+                failed += 1
+                time.sleep(DATA_GO_KR_RATE)
+                continue
+
+            # 여러 동 데이터 집계: 세대수 합산, 동수 카운트, 최고층 최대값
+            total_hhld = 0
+            dong_set = set()
+            max_flr = 0
+            use_apr = None
+
+            for item in items:
+                hhld_str = item.findtext("hhldCnt")
+                if hhld_str and hhld_str.isdigit():
+                    total_hhld += int(hhld_str)
+                dong_nm = item.findtext("dongNm")
+                if dong_nm:
+                    dong_set.add(dong_nm)
+                flr_str = item.findtext("grndFlrCnt")
+                if flr_str and flr_str.isdigit():
+                    max_flr = max(max_flr, int(flr_str))
+                apr = item.findtext("useAprDay")
+                if apr and (not use_apr or apr < use_apr):
+                    use_apr = apr
+
+            # DB 업데이트
+            update_fields = []
+            update_params = []
+
+            if total_hhld > 0:
+                update_fields.append("total_hhld_cnt = %s")
+                update_params.append(total_hhld)
+            if dong_set:
+                update_fields.append("dong_count = %s")
+                update_params.append(len(dong_set))
+            if max_flr > 0:
+                update_fields.append("max_floor = %s")
+                update_params.append(max_flr)
+            if use_apr:
+                update_fields.append("use_apr_day = COALESCE(NULLIF(use_apr_day, ''), %s)")
+                update_params.append(use_apr)
+
+            if update_fields and not dry_run:
+                update_params.append(pnu)
+                cur.execute(
+                    f"UPDATE apartments SET {', '.join(update_fields)} WHERE pnu = %s",
+                    update_params,
+                )
+
+            if update_fields:
+                updated += 1
+                if updated <= 5 or updated % 200 == 0:
+                    logger.info(f"  [{updated}] {apt['bld_nm']} → 세대수={total_hhld}, 동수={len(dong_set)}, 최고층={max_flr}")
+            else:
+                failed += 1
+
+        except Exception as e:
+            failed += 1
+            if failed <= 10:
+                logger.warning(f"  오류: {apt['bld_nm']} — {e}")
+
+        # 체크포인트 저장
+        if (i + 1) % batch_size == 0 and not dry_run:
+            _save_checkpoint_p4(cur, conn, pnu)
+
+        time.sleep(DATA_GO_KR_RATE)
+
+        if (i + 1) % 200 == 0:
+            logger.info(f"  진행: {i+1}/{len(targets)} (성공={updated}, 실패={failed}, API={api_calls})")
+
+    # 마지막 체크포인트 + 커밋
+    if not dry_run and targets and api_calls > 0:
+        last_processed = targets[min(i, len(targets) - 1)]["pnu"]
+        _save_checkpoint_p4(cur, conn, last_processed)
+        conn.commit()
+        logger.info(f"Phase 4 완료: {updated}건 업데이트, {failed}건 실패, API {api_calls}건 호출")
+    else:
+        logger.info(f"Phase 4 {'Dry-run' if dry_run else '완료'}: {updated}건 성공, {failed}건 실패")
+
+    conn.close()
+
+
+def _address_to_bld_params(headers: dict, address: str, bld_nm: str) -> dict | None:
+    """주소 → 건축물대장 API 파라미터 변환 (Kakao 주소검색 활용)."""
+    try:
+        resp = requests.get(
+            "https://dapi.kakao.com/v2/local/search/address.json",
+            headers=headers,
+            params={"query": address, "size": 1},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        docs = resp.json().get("documents", [])
+        if not docs:
+            return None
+
+        doc = docs[0]
+        addr = doc.get("address")
+        if not addr:
+            return None
+
+        # 법정동코드(10자리)에서 시군구(5) + 읍면동(5) 추출
+        b_code = addr.get("b_code", "")
+        if len(b_code) < 10:
+            return None
+
+        # 본번/부번
+        main_no = addr.get("main_address_no", "0")
+        sub_no = addr.get("sub_address_no", "0") or "0"
+        mountain = addr.get("mountain_yn", "N")
+
+        return {
+            "sigungu_cd": b_code[:5],
+            "bjdong_cd": b_code[5:10],
+            "plat_gb_cd": "1" if mountain == "Y" else "0",
+            "bun": str(main_no).zfill(4),
+            "ji": str(sub_no).zfill(4),
+        }
+    except Exception:
+        return None
+
+
 def _save_checkpoint(cur, conn, pnu: str):
     """체크포인트를 common_code에 저장."""
     cur.execute(
@@ -445,11 +696,23 @@ def _save_checkpoint(cur, conn, pnu: str):
     conn.commit()
 
 
+def _save_checkpoint_p4(cur, conn, pnu: str):
+    """Phase 4 체크포인트를 common_code에 저장."""
+    cur.execute(
+        """INSERT INTO common_code (group_id, code, name, extra)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (group_id, code)
+           DO UPDATE SET extra = EXCLUDED.extra""",
+        ["batch_checkpoint", "fill_addr_p4", "건물정보보충 Phase4 체크포인트", pnu],
+    )
+    conn.commit()
+
+
 def main():
     parser = argparse.ArgumentParser(description="아파트 주소 데이터 보충")
-    parser.add_argument("--phase", type=int, required=True, choices=[1, 2, 3], help="실행 단계")
+    parser.add_argument("--phase", type=int, required=True, choices=[1, 2, 3, 4], help="실행 단계")
     parser.add_argument("--dry-run", action="store_true", help="DB 반영 없이 확인")
-    parser.add_argument("--max-calls", type=int, default=1000, help="Phase 2: 일일 API 호출 한도")
+    parser.add_argument("--max-calls", type=int, default=10000, help="일일 API 호출 한도")
     args = parser.parse_args()
 
     if args.phase == 1:
@@ -458,6 +721,8 @@ def main():
         phase2_building_registry(dry_run=args.dry_run, max_calls=args.max_calls)
     elif args.phase == 3:
         phase3_kakao_fallback(dry_run=args.dry_run)
+    elif args.phase == 4:
+        phase4_fill_building_info(dry_run=args.dry_run, max_calls=args.max_calls)
 
 
 if __name__ == "__main__":

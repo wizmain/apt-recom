@@ -193,7 +193,7 @@ function App() {
       <ChatButton onClick={() => {
         setShowChat(prev => !prev);
         if (showChat) setChatInitialMessage(null);
-      }} isOpen={showChat} />
+      }} isOpen={showChat} hasResults={results.length > 0 || loading} />
       {showChat && (
         <ChatModal
           onClose={() => { setShowChat(false); setChatInitialMessage(null); setChatAnalyzeContext(null); setChatHighlightApts([]); setChatFocusApts([]); }}
