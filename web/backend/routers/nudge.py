@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from database import DictConnection
 from services.scoring import (
     get_nudge_weights,
-    distance_to_score,
+    facility_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
 )
@@ -57,6 +57,15 @@ def nudge_score(req: NudgeScoreRequest):
             kw_list = [req.keyword.strip()]
 
         if kw_list:
+            # 시군구명→코드 매칭 (주소 없는 비수도권 아파트 지원)
+            sgg_code_list: list[str] = []
+            for kw in kw_list:
+                sgg_rows = conn.execute(
+                    "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s)",
+                    [f"%{kw}%", f"%{kw}%"],
+                ).fetchall()
+                sgg_code_list.extend(r["code"] for r in sgg_rows)
+
             or_clauses = []
             for kw in kw_list:
                 pattern = f"%{kw}%"
@@ -64,6 +73,10 @@ def nudge_score(req: NudgeScoreRequest):
                 norm_pattern = f"%{norm_kw}%"
                 or_clauses.append("(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)")
                 params.extend([pattern, pattern, pattern, norm_pattern])
+            if sgg_code_list:
+                ph_sgg = ",".join(["%s"] * len(sgg_code_list))
+                or_clauses.append(f"a.sigungu_code IN ({ph_sgg})")
+                params.extend(sgg_code_list)
             conditions.append(f"({' OR '.join(or_clauses)})")
 
         if all(v is not None for v in [req.sw_lat, req.sw_lng, req.ne_lat, req.ne_lng]):
@@ -127,20 +140,20 @@ def nudge_score(req: NudgeScoreRequest):
             ph_pnu = ",".join(["%s"] * len(chunk))
             ph_sub = ",".join(["%s"] * len(all_subtypes))
             sql = (
-                f"SELECT pnu, facility_subtype, nearest_distance_m "
+                f"SELECT pnu, facility_subtype, nearest_distance_m, count_1km "
                 f"FROM apt_facility_summary "
                 f"WHERE pnu IN ({ph_pnu}) AND facility_subtype IN ({ph_sub})"
             )
             summary_rows.extend(conn.execute(sql, chunk + list(all_subtypes)).fetchall())
 
-        # 4. Build per-apartment facility scores
+        # 4. Build per-apartment facility scores (거리 70% + 밀도 30% 블렌딩)
         apt_facility_scores: dict[str, dict[str, float]] = {}
         for row in summary_rows:
             pnu = row["pnu"]
             if pnu not in apt_facility_scores:
                 apt_facility_scores[pnu] = {}
-            apt_facility_scores[pnu][row["facility_subtype"]] = distance_to_score(
-                row["nearest_distance_m"], row["facility_subtype"]
+            apt_facility_scores[pnu][row["facility_subtype"]] = facility_score(
+                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
             )
 
         # 4b. Price scores

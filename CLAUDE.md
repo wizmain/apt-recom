@@ -47,6 +47,12 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 | **의존성 추가 (Python)** | `uv pip install {패키지}` + `requirements.txt` 수동 업데이트 |
 | **의존성 추가 (JS)** | `cd web/frontend && npm install {패키지}` |
 | **Python 포맷** | `ruff format {파일}` / `ruff check --fix {파일}` |
+| **Railway→로컬 동기화 (증분)** | `.venv/bin/python -m batch.sync_from_railway` |
+| **Railway→로컬 동기화 (전체)** | `.venv/bin/python -m batch.sync_from_railway --mode full` |
+| **비수도권 초기 수집** | `.venv/bin/python -m batch.initial_collect --max-calls 900` |
+| **배치 실행 (weekly)** | `.venv/bin/python -m batch.run --type weekly` |
+| **배치 실행 (quarterly)** | `.venv/bin/python -m batch.run --type quarterly` |
+| **배치 실행 (annual)** | `.venv/bin/python -m batch.run --type annual` |
 
 ## 데이터베이스 규칙
 - **ORM 없음**: raw SQL + psycopg2. SQLAlchemy, Alembic 사용하지 않음.

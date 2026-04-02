@@ -91,21 +91,39 @@ def list_apartments(
 
 @router.get("/apartments/search")
 def search_apartments(q: str = Query(..., min_length=1)):
-    """키워드로 아파트 검색 (지역명, 단지명)"""
+    """키워드로 아파트 검색 (지역명, 단지명, 시군구명)"""
     conn = DictConnection()
     try:
         import re
         pattern = f"%{q}%"
-        # 띄어쓰기/특수문자 제거한 정규화 검색어
         norm_q = re.sub(r'[\s()\-·]', '', q)
         norm_pattern = f"%{norm_q}%"
-        rows = conn.execute("""
-            SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
-            FROM apartments
-            WHERE group_pnu = pnu
-              AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
-            LIMIT 100
-        """, [pattern, pattern, pattern, norm_pattern]).fetchall()
+
+        # 시군구명으로 sigungu_code 매칭 (주소 없는 비수도권 아파트 지원)
+        sgg_codes = conn.execute(
+            "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s)",
+            [pattern, pattern],
+        ).fetchall()
+        sgg_code_list = [r["code"] for r in sgg_codes]
+
+        if sgg_code_list:
+            ph = ",".join(["%s"] * len(sgg_code_list))
+            rows = conn.execute(f"""
+                SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
+                FROM apartments
+                WHERE group_pnu = pnu
+                  AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s
+                       OR sigungu_code IN ({ph}))
+                LIMIT 100
+            """, [pattern, pattern, pattern, norm_pattern] + sgg_code_list).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
+                FROM apartments
+                WHERE group_pnu = pnu
+                  AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
+                LIMIT 100
+            """, [pattern, pattern, pattern, norm_pattern]).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

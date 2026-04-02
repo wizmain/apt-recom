@@ -5,7 +5,7 @@ import json
 from database import DictConnection
 from services.scoring import (
     get_nudge_weights,
-    distance_to_score,
+    facility_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
 )
@@ -185,6 +185,30 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": [],
         },
     ),
+    Tool(
+        name="get_similar_apartments",
+        description="선택한 아파트와 유사한 특성의 아파트를 추천합니다. 면적, 가격대, 주변 시설, 교통, 학군 등 34가지 특성을 기반으로 코사인 유사도를 계산하여 가장 비슷한 아파트를 찾습니다.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "아파트명 또는 PNU 코드",
+                },
+                "top_n": {
+                    "type": "integer",
+                    "description": "추천할 아파트 수 (기본 5)",
+                    "default": 5,
+                },
+                "exclude_same_area": {
+                    "type": "boolean",
+                    "description": "같은 시군구 제외 여부 (기본 true)",
+                    "default": True,
+                },
+            },
+            "required": ["query"],
+        },
+    ),
 ]
 
 
@@ -228,14 +252,28 @@ async def search_apartments(
         import re as _re
         kw = keyword.strip()
         norm_kw = _re.sub(r'[\s()\-·]', '', kw)
+        # 시군구명→코드 매칭 (주소 없는 비수도권 아파트 지원)
+        sgg_rows = conn.execute(
+            "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s)",
+            [f"%{kw}%", f"%{kw}%"],
+        ).fetchall()
+        sgg_codes = [r["code"] for r in sgg_rows]
+
+        addr_condition = "(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s"
+        params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
+        if sgg_codes:
+            ph = ",".join(["%s"] * len(sgg_codes))
+            addr_condition += f" OR a.sigungu_code IN ({ph})"
+            params.extend(sgg_codes)
+        addr_condition += ")"
+
         apt_sql = (
             "SELECT a.pnu, a.bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc "
             "FROM apartments a "
             "LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu "
             "LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu "
-            "WHERE a.lat IS NOT NULL AND a.group_pnu = a.pnu AND (a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
+            f"WHERE a.lat IS NOT NULL AND a.group_pnu = a.pnu AND {addr_condition}"
         )
-        params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
 
         if min_area is not None:
             apt_sql += " AND ai.max_area >= %s"
@@ -281,7 +319,7 @@ async def search_apartments(
             ph_sub = ",".join("%s" for _ in all_subtypes)
             if all_subtypes:
                 rows = conn.execute(
-                    f"SELECT pnu, facility_subtype, nearest_distance_m "
+                    f"SELECT pnu, facility_subtype, nearest_distance_m, count_1km "
                     f"FROM apt_facility_summary "
                     f"WHERE pnu IN ({ph_pnu}) AND facility_subtype IN ({ph_sub})",
                     chunk + list(all_subtypes),
@@ -294,8 +332,8 @@ async def search_apartments(
             pnu = row["pnu"]
             if pnu not in apt_facility_scores:
                 apt_facility_scores[pnu] = {}
-            apt_facility_scores[pnu][row["facility_subtype"]] = distance_to_score(
-                row["nearest_distance_m"], row["facility_subtype"]
+            apt_facility_scores[pnu][row["facility_subtype"]] = facility_score(
+                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
             )
 
         # Load price scores if needed
@@ -415,8 +453,8 @@ async def get_apartment_detail(query: str) -> str:
         }
 
         facility_scores = {
-            row["facility_subtype"]: distance_to_score(
-                row["nearest_distance_m"], row["facility_subtype"]
+            row["facility_subtype"]: facility_score(
+                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
             )
             for row in summary_rows
         }
@@ -538,17 +576,25 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
         # Find sgg_cd from region name
         sgg_cd = region
         if not region.isdigit():
-            # Try to find matching apartments to get sgg_cd
-            apt = conn.execute(
-                "SELECT sigungu_code FROM apartments WHERE new_plat_plc LIKE %s LIMIT 1",
-                [f"%{region}%"],
+            # common_code에서 시군구명→코드 매칭
+            sgg_row = conn.execute(
+                "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s) LIMIT 1",
+                [f"%{region}%", f"%{region}%"],
             ).fetchone()
-            if apt and apt["sigungu_code"]:
-                sgg_cd = apt["sigungu_code"][:5]
+            if sgg_row:
+                sgg_cd = sgg_row["code"]
             else:
-                return json.dumps(
-                    {"error": f"'{region}' 지역을 찾을 수 없습니다."}, ensure_ascii=False
-                )
+                # 주소에서 검색 (fallback)
+                apt = conn.execute(
+                    "SELECT sigungu_code FROM apartments WHERE new_plat_plc LIKE %s LIMIT 1",
+                    [f"%{region}%"],
+                ).fetchone()
+                if apt and apt["sigungu_code"]:
+                    sgg_cd = apt["sigungu_code"][:5]
+                else:
+                    return json.dumps(
+                        {"error": f"'{region}' 지역을 찾을 수 없습니다."}, ensure_ascii=False
+                    )
 
         # Trade volume and avg price by year-month
         trade_rows = conn.execute(
@@ -887,6 +933,73 @@ async def get_dashboard_info(region: str = "", months: int = 6) -> str:
 # Executor mapping
 # ---------------------------------------------------------------------------
 
+async def get_similar_apartments(query: str, top_n: int = 5, exclude_same_area: bool = True) -> str:
+    """유사 아파트 추천."""
+    import numpy as np
+    conn = _get_conn()
+
+    # 아파트 검색 (PNU 또는 이름)
+    apt = conn.execute("SELECT pnu FROM apartments WHERE pnu = %s", [query]).fetchone()
+    if not apt:
+        import re as _re
+        norm = _re.sub(r'[\s()\-·]', '', query)
+        rows = conn.execute(
+            "SELECT pnu, bld_nm FROM apartments WHERE group_pnu = pnu AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 1",
+            [f"%{query}%", f"%{norm}%"]
+        ).fetchall()
+        if not rows:
+            conn.close()
+            return json.dumps({"error": f"'{query}' 아파트를 찾을 수 없습니다."}, ensure_ascii=False)
+        apt = rows[0]
+
+    pnu = apt["pnu"]
+
+    # 벡터 조회
+    target = conn.execute("SELECT vector FROM apt_vectors WHERE pnu = %s", [pnu]).fetchone()
+    if not target:
+        conn.close()
+        return json.dumps({"error": "해당 아파트의 유사도 벡터가 없습니다."}, ensure_ascii=False)
+
+    target_vec = np.array(target["vector"])
+
+    # 시군구 조회
+    target_apt = conn.execute("SELECT bld_nm, sigungu_code FROM apartments WHERE pnu = %s", [pnu]).fetchone()
+    target_sgg = (target_apt["sigungu_code"] or "")[:5] if exclude_same_area else ""
+
+    # 전체 벡터 + 아파트 정보
+    rows = conn.execute("""
+        SELECT v.pnu, v.vector, a.bld_nm, a.sigungu_code, p.price_per_m2
+        FROM apt_vectors v
+        JOIN apartments a ON v.pnu = a.pnu
+        LEFT JOIN apt_price_score p ON v.pnu = p.pnu
+        WHERE v.pnu != %s AND a.group_pnu = a.pnu
+    """, [pnu]).fetchall()
+    conn.close()
+
+    # 유사도 계산
+    results = []
+    for r in rows:
+        if exclude_same_area and (r["sigungu_code"] or "")[:5] == target_sgg:
+            continue
+        vec = np.array(r["vector"])
+        dot = np.dot(target_vec, vec)
+        norm = np.linalg.norm(target_vec) * np.linalg.norm(vec)
+        sim = float(dot / norm) if norm > 0 else 0
+        results.append({
+            "name": r["bld_nm"],
+            "pnu": r["pnu"],
+            "similarity": f"{sim * 100:.1f}%",
+            "price_m2": f"{round(float(r['price_per_m2'])):,}만원/㎡" if r["price_per_m2"] else "가격정보 없음",
+        })
+
+    results.sort(key=lambda x: float(x["similarity"].replace("%", "")), reverse=True)
+
+    return json.dumps({
+        "target": target_apt["bld_nm"],
+        "similar_apartments": results[:top_n],
+    }, ensure_ascii=False)
+
+
 TOOL_EXECUTORS = {
     "search_apartments": search_apartments,
     "get_apartment_detail": get_apartment_detail,
@@ -896,4 +1009,5 @@ TOOL_EXECUTORS = {
     "search_knowledge": search_knowledge,
     "search_commute": search_commute,
     "get_dashboard_info": get_dashboard_info,
+    "get_similar_apartments": get_similar_apartments,
 }

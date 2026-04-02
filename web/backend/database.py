@@ -193,6 +193,13 @@ def create_tables(conn) -> None:
             PRIMARY KEY (sigungu_code, age_group)
         );
 
+        CREATE TABLE IF NOT EXISTS apt_vectors (
+            pnu TEXT PRIMARY KEY,
+            vector DOUBLE PRECISION[] NOT NULL,
+            feature_names TEXT DEFAULT '',
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
         CREATE TABLE IF NOT EXISTS common_code (
             group_id TEXT NOT NULL,
             code TEXT NOT NULL,
