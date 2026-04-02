@@ -68,34 +68,40 @@ def apartment_detail(pnu: str):
             for nid in get_nudge_weights()
         }
 
-        # Nearby facilities
-        nearby_rows = conn.execute(
-            """
-            SELECT m.facility_type, m.facility_subtype, m.distance_m,
-                   f.name, f.lat, f.lng
-            FROM apt_facility_mapping m
-            JOIN facilities f ON m.facility_id = f.facility_id
-            WHERE m.pnu = %s AND m.distance_m <= 2000
-            ORDER BY m.facility_type, m.distance_m
-            """,
-            [pnu],
-        ).fetchall()
-
+        # Nearby facilities — 아파트 좌표 기반으로 시설 유형별 최근접 3개 조회
         nearby: dict[str, list] = {}
-        for row in nearby_rows:
-            ft = row["facility_type"]
-            if ft not in nearby:
-                nearby[ft] = []
-            if len(nearby[ft]) < 3:
-                nearby[ft].append(
-                    {
-                        "subtype": row["facility_subtype"],
-                        "name": row["name"],
-                        "distance_m": row["distance_m"],
-                        "lat": row["lat"],
-                        "lng": row["lng"],
-                    }
-                )
+        if basic.get("lat") and basic.get("lng"):
+            apt_lat, apt_lng = basic["lat"], basic["lng"]
+            subtypes = [r["facility_subtype"] for r in summary_rows]
+            for subtype in subtypes:
+                fac_rows = conn.execute(
+                    """
+                    SELECT name, lat, lng,
+                           (6371000 * acos(
+                               cos(radians(%s)) * cos(radians(lat)) *
+                               cos(radians(lng) - radians(%s)) +
+                               sin(radians(%s)) * sin(radians(lat))
+                           )) as dist_m
+                    FROM facilities
+                    WHERE facility_subtype = %s AND lat IS NOT NULL
+                    ORDER BY (lat - %s)^2 + (lng - %s)^2
+                    LIMIT 3
+                    """,
+                    [apt_lat, apt_lng, apt_lat, subtype, apt_lat, apt_lng],
+                ).fetchall()
+                if fac_rows:
+                    items = [
+                        {
+                            "subtype": subtype,
+                            "name": r["name"],
+                            "distance_m": round(r["dist_m"], 1),
+                            "lat": r["lat"],
+                            "lng": r["lng"],
+                        }
+                        for r in fac_rows if r["dist_m"] and r["dist_m"] <= 2000
+                    ]
+                    if items:
+                        nearby[subtype] = items
 
         # School zone
         school = conn.execute(

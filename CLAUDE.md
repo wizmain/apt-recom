@@ -60,7 +60,40 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 - **파라미터**: `%s` placeholder 사용 (psycopg2 형식). `?` 사용 금지.
 - **스키마**: `web/backend/database.py`의 `create_tables()` 함수에 정의.
 - **마이그레이션**: 별도 프레임워크 없음. 스키마 변경 시 `create_tables()` 수정 + ALTER TABLE SQL 작성.
-- **주요 테이블**: apartments, facilities, apt_facility_mapping, apt_facility_summary, trade_history, rent_history, trade_apt_mapping, school_zones, apt_price_score, apt_safety_score, population_by_district, chat_feedback
+- **주요 테이블**: apartments, facilities, apt_facility_summary, trade_history, rent_history, trade_apt_mapping, school_zones, apt_price_score, apt_safety_score, population_by_district, chat_feedback
+
+## 데이터베이스 설계 원칙
+
+### 정규화 & 무결성
+- 제3정규형(3NF) 이상 유지 — 동일 데이터가 2곳 이상에 존재하면 정규화 검토
+- 모든 테이블에 명확한 PK 정의 — 자연키 우선, 불가능 시 대리키(SERIAL)
+- 대리키(SERIAL) 사용 시 비즈니스 키에 UNIQUE 제약조건 필수
+  — 예: trade_history는 id(PK) + (sgg_cd, apt_nm, area, floor, year, month, day, amount)(UNIQUE)
+- 외래키 관계가 존재하면 FK 제약조건 또는 최소한 인덱스로 참조 무결성 보장
+- ENUM성 값은 common_code 테이블로 관리 — 코드에 하드코딩 금지
+
+### 컬럼 설계
+- 컬럼명은 snake_case, 의미를 명확히 드러내는 접두어 사용 (score_, count_, avg_)
+- 금액은 정수(만원 단위), 면적은 DOUBLE PRECISION(㎡), 좌표는 DOUBLE PRECISION
+- 날짜/시간: 이력성 데이터는 created_at TIMESTAMPTZ DEFAULT NOW() 필수
+- NULL 허용 컬럼은 보충 전략을 함께 설계 (어떤 프로세스가 채우는지 명시)
+
+### 인덱스 설계
+- 조회 패턴(WHERE, JOIN, ORDER BY)에 맞는 인덱스를 테이블 생성과 동시에 설계
+- 복합 인덱스는 카디널리티 높은 컬럼을 앞에 배치
+- UNIQUE 인덱스는 데이터 정합성 보호 수단 — 중복 방지가 필요한 곳에 반드시 적용
+
+### 외부 데이터 연동
+- 외부 API 코드는 실제 API 응답 기준으로 등록 (행정코드 ≠ API코드 주의)
+- 데이터 수집과 보충을 분리 — 부분 데이터라도 먼저 적재 가능하게 설계
+- 외부 수집 데이터는 원본 키를 보존하여 재수집/검증 가능하게 유지
+
+### 테이블 생성 체크리스트
+- [ ] PK 정의 + 비즈니스 키 UNIQUE 제약조건
+- [ ] 증분 동기화용 created_at 컬럼
+- [ ] NULL 허용 컬럼의 보충 전략
+- [ ] 조회 패턴 기반 인덱스
+- [ ] 관련 테이블과의 참조 관계 정리
 
 ## Architecture
 아키텍처 변경 결정은 `docs/adr/`에 ADR로 기록한다.
