@@ -224,4 +224,17 @@ def enrich_new_apartments(conn, logger):
 
     conn.commit()
     logger.info(f"  신규 아파트 보충 완료: 등록={created}, 정보보충={enriched}, 실패={failed}")
+
+    # 좌표가 확보된 신규 아파트에 대해 시설 집계 + 안전점수 계산
+    all_new_pnus = [item["pnu"] for item in unique_enrich]
+    if all_new_pnus:
+        ph = ",".join(["%s"] * len(all_new_pnus))
+        with_coords = query_all(conn,
+            f"SELECT pnu FROM apartments WHERE pnu IN ({ph}) AND lat IS NOT NULL",
+            all_new_pnus)
+        pnus_with_coords = [r["pnu"] for r in with_coords]
+        if pnus_with_coords:
+            from batch.quarterly.recalc_summary import recalc_for_new_apartments
+            recalc_for_new_apartments(conn, logger, pnus_with_coords)
+
     return created + enriched

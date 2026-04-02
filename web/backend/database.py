@@ -91,7 +91,9 @@ def create_tables(conn) -> None:
             name TEXT,
             lat DOUBLE PRECISION,
             lng DOUBLE PRECISION,
-            address TEXT
+            address TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            updated_at TIMESTAMPTZ DEFAULT NOW()
         );
 
         CREATE TABLE IF NOT EXISTS apt_facility_summary (

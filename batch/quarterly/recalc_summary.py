@@ -4,6 +4,115 @@ import numpy as np
 from batch.db import query_all, execute_values_chunked
 
 
+def recalc_for_new_apartments(conn, logger, pnu_list):
+    """신규 아파트만 대상으로 시설 집계 + 안전점수 계산."""
+    if not pnu_list:
+        return
+
+    try:
+        from sklearn.neighbors import BallTree
+    except ImportError:
+        logger.error("scikit-learn 미설치, 시설 집계 생략")
+        return
+
+    EARTH_RADIUS_M = 6_371_000
+    RADII = {"1km": 1000, "3km": 3000, "5km": 5000}
+
+    # 대상 아파트 좌표
+    ph = ",".join(["%s"] * len(pnu_list))
+    apts = query_all(conn,
+        f"SELECT pnu, lat, lng FROM apartments WHERE pnu IN ({ph}) AND lat IS NOT NULL AND lng IS NOT NULL",
+        pnu_list)
+    if not apts:
+        return
+
+    apt_pnus = [a["pnu"] for a in apts]
+    apt_coords = np.radians(np.array([[a["lat"], a["lng"]] for a in apts]))
+
+    logger.info(f"  신규 아파트 시설 집계: {len(apt_pnus)}건")
+
+    # 시설 subtype별 BallTree
+    subtypes = query_all(conn, "SELECT DISTINCT facility_subtype FROM facilities WHERE is_active = TRUE")
+    summary_rows = []
+
+    for st in subtypes:
+        subtype = st["facility_subtype"]
+        facs = query_all(conn,
+            "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL AND is_active = TRUE",
+            [subtype])
+        if not facs:
+            continue
+
+        fac_coords = np.radians(np.array([[f["lat"], f["lng"]] for f in facs]))
+        tree = BallTree(fac_coords, metric="haversine")
+
+        dists, _ = tree.query(apt_coords, k=1)
+        nearest_m = dists[:, 0] * EARTH_RADIUS_M
+
+        counts = {}
+        for label, radius in RADII.items():
+            counts[label] = tree.query_radius(apt_coords, r=radius / EARTH_RADIUS_M, count_only=True)
+
+        for i, pnu in enumerate(apt_pnus):
+            summary_rows.append((
+                pnu, subtype, round(float(nearest_m[i]), 1),
+                int(counts["1km"][i]), int(counts["3km"][i]), int(counts["5km"][i])
+            ))
+
+    # 기존 데이터 삭제 후 INSERT
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM apt_facility_summary WHERE pnu IN ({ph})", pnu_list)
+    if summary_rows:
+        execute_values_chunked(conn,
+            "INSERT INTO apt_facility_summary (pnu, facility_subtype, nearest_distance_m, count_1km, count_3km, count_5km) VALUES %s",
+            summary_rows)
+
+    # 안전점수 계산
+    cctv_facs = query_all(conn,
+        "SELECT lat, lng FROM facilities WHERE facility_subtype = 'cctv' AND lat IS NOT NULL AND is_active = TRUE")
+
+    safety_rows = []
+    if cctv_facs:
+        cctv_coords = np.radians(np.array([[f["lat"], f["lng"]] for f in cctv_facs]))
+        cctv_tree = BallTree(cctv_coords, metric="haversine")
+        cctv_dists, _ = cctv_tree.query(apt_coords, k=1)
+        cctv_nearest = cctv_dists[:, 0] * EARTH_RADIUS_M
+        cctv_500m = cctv_tree.query_radius(apt_coords, r=500 / EARTH_RADIUS_M, count_only=True)
+        cctv_1km = cctv_tree.query_radius(apt_coords, r=1000 / EARTH_RADIUS_M, count_only=True)
+    else:
+        cctv_nearest = np.full(len(apt_pnus), np.inf)
+        cctv_500m = np.zeros(len(apt_pnus), dtype=int)
+        cctv_1km = np.zeros(len(apt_pnus), dtype=int)
+
+    # summary_rows에서 경찰서/소방서 거리 조회
+    summary_map: dict[str, dict[str, float]] = {}
+    for row in summary_rows:
+        pnu, subtype, dist = row[0], row[1], row[2]
+        if subtype in ("police", "fire_station"):
+            if pnu not in summary_map:
+                summary_map[pnu] = {}
+            summary_map[pnu][subtype] = dist
+
+    for i, pnu in enumerate(apt_pnus):
+        cctv_score = min(100.0, int(cctv_500m[i]) * 2)
+        police_dist = summary_map.get(pnu, {}).get("police", 5000)
+        fire_dist = summary_map.get(pnu, {}).get("fire_station", 5000)
+        police_score = max(0, 100 - police_dist / 50)
+        fire_score = max(0, 100 - fire_dist / 50)
+        safety = round(cctv_score * 0.4 + police_score * 0.3 + fire_score * 0.3, 1)
+        nearest = round(float(cctv_nearest[i]), 1) if cctv_nearest[i] < 100000 else None
+        safety_rows.append((pnu, safety, int(cctv_500m[i]), int(cctv_1km[i]), nearest))
+
+    cur.execute(f"DELETE FROM apt_safety_score WHERE pnu IN ({ph})", pnu_list)
+    if safety_rows:
+        execute_values_chunked(conn,
+            "INSERT INTO apt_safety_score (pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m) VALUES %s",
+            safety_rows)
+
+    conn.commit()
+    logger.info(f"  신규 아파트 시설 집계 완료: summary={len(summary_rows)}, safety={len(safety_rows)}")
+
+
 def recalc_summary(conn, logger):
     """시설 변경 후 apt_facility_summary 및 apt_safety_score 재계산."""
     try:
@@ -24,8 +133,8 @@ def recalc_summary(conn, logger):
     apt_pnus = [a["pnu"] for a in apts]
     apt_coords = np.radians(np.array([[a["lat"], a["lng"]] for a in apts]))
 
-    # 시설 subtype별로 처리
-    subtypes = query_all(conn, "SELECT DISTINCT facility_subtype FROM facilities")
+    # 시설 subtype별로 처리 (활성 시설만)
+    subtypes = query_all(conn, "SELECT DISTINCT facility_subtype FROM facilities WHERE is_active = TRUE")
     subtype_list = [r["facility_subtype"] for r in subtypes]
 
     logger.info(f"BallTree 재계산: {len(apt_pnus):,}개 아파트 x {len(subtype_list)}개 시설유형")
@@ -34,7 +143,7 @@ def recalc_summary(conn, logger):
 
     for subtype in subtype_list:
         facs = query_all(conn,
-            "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL",
+            "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL AND is_active = TRUE",
             [subtype])
         if not facs:
             continue
@@ -75,7 +184,7 @@ def recalc_summary(conn, logger):
     safety_rows = []
     # CCTV subtype 데이터
     cctv_facs = query_all(conn,
-        "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL",
+        "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL AND is_active = TRUE",
         ["cctv"])
 
     if cctv_facs:
