@@ -1,5 +1,6 @@
 """시설 데이터 수집 (변동 잦은 6종: 병원, CCTV, 편의점, 약국, 대형마트, 동물병원)."""
 
+import hashlib
 import time
 import requests
 import xml.etree.ElementTree as ET
@@ -61,6 +62,12 @@ def _filter_metro(items, addr_keys=("rdnmadr", "lnmadr")):
     return result
 
 
+def _make_facility_id(code_prefix, lat, lng, name):
+    """좌표+이름 기반 안정적 facility_id 생성."""
+    name_hash = hashlib.md5((name or "").encode()).hexdigest()[:8]
+    return f"{code_prefix}_{lat:.4f}_{lng:.4f}_{name_hash}"
+
+
 def _to_facility_row(item, ftype, fsubtype, code_prefix, idx,
                      name_key="bplcNm", lat_key="latitude", lng_key="longitude",
                      addr_key="rdnmadr"):
@@ -74,12 +81,13 @@ def _to_facility_row(item, ftype, fsubtype, code_prefix, idx,
     except (ValueError, TypeError):
         return None
 
-    fid = f"{code_prefix}_{idx:06d}"
+    name = (item.get(name_key, "") or "")[:200]
+    fid = _make_facility_id(code_prefix, lat_f, lng_f, name)
     return {
         "facility_id": fid,
         "facility_type": ftype,
         "facility_subtype": fsubtype,
-        "name": (item.get(name_key, "") or "")[:200],
+        "name": name,
         "lat": lat_f,
         "lng": lng_f,
         "address": (item.get(addr_key, "") or "")[:300],

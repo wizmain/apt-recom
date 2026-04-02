@@ -24,8 +24,8 @@ def recalc_summary(conn, logger):
     apt_pnus = [a["pnu"] for a in apts]
     apt_coords = np.radians(np.array([[a["lat"], a["lng"]] for a in apts]))
 
-    # 시설 subtype별로 처리
-    subtypes = query_all(conn, "SELECT DISTINCT facility_subtype FROM facilities")
+    # 시설 subtype별로 처리 (활성 시설만)
+    subtypes = query_all(conn, "SELECT DISTINCT facility_subtype FROM facilities WHERE is_active = TRUE")
     subtype_list = [r["facility_subtype"] for r in subtypes]
 
     logger.info(f"BallTree 재계산: {len(apt_pnus):,}개 아파트 x {len(subtype_list)}개 시설유형")
@@ -34,7 +34,7 @@ def recalc_summary(conn, logger):
 
     for subtype in subtype_list:
         facs = query_all(conn,
-            "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL",
+            "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL AND is_active = TRUE",
             [subtype])
         if not facs:
             continue
@@ -75,7 +75,7 @@ def recalc_summary(conn, logger):
     safety_rows = []
     # CCTV subtype 데이터
     cctv_facs = query_all(conn,
-        "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL",
+        "SELECT lat, lng FROM facilities WHERE facility_subtype = %s AND lat IS NOT NULL AND is_active = TRUE",
         ["cctv"])
 
     if cctv_facs:
