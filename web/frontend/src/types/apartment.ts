@@ -5,6 +5,7 @@ export interface Apartment {
   lng: number;
   total_hhld_cnt: number;
   sigungu_code: string;
+  match_type?: 'region' | 'name';
 }
 
 export interface ScoredApartment extends Apartment {

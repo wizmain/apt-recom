@@ -18,6 +18,7 @@ def run_weekly(args, logger, result):
     from batch.weekly.collect_trades import collect_trades
     from batch.weekly.load_trades import load_trades
     from batch.weekly.recalc_price import recalc_price
+    from batch.weekly.enrich_apartments import enrich_new_apartments
 
     conn = get_connection()
     try:
@@ -39,6 +40,11 @@ def run_weekly(args, logger, result):
         t0 = time.time()
         updated = recalc_price(conn, logger)
         result.record("가격 점수 재계산", "success", rows=updated, duration=time.time() - t0)
+
+        # 4. 신규 아파트 등록 + 건물정보 보충
+        t0 = time.time()
+        enriched = enrich_new_apartments(conn, logger)
+        result.record("신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0)
 
     except Exception as e:
         logger.error(f"Weekly 배치 실패: {e}")

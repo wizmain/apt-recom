@@ -1,11 +1,12 @@
 interface ChatButtonProps {
   onClick: () => void;
   isOpen?: boolean;
+  hasResults?: boolean;
 }
 
-export default function ChatButton({ onClick, isOpen }: ChatButtonProps) {
+export default function ChatButton({ onClick, isOpen, hasResults }: ChatButtonProps) {
   return (
-    <div className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-20 ${isOpen ? 'hidden sm:flex' : 'flex'} items-center gap-2`}>
+    <div className={`fixed right-4 sm:right-6 z-20 transition-all duration-300 ${hasResults ? 'bottom-28 sm:bottom-32' : 'bottom-4 sm:bottom-6'} ${isOpen ? 'hidden sm:flex' : 'flex'} items-center gap-2`}>
       {/* 안내 문구 */}
       {!isOpen && (
         <div className="bg-white/95 backdrop-blur-sm text-gray-700 text-sm font-medium

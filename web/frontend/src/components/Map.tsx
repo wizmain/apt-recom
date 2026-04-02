@@ -96,7 +96,6 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     };
     window.__detailClick = (pnu: string) => {
       onDetailClickRef.current?.(pnu);
-      infoWindowRef.current?.close();
     };
     window.__compareToggle = (pnu: string, name: string) => {
       onCompareToggleRef.current?.(pnu, name);
@@ -292,16 +291,19 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
           .then(res => res.json())
           .catch(() => [])
       )
-    ).then((results: Array<Array<{ lat: number; lng: number }>>) => {
+    ).then((results: Array<Array<{ lat: number; lng: number; match_type?: string }>>) => {
       if (!window.kakao?.maps || !mapRef.current) return;
+      const allApts = results.flat();
+      const regionApts = allApts.filter(a => a.match_type === 'region');
+      // 지역 매칭이 있으면 그 범위만, 없으면 최대 20개로 제한
+      const boundsTargets = regionApts.length > 0 ? regionApts : allApts.slice(0, 20);
+
       const bounds = new window.kakao.maps.LatLngBounds();
       let count = 0;
-      for (const data of results) {
-        for (const apt of data) {
-          if (apt.lat != null && apt.lng != null) {
-            bounds.extend(new window.kakao.maps.LatLng(apt.lat, apt.lng));
-            count++;
-          }
+      for (const apt of boundsTargets) {
+        if (apt.lat != null && apt.lng != null) {
+          bounds.extend(new window.kakao.maps.LatLng(apt.lat, apt.lng));
+          count++;
         }
       }
       if (count > 0) {
