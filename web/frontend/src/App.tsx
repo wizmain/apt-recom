@@ -147,6 +147,9 @@ function App() {
         onClearAll={handleClearAllKeywords}
         viewMode={viewMode}
         onViewChange={setViewMode}
+        onSelectApartment={(pnu, lat, lng, name) => {
+          setFocusPnu({ pnu, lat, lng, name });
+        }}
       />
 
       {viewMode === 'map' ? (
