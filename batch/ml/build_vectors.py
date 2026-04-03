@@ -29,9 +29,8 @@ FEATURE_NAMES = (
 )
 
 
-def main():
-    logger = setup_logger("build_vectors")
-    conn = get_connection()
+def build_all_vectors(conn, logger):
+    """전체 아파트 유사도 벡터 재생성 (TRUNCATE → INSERT)."""
     cur = conn.cursor()
 
     logger.info("아파트 특성 벡터 생성 시작...")
@@ -56,14 +55,13 @@ def main():
         WHERE a.group_pnu = a.pnu AND a.lat IS NOT NULL
     """)
     apt_rows = cur.fetchall()
-    logger.info(f"아파트: {len(apt_rows):,}건")
+    logger.info(f"  벡터 대상 아파트: {len(apt_rows):,}건")
 
     pnu_list = []
     basic_features = []
 
     for row in apt_rows:
         pnu, hhld, floor, apr_day, area = row
-        # 준공연수 계산
         try:
             year = int(str(apr_day)[:4]) if apr_day else 2000
             age = 2026 - year
@@ -103,10 +101,7 @@ def main():
         if row[0] in pnu_set:
             safety_map[row[0]] = [row[1] or 0, row[2] or 0]
 
-    conn.close()
-
     # 5. 벡터 조합
-    logger.info("벡터 조합 중...")
     vectors = []
     valid_pnus = []
 
@@ -124,7 +119,6 @@ def main():
         valid_pnus.append(pnu)
 
     # 6. 정규화
-    logger.info(f"벡터 정규화: {len(vectors):,}건 x {len(FEATURE_NAMES)}차원")
     X = np.array(vectors, dtype=np.float64)
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -132,9 +126,6 @@ def main():
     X_scaled = scaler.fit_transform(X)
 
     # 7. DB 저장
-    logger.info("apt_vectors 테이블 저장 중...")
-    conn = get_connection()
-    cur = conn.cursor()
     cur.execute("TRUNCATE apt_vectors")
 
     feature_str = ",".join(FEATURE_NAMES)
@@ -157,12 +148,18 @@ def main():
 
     conn.commit()
 
-    # 검증
     cur.execute("SELECT COUNT(*) FROM apt_vectors")
     count = cur.fetchone()[0]
-    conn.close()
 
-    logger.info(f"완료: {count:,}건 벡터 저장 ({len(FEATURE_NAMES)}차원)")
+    logger.info(f"  벡터 재생성 완료: {count:,}건 ({len(FEATURE_NAMES)}차원)")
+    return count
+
+
+def main():
+    logger = setup_logger("build_vectors")
+    conn = get_connection()
+    build_all_vectors(conn, logger)
+    conn.close()
 
 
 if __name__ == "__main__":
