@@ -115,7 +115,9 @@ function MapControls({
   const [inputValue, setInputValue] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
@@ -128,8 +130,49 @@ function MapControls({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const handleSelectApt = useCallback((apt: SearchResult) => {
+    if (apt.lat && apt.lng) {
+      onSelectApartment?.(apt.pnu, apt.lat, apt.lng, apt.bld_nm);
+      const addr = apt.new_plat_plc || '';
+      const match = addr.match(/^[가-힣]+\s[가-힣]+[시군구]/);
+      const regionKw = match ? match[0] : apt.bld_nm;
+      if (!searchKeywords.includes(regionKw)) onAddKeyword(regionKw);
+    }
+    setInputValue('');
+    setShowDropdown(false);
+    setHighlightIdx(-1);
+  }, [onSelectApartment, onAddKeyword, searchKeywords]);
+
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
+
+    // 드롭다운 열려있을 때 화살표/Enter 처리
+    if (showDropdown && searchResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHighlightIdx(prev => {
+          const next = prev < searchResults.length - 1 ? prev + 1 : 0;
+          listRef.current?.children[next + 1]?.scrollIntoView({ block: 'nearest' });
+          return next;
+        });
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHighlightIdx(prev => {
+          const next = prev > 0 ? prev - 1 : searchResults.length - 1;
+          listRef.current?.children[next + 1]?.scrollIntoView({ block: 'nearest' });
+          return next;
+        });
+        return;
+      }
+      if (e.key === 'Enter' && highlightIdx >= 0) {
+        e.preventDefault();
+        handleSelectApt(searchResults[highlightIdx]);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && inputValue.trim()) {
       const kw = inputValue.trim();
       if (searchKeywords.includes(kw)) { setInputValue(''); return; }
@@ -141,13 +184,13 @@ function MapControls({
         const hasRegion = data.some(d => d.match_type === 'region');
 
         if (hasRegion) {
-          // 지역 매칭 → 바로 키워드 추가
           onAddKeyword(kw);
           setInputValue('');
           setShowDropdown(false);
         } else if (data.length > 0) {
-          // 단지명만 매칭 → 드롭다운 표시
-          setSearchResults(data.filter(d => d.lat != null));
+          const filtered = data.filter(d => d.lat != null);
+          setSearchResults(filtered);
+          setHighlightIdx(-1);
           setShowDropdown(true);
         } else {
           setSearchResults([]);
@@ -162,21 +205,9 @@ function MapControls({
     }
     if (e.key === 'Escape') {
       setShowDropdown(false);
+      setHighlightIdx(-1);
     }
-  }, [inputValue, searchKeywords, onAddKeyword]);
-
-  const handleSelectApt = useCallback((apt: SearchResult) => {
-    if (apt.lat && apt.lng) {
-      onSelectApartment?.(apt.pnu, apt.lat, apt.lng, apt.bld_nm);
-      // 주소에서 시군구명 추출하여 키워드로 추가
-      const addr = apt.new_plat_plc || '';
-      const match = addr.match(/^[가-힣]+\s[가-힣]+[시군구]/);
-      const regionKw = match ? match[0] : apt.bld_nm;
-      if (!searchKeywords.includes(regionKw)) onAddKeyword(regionKw);
-    }
-    setInputValue('');
-    setShowDropdown(false);
-  }, [onSelectApartment, onAddKeyword, searchKeywords]);
+  }, [inputValue, searchKeywords, onAddKeyword, showDropdown, searchResults, highlightIdx, handleSelectApt]);
 
   return (
     <>
@@ -196,18 +227,20 @@ function MapControls({
 
         {/* 단지명 검색 결과 드롭다운 */}
         {showDropdown && searchResults.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg
+          <div ref={listRef} className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg
                           max-h-64 overflow-y-auto z-50">
             <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
-              아파트를 선택하세요 ({searchResults.length}건)
+              아파트를 선택하세요 ({searchResults.length}건) — ↑↓ 이동, Enter 선택
             </div>
-            {searchResults.map(apt => (
+            {searchResults.map((apt, idx) => (
               <button
                 key={apt.pnu}
                 onClick={() => handleSelectApt(apt)}
-                className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-b-0"
+                onMouseEnter={() => setHighlightIdx(idx)}
+                className={`w-full text-left px-3 py-2 transition-colors border-b border-gray-50 last:border-b-0
+                  ${idx === highlightIdx ? 'bg-blue-50 text-blue-800' : 'hover:bg-gray-50'}`}
               >
-                <div className="text-sm font-medium text-gray-800 truncate">{apt.bld_nm}</div>
+                <div className="text-sm font-medium truncate">{apt.bld_nm}</div>
                 {apt.new_plat_plc && (
                   <div className="text-xs text-gray-500 truncate">{apt.new_plat_plc}</div>
                 )}
