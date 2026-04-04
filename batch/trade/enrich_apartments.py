@@ -1,7 +1,8 @@
 """신규 거래 아파트 자동 등록 + 건물정보 보충.
 
 거래 배치의 4단계: recalc_price() 이후 실행.
-미매핑 apt_seq → TRADE_ PNU 생성 → 좌표/주소/세대수/동수/층수 보충.
+미매핑 apt_seq → Kakao API로 PNU 확보 → 정규 PNU로 등록.
+Kakao 검색 실패 시에만 TRADE_ PNU fallback.
 """
 
 import time
@@ -9,14 +10,106 @@ import xml.etree.ElementTree as ET
 import requests
 
 from batch.config import KAKAO_API_KEY, DATA_GO_KR_API_KEY, KAKAO_RATE, DATA_GO_KR_RATE
-from batch.db import query_all, execute_values_chunked
+from batch.db import query_all, query_one
 from batch.fill_addresses import _kakao_keyword_search, _address_to_bld_params
 
 BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
 
+# ── PNU 변환 ──
+
+def _resolve_pnu(headers: dict, sgg_cd: str, apt_nm: str, region: str):
+    """Kakao API로 주소 확보 → 19자리 정규 PNU 조합.
+
+    반환: (pnu, lat, lng, new_plat_plc, plat_plc, bjd_code, bld_params) or fallback.
+    """
+    query = f"{region} {apt_nm} 아파트"
+    new_plat, plat, lat, lng = _kakao_keyword_search(headers, query)
+    time.sleep(KAKAO_RATE)
+
+    address = new_plat or plat
+    if not address:
+        return None, lat, lng, new_plat, plat, None, None
+
+    bld_params = _address_to_bld_params(headers, address, apt_nm)
+    time.sleep(KAKAO_RATE)
+
+    if not bld_params:
+        return None, lat, lng, new_plat, plat, None, None
+
+    # 19자리 PNU 조합: bjd_code(10) + plat_gb(1) + bun(4) + ji(4)
+    real_pnu = (
+        bld_params["sigungu_cd"]
+        + bld_params["bjdong_cd"]
+        + bld_params.get("plat_gb_cd", "0")
+        + bld_params["bun"]
+        + bld_params["ji"]
+    )
+    bjd_code = bld_params["sigungu_cd"] + bld_params["bjdong_cd"]
+
+    return real_pnu, lat, lng, new_plat, plat, bjd_code, bld_params
+
+
+# ── 건축물대장 조회 ──
+
+def _fetch_building_info(bld_params: dict) -> dict:
+    """건축물대장 API로 세대수/동수/최고층/준공일 조회."""
+    try:
+        params = {
+            "serviceKey": DATA_GO_KR_API_KEY,
+            "sigunguCd": bld_params["sigungu_cd"],
+            "bjdongCd": bld_params["bjdong_cd"],
+            "platGbCd": bld_params.get("plat_gb_cd", "0"),
+            "bun": bld_params["bun"],
+            "ji": bld_params["ji"],
+            "numOfRows": "50",
+            "pageNo": "1",
+        }
+        resp = requests.get(BLD_TITLE_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        time.sleep(DATA_GO_KR_RATE)
+
+        root = ET.fromstring(resp.text)
+        if root.findtext(".//resultCode") not in ("00", None):
+            return {}
+
+        items = root.findall(".//item")
+        if not items:
+            return {}
+
+        total_hhld = 0
+        dong_set = set()
+        max_flr = 0
+        use_apr = None
+
+        for item in items:
+            hhld_str = item.findtext("hhldCnt")
+            if hhld_str and hhld_str.isdigit():
+                total_hhld += int(hhld_str)
+            dong_nm = item.findtext("dongNm")
+            if dong_nm:
+                dong_set.add(dong_nm)
+            flr_str = item.findtext("grndFlrCnt")
+            if flr_str and flr_str.isdigit():
+                max_flr = max(max_flr, int(flr_str))
+            apr = item.findtext("useAprDay")
+            if apr and (not use_apr or apr < use_apr):
+                use_apr = apr
+
+        return {
+            "total_hhld_cnt": total_hhld if total_hhld > 0 else None,
+            "dong_count": len(dong_set) if dong_set else None,
+            "max_floor": max_flr if max_flr > 0 else None,
+            "use_apr_day": use_apr,
+        }
+    except Exception:
+        return {}
+
+
+# ── 메인 ──
+
 def enrich_new_apartments(conn, logger):
-    """미매핑 apt_seq를 apartments에 등록하고 건물정보를 보충."""
+    """미매핑 apt_seq → 정규 PNU로 등록 (TRADE_는 최후 fallback)."""
     if not KAKAO_API_KEY or not DATA_GO_KR_API_KEY:
         logger.warning("  KAKAO_API_KEY 또는 DATA_GO_KR_API_KEY 미설정, 보충 생략")
         return 0
@@ -24,13 +117,12 @@ def enrich_new_apartments(conn, logger):
     headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
 
     # 시군구 코드→이름 매핑
-    sgg_rows = query_all(conn, "SELECT code, name, extra FROM common_code WHERE group_id = 'sigungu'")
     sgg_map = {}
-    for r in sgg_rows:
+    for r in query_all(conn, "SELECT code, name, extra FROM common_code WHERE group_id = 'sigungu'"):
         region = f"{r['extra']} {r['name']}" if r["extra"] and r["extra"] != r["name"] else r["name"]
         sgg_map[r["code"]] = region
 
-    # --- Phase A: 벌크 등록 + 매핑 ---
+    # 미매핑 apt_seq 조회
     unmapped = query_all(conn, """
         SELECT DISTINCT t.apt_seq, t.sgg_cd, t.apt_nm
         FROM trade_history t
@@ -47,199 +139,93 @@ def enrich_new_apartments(conn, logger):
 
     logger.info(f"  미매핑 apt_seq {len(unmapped)}건 처리 시작")
 
-    # 기존 apartments PNU + 세대수 한번에 조회
-    existing_apts = {}
-    for r in query_all(conn, "SELECT pnu, total_hhld_cnt FROM apartments WHERE pnu LIKE 'TRADE_%%'"):
-        existing_apts[r["pnu"]] = r["total_hhld_cnt"] or 0
-
-    # 신규 아파트 INSERT + 매핑 INSERT 준비
-    new_apt_rows = []
-    new_mapping_rows = []
-    needs_enrich = []  # API 보충이 필요한 (pnu, sgg_cd, apt_nm) 목록
-
-    for row in unmapped:
-        sgg_cd = str(row["sgg_cd"])[:5]
-        apt_nm = str(row["apt_nm"])
-        pnu = f"TRADE_{sgg_cd}_{apt_nm}"
-
-        # apartments 등록
-        if pnu not in existing_apts:
-            new_apt_rows.append((pnu, apt_nm, sgg_cd, pnu))
-            existing_apts[pnu] = 0
-
-        # 매핑 등록
-        new_mapping_rows.append((row["apt_seq"], pnu, apt_nm, sgg_cd, "auto_create"))
-
-        # 세대수가 없으면 보충 대상
-        if existing_apts[pnu] == 0:
-            needs_enrich.append({"pnu": pnu, "sgg_cd": sgg_cd, "apt_nm": apt_nm})
-
-    # 벌크 INSERT
-    created = 0
-    if new_apt_rows:
-        created = execute_values_chunked(conn,
-            "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu) VALUES %s ON CONFLICT (pnu) DO NOTHING",
-            new_apt_rows)
-        logger.info(f"  아파트 신규 등록: {created}건")
-
-    if new_mapping_rows:
-        mapped = execute_values_chunked(conn,
-            "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) VALUES %s ON CONFLICT (apt_seq) DO NOTHING",
-            new_mapping_rows)
-        logger.info(f"  매핑 추가: {mapped}건")
-
-    # 중복 제거 (같은 PNU에 여러 apt_seq가 있을 수 있음)
-    seen_pnus = set()
-    unique_enrich = []
-    for item in needs_enrich:
-        if item["pnu"] not in seen_pnus:
-            seen_pnus.add(item["pnu"])
-            unique_enrich.append(item)
-
-    logger.info(f"  건물정보 보충 대상: {len(unique_enrich)}건")
-
-    # --- Phase B: API로 건물정보 보충 ---
     cur = conn.cursor()
-    enriched = 0
+    created = 0
+    matched = 0
+    fallback = 0
     failed = 0
+    new_pnus = []  # 신규 등록된 PNU (시설집계/벡터 재생성용)
 
-    for idx, apt in enumerate(unique_enrich):
+    for idx, row in enumerate(unmapped):
         if (idx + 1) % 200 == 0:
             conn.commit()
-            logger.info(f"  진행: {idx+1}/{len(unique_enrich)} (보충={enriched}, 실패={failed})")
+            logger.info(f"  진행: {idx+1}/{len(unmapped)} (신규={created}, 매칭={matched}, fallback={fallback}, 실패={failed})")
 
-        pnu = apt["pnu"]
-        sgg_cd = apt["sgg_cd"]
-        apt_nm = apt["apt_nm"]
-
-        # Kakao 키워드 검색 → 좌표/주소
+        apt_seq = row["apt_seq"]
+        sgg_cd = str(row["sgg_cd"])[:5]
+        apt_nm = str(row["apt_nm"])
         region = sgg_map.get(sgg_cd, "")
-        query = f"{region} {apt_nm} 아파트"
-        new_plat, plat, lat, lng = _kakao_keyword_search(headers, query)
-        time.sleep(KAKAO_RATE)
 
-        addr_updates = []
-        addr_params = []
-        if new_plat:
-            addr_updates.append("new_plat_plc = %s")
-            addr_params.append(new_plat)
-        if plat:
-            addr_updates.append("plat_plc = %s")
-            addr_params.append(plat)
-        if lat and lng:
-            addr_updates.append("lat = %s")
-            addr_params.append(lat)
-            addr_updates.append("lng = %s")
-            addr_params.append(lng)
+        # 1. Kakao API → PNU 변환 시도
+        real_pnu, lat, lng, new_plat, plat, bjd_code, bld_params = _resolve_pnu(
+            headers, sgg_cd, apt_nm, region
+        )
 
-        if addr_updates:
-            addr_params.append(pnu)
-            cur.execute(f"UPDATE apartments SET {', '.join(addr_updates)} WHERE pnu = %s", addr_params)
-
-        address = new_plat or plat
-        if not address:
-            failed += 1
-            continue
-
-        # 건축물대장 API
-        bld_params = _address_to_bld_params(headers, address, apt_nm)
-        time.sleep(KAKAO_RATE)
-
-        if not bld_params:
-            failed += 1
-            continue
-
-        try:
-            params = {
-                "serviceKey": DATA_GO_KR_API_KEY,
-                "sigunguCd": bld_params["sigungu_cd"],
-                "bjdongCd": bld_params["bjdong_cd"],
-                "platGbCd": bld_params.get("plat_gb_cd", "0"),
-                "bun": bld_params["bun"],
-                "ji": bld_params["ji"],
-                "numOfRows": "50",
-                "pageNo": "1",
-            }
-            resp = requests.get(BLD_TITLE_URL, params=params, timeout=10)
-            resp.raise_for_status()
-            time.sleep(DATA_GO_KR_RATE)
-
-            root = ET.fromstring(resp.text)
-            result_code = root.findtext(".//resultCode")
-            if result_code and result_code != "00":
-                failed += 1
-                continue
-
-            items = root.findall(".//item")
-            if not items:
-                failed += 1
-                continue
-
-            total_hhld = 0
-            dong_set = set()
-            max_flr = 0
-            use_apr = None
-
-            for item in items:
-                hhld_str = item.findtext("hhldCnt")
-                if hhld_str and hhld_str.isdigit():
-                    total_hhld += int(hhld_str)
-                dong_nm = item.findtext("dongNm")
-                if dong_nm:
-                    dong_set.add(dong_nm)
-                flr_str = item.findtext("grndFlrCnt")
-                if flr_str and flr_str.isdigit():
-                    max_flr = max(max_flr, int(flr_str))
-                apr = item.findtext("useAprDay")
-                if apr and (not use_apr or apr < use_apr):
-                    use_apr = apr
-
-            bld_updates = []
-            bld_params_list = []
-            if total_hhld > 0:
-                bld_updates.append("total_hhld_cnt = %s")
-                bld_params_list.append(total_hhld)
-            if dong_set:
-                bld_updates.append("dong_count = %s")
-                bld_params_list.append(len(dong_set))
-            if max_flr > 0:
-                bld_updates.append("max_floor = %s")
-                bld_params_list.append(max_flr)
-            if use_apr:
-                bld_updates.append("use_apr_day = COALESCE(NULLIF(use_apr_day, ''), %s)")
-                bld_params_list.append(use_apr)
-
-            if bld_updates:
-                bld_params_list.append(pnu)
+        # 2. PNU 결정
+        if real_pnu:
+            existing = query_one(conn, "SELECT pnu FROM apartments WHERE pnu = %s", [real_pnu])
+            if existing:
+                # 기존 아파트에 매핑
+                pnu = real_pnu
+                method = "kakao_pnu_existing"
+                matched += 1
+            else:
+                # 정규 PNU로 신규 등록
+                pnu = real_pnu
+                method = "kakao_pnu_new"
                 cur.execute(
-                    f"UPDATE apartments SET {', '.join(bld_updates)} WHERE pnu = %s",
-                    bld_params_list,
+                    "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, bjd_code, lat, lng, new_plat_plc, plat_plc) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                    [pnu, apt_nm, sgg_cd, pnu, bjd_code, lat, lng, new_plat, plat],
                 )
-                enriched += 1
+                # 건축물대장으로 세대수 보충
+                if bld_params:
+                    bld_info = _fetch_building_info(bld_params)
+                    if bld_info:
+                        updates = []
+                        params = []
+                        for col in ("total_hhld_cnt", "dong_count", "max_floor"):
+                            if bld_info.get(col):
+                                updates.append(f"{col} = %s")
+                                params.append(bld_info[col])
+                        if bld_info.get("use_apr_day"):
+                            updates.append("use_apr_day = COALESCE(NULLIF(use_apr_day, ''), %s)")
+                            params.append(bld_info["use_apr_day"])
+                        if updates:
+                            params.append(pnu)
+                            cur.execute(f"UPDATE apartments SET {', '.join(updates)} WHERE pnu = %s", params)
 
-        except Exception as e:
-            failed += 1
-            if failed <= 5:
-                logger.warning(f"  건축물대장 오류: {apt_nm} — {e}")
+                created += 1
+                new_pnus.append(pnu)
+        else:
+            # Kakao 검색 실패 → TRADE_ fallback
+            pnu = f"TRADE_{sgg_cd}_{apt_nm}"
+            method = "trade_fallback"
+            cur.execute(
+                "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                [pnu, apt_nm, sgg_cd, pnu, lat, lng, new_plat, plat],
+            )
+            fallback += 1
+
+        # 3. trade_apt_mapping 등록
+        cur.execute(
+            "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
+            [apt_seq, pnu, apt_nm, sgg_cd, method],
+        )
 
     conn.commit()
-    logger.info(f"  신규 아파트 보충 완료: 등록={created}, 정보보충={enriched}, 실패={failed}")
+    logger.info(f"  아파트 보충 완료: 신규={created}, 기존매칭={matched}, fallback={fallback}, 실패={failed}")
 
-    # 좌표가 확보된 신규 아파트에 대해 시설 집계 + 안전점수 계산
-    all_new_pnus = [item["pnu"] for item in unique_enrich]
-    if all_new_pnus:
-        ph = ",".join(["%s"] * len(all_new_pnus))
-        with_coords = query_all(conn,
-            f"SELECT pnu FROM apartments WHERE pnu IN ({ph}) AND lat IS NOT NULL",
-            all_new_pnus)
-        pnus_with_coords = [r["pnu"] for r in with_coords]
-        if pnus_with_coords:
-            from batch.quarterly.recalc_summary import recalc_for_new_apartments
-            recalc_for_new_apartments(conn, logger, pnus_with_coords)
+    # 신규 등록 아파트 시설 집계 + 안전점수
+    if new_pnus:
+        from batch.quarterly.recalc_summary import recalc_for_new_apartments
+        recalc_for_new_apartments(conn, logger, new_pnus)
 
-    # 신규 아파트가 등록되었으면 유사도 벡터 전체 재생성
+    # 유사도 벡터 재생성
     if created > 0:
         from batch.ml.build_vectors import build_all_vectors
         build_all_vectors(conn, logger)
 
-    return created + enriched
+    return created + matched

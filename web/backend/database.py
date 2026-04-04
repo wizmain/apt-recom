@@ -172,7 +172,8 @@ def create_tables(conn) -> None:
             safety_score DOUBLE PRECISION,
             cctv_count_500m INTEGER,
             cctv_count_1km INTEGER,
-            nearest_cctv_m DOUBLE PRECISION
+            nearest_cctv_m DOUBLE PRECISION,
+            crime_safety_score DOUBLE PRECISION
         );
 
         CREATE TABLE IF NOT EXISTS population_by_district (
@@ -229,6 +230,7 @@ def create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_rent_sgg ON rent_history(sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_rent_seq ON rent_history(apt_seq)",
         "CREATE INDEX IF NOT EXISTS idx_apt_sigungu ON apartments(sigungu_code)",
+        "CREATE INDEX IF NOT EXISTS idx_apt_bjd ON apartments(bjd_code)",
         "CREATE INDEX IF NOT EXISTS idx_trade_map_pnu ON trade_apt_mapping(pnu)",
         "CREATE INDEX IF NOT EXISTS idx_apt_group_pnu ON apartments(group_pnu)",
         "CREATE INDEX IF NOT EXISTS idx_feedback_rating ON chat_feedback(rating)",

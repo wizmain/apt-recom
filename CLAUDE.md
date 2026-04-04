@@ -145,6 +145,12 @@ routers/ → services/ → database.py (raw SQL)
 - 구조 설계에 포함할 내용: 컴포넌트/함수 분리 방안, 데이터 흐름, 재사용 계획
 - 기존 코드에 조건문(if viewMode === ...)을 추가하는 대신 컴포넌트 분리를 우선 검토
 
+## Fallback 금지 규칙
+- fallback은 최후의 수단이다. 기본 경로를 먼저 해결한다.
+- 원인 수정이 가능한데 fallback으로 우회하지 않는다.
+- fallback이 필요하면 발동 조건, 영향, 제거 계획을 함께 남긴다.
+- 반복적으로 fallback이 필요하면 구현 문제가 아니라 설계 문제로 보고 구조를 수정한다.
+
 ## Git Workflow
 - main 브랜치 직접 push 금지
 - 브랜치명: feature/, bugfix/, hotfix/ 접두어

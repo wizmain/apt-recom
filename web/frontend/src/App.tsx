@@ -26,6 +26,7 @@ function App() {
   // mapBounds는 useApartments에서 관리
   const [selectedPnu, setSelectedPnu] = useState<string | null>(null);
   const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
+  const [keywordLabels, setKeywordLabels] = useState<Record<string, string>>({});
   const [showChat, setShowChat] = useState(false);
   const [chatHighlightApts, setChatHighlightApts] = useState<{ pnu: string; bld_nm: string; lat: number; lng: number; score?: number }[]>([]);
   const [chatInitialMessage, setChatInitialMessage] = useState<string | null>(null);
@@ -70,8 +71,9 @@ function App() {
     setCustomWeights(wrapped);
   }, [selectedNudges]);
 
-  const handleAddKeyword = useCallback((keyword: string) => {
+  const handleAddKeyword = useCallback((keyword: string, label?: string) => {
     setSearchKeywords(prev => prev.includes(keyword) ? prev : [...prev, keyword]);
+    if (label) setKeywordLabels(prev => ({ ...prev, [keyword]: label }));
     addKeyword(keyword);
   }, [addKeyword]);
 
@@ -86,6 +88,7 @@ function App() {
 
   const handleClearAllKeywords = useCallback(() => {
     setSearchKeywords([]);
+    setKeywordLabels({});
     clearKeywords();
     setSelectedNudges([]);
   }, [clearKeywords]);
@@ -143,6 +146,7 @@ function App() {
         onOpenFilter={() => setShowFilterPanel(true)}
         filterCount={Object.values(filters).filter(v => v !== undefined).length}
         searchKeywords={searchKeywords}
+        keywordLabels={keywordLabels}
         onAddKeyword={handleAddKeyword}
         onRemoveKeyword={handleRemoveKeyword}
         onClearAll={handleClearAllKeywords}
