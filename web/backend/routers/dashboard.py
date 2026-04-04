@@ -294,8 +294,9 @@ def dashboard_recent(
     if type == "trade":
         rows = conn.execute(f"""
             SELECT t.apt_nm, t.sgg_cd, t.deal_amount, t.exclu_use_ar, t.floor,
-                   t.deal_year, t.deal_month, t.deal_day
+                   t.deal_year, t.deal_month, t.deal_day, m.pnu
             FROM trade_history t
+            LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
             {sgg_filter}
             ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deal_amount DESC
             LIMIT %s
@@ -303,8 +304,9 @@ def dashboard_recent(
     else:
         rows = conn.execute(f"""
             SELECT t.apt_nm, t.sgg_cd, t.deposit, t.monthly_rent, t.exclu_use_ar, t.floor,
-                   t.deal_year, t.deal_month, t.deal_day
+                   t.deal_year, t.deal_month, t.deal_day, m.pnu
             FROM rent_history t
+            LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
             {sgg_filter}
             ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deposit DESC
             LIMIT %s
@@ -323,6 +325,7 @@ def dashboard_recent(
             "area": r.get("exclu_use_ar"),
             "floor": r.get("floor"),
             "date": f"{r['deal_year']}.{r['deal_month']:02d}.{r['deal_day']:02d}" if r.get("deal_day") else f"{r['deal_year']}.{r['deal_month']:02d}",
+            "pnu": r.get("pnu"),
         }
         if type == "trade":
             entry["price"] = r["deal_amount"]

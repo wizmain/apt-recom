@@ -28,8 +28,9 @@ interface TradeHistoryPanelProps {
   aptName: string;
   sggCd: string;
   area: number | null;
+  pnu?: string;
   onClose: () => void;
-  onGoToMap?: (aptName: string, sggCd: string) => void;
+  onGoToMap?: (aptName: string, sggCd: string, pnu: string) => void;
 }
 
 const METRO_PREFIXES = ['11', '41', '28']; // 서울, 경기, 인천
@@ -43,8 +44,8 @@ function formatPrice(val: number): string {
   return `${val.toLocaleString()}`;
 }
 
-export default function TradeHistoryPanel({ aptName, sggCd, area, onClose, onGoToMap }: TradeHistoryPanelProps) {
-  const isMetro = METRO_PREFIXES.some(p => sggCd.startsWith(p));
+export default function TradeHistoryPanel({ aptName, sggCd, area, pnu, onClose, onGoToMap }: TradeHistoryPanelProps) {
+  const showMapBtn = !!pnu && METRO_PREFIXES.some(p => sggCd.startsWith(p));
   const [data, setData] = useState<TradesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'trade' | 'rent'>('trade');
@@ -80,9 +81,9 @@ export default function TradeHistoryPanel({ aptName, sggCd, area, onClose, onGoT
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {isMetro && onGoToMap && (
+            {showMapBtn && onGoToMap && (
               <button
-                onClick={() => onGoToMap(aptName, sggCd)}
+                onClick={() => onGoToMap(aptName, sggCd, pnu!)}
                 className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200
                            rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap"
               >
