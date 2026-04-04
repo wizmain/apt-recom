@@ -124,7 +124,7 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
       try {
         const res = await axios.get<RegionOption[]>(`${API_BASE}/api/dashboard/regions`, { params: { q: regionQuery } });
         setRegionResults(res.data);
-        setHighlightIndex(-1);
+        setHighlightIndex(0);
       } catch { /* ignore */ }
     }, 200);
     return () => clearTimeout(timer);
@@ -149,6 +149,7 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
   }, [highlightIndex]);
 
   const handleRegionKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return;
     if (!showRegionDropdown || regionResults.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
