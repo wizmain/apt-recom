@@ -120,9 +120,14 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
       if (!containerRef.current || isInitializedRef.current) return;
       isInitializedRef.current = true;
 
+      // focusPnu가 있으면 해당 좌표로 초기화 (대시보드→지도 이동 시)
+      const initLat = focusPnu?.lat ?? 37.5666;
+      const initLng = focusPnu?.lng ?? 126.9784;
+      const initLevel = focusPnu ? 3 : 5;
+
       const map = new window.kakao.maps.Map(containerRef.current, {
-        center: new window.kakao.maps.LatLng(37.5666, 126.9784),  // 서울시청
-        level: 5,  // 구 단위 줌 (마커 로딩 속도 개선)
+        center: new window.kakao.maps.LatLng(initLat, initLng),
+        level: initLevel,
       });
       mapRef.current = map;
 
