@@ -183,7 +183,10 @@ function App() {
         </>
       ) : (
         <div className={`absolute inset-0 ${barHeight} overflow-y-auto`}>
-          <Dashboard />
+          <Dashboard onGoToMap={(aptName) => {
+            setViewMode('map');
+            handleAddKeyword(aptName);
+          }} />
         </div>
       )}
 

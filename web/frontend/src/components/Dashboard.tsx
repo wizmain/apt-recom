@@ -80,7 +80,11 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hours / 24)}일 전`;
 }
 
-export default function Dashboard() {
+interface DashboardProps {
+  onGoToMap?: (aptName: string, sggCd: string) => void;
+}
+
+export default function Dashboard({ onGoToMap }: DashboardProps) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
   const [ranking, setRanking] = useState<RankingItem[]>([]);
@@ -360,6 +364,7 @@ export default function Dashboard() {
           sggCd={selectedApt.sggCd}
           area={selectedApt.area}
           onClose={() => setSelectedApt(null)}
+          onGoToMap={onGoToMap}
         />
       )}
 
