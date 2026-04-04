@@ -184,20 +184,22 @@ function App() {
         </>
       ) : (
         <div className={`absolute inset-0 ${barHeight} overflow-y-auto`}>
-          <Dashboard onGoToMap={(aptName, _sggCd, pnu) => {
+          <Dashboard onGoToMap={(_aptName, _sggCd, pnu) => {
+            // 기존 검색 조건 초기화
+            handleClearAllKeywords();
+            setSelectedPnu(null);
+            setChatHighlightApts([]);
+            setChatFocusApts([]);
             setViewMode('map');
-            handleAddKeyword(aptName);
-            // pnu로 아파트 좌표 조회 후 포커스
-            if (pnu) {
-              import('axios').then(({ default: ax }) => {
-                ax.get(`${API_BASE}/api/apartment/${encodeURIComponent(pnu)}`).then(res => {
-                  const d = res.data;
-                  if (d.lat && d.lng) {
-                    setFocusPnu({ pnu, lat: d.lat, lng: d.lng, name: d.bld_nm || aptName });
-                  }
-                }).catch(() => {});
-              });
-            }
+            // pnu 기반 아파트 좌표 조회 → 지도 포커스 + 상세보기
+            import('axios').then(({ default: ax }) => {
+              ax.get(`${API_BASE}/api/apartment/${encodeURIComponent(pnu)}`).then(res => {
+                const d = res.data;
+                if (d.lat && d.lng) {
+                  setFocusPnu({ pnu, lat: d.lat, lng: d.lng, name: d.bld_nm || _aptName });
+                }
+              }).catch(() => {});
+            });
           }} />
         </div>
       )}
