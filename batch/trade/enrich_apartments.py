@@ -237,4 +237,9 @@ def enrich_new_apartments(conn, logger):
             from batch.quarterly.recalc_summary import recalc_for_new_apartments
             recalc_for_new_apartments(conn, logger, pnus_with_coords)
 
+    # 신규 아파트가 등록되었으면 유사도 벡터 전체 재생성
+    if created > 0:
+        from batch.ml.build_vectors import build_all_vectors
+        build_all_vectors(conn, logger)
+
     return created + enriched

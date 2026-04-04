@@ -1,4 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import axios from 'axios';
+import { API_BASE } from '../config';
 import { useCodes } from '../hooks/useCodes';
 
 interface NudgeBarProps {
@@ -13,6 +15,7 @@ interface NudgeBarProps {
   onClearAll?: () => void;
   viewMode: 'map' | 'dashboard';
   onViewChange: (mode: 'map' | 'dashboard') => void;
+  onSelectApartment?: (pnu: string, lat: number, lng: number, name: string) => void;
 }
 
 export default function NudgeBar({
@@ -27,6 +30,7 @@ export default function NudgeBar({
   onClearAll,
   viewMode,
   onViewChange,
+  onSelectApartment,
 }: NudgeBarProps) {
   const isMapMode = viewMode === 'map';
 
@@ -46,6 +50,7 @@ export default function NudgeBar({
             filterCount={filterCount}
             searchKeywords={searchKeywords}
             onAddKeyword={onAddKeyword}
+            onSelectApartment={onSelectApartment}
           />
         )}
       </div>
@@ -88,34 +93,130 @@ function ViewTabs({ viewMode, onViewChange }: { viewMode: string; onViewChange: 
   );
 }
 
+interface SearchResult {
+  pnu: string;
+  bld_nm: string;
+  lat: number | null;
+  lng: number | null;
+  new_plat_plc: string | null;
+  match_type: 'region' | 'name';
+}
+
 function MapControls({
-  selectedNudges, onToggleNudge, onOpenSettings, onOpenFilter, filterCount, searchKeywords, onAddKeyword,
+  selectedNudges, onToggleNudge, onOpenSettings, onOpenFilter, filterCount, searchKeywords, onAddKeyword, onSelectApartment,
 }: {
   selectedNudges: string[]; onToggleNudge: (id: string) => void;
   onOpenSettings: () => void; onOpenFilter: () => void; filterCount: number;
   searchKeywords: string[]; onAddKeyword: (kw: string) => void;
+  onSelectApartment?: (pnu: string, lat: number, lng: number, name: string) => void;
 }) {
   const { codes: nudgeCodes } = useCodes('nudge');
   const nudges = nudgeCodes.map(c => ({ id: c.code, label: c.name }));
   const [inputValue, setInputValue] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(-1);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  // 외부 클릭 시 드롭다운 닫기
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleSelectApt = useCallback((apt: SearchResult) => {
+    if (apt.lat && apt.lng) {
+      onSelectApartment?.(apt.pnu, apt.lat, apt.lng, apt.bld_nm);
+      const addr = apt.new_plat_plc || '';
+      const match = addr.match(/^[가-힣]+\s[가-힣]+[시군구]/);
+      const regionKw = match ? match[0] : apt.bld_nm;
+      if (!searchKeywords.includes(regionKw)) onAddKeyword(regionKw);
+    }
+    setInputValue('');
+    setShowDropdown(false);
+    setHighlightIdx(-1);
+  }, [onSelectApartment, onAddKeyword, searchKeywords]);
+
+  const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
+
+    // 드롭다운 열려있을 때 화살표/Enter 처리
+    if (showDropdown && searchResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHighlightIdx(prev => {
+          const next = prev < searchResults.length - 1 ? prev + 1 : 0;
+          listRef.current?.children[next + 1]?.scrollIntoView({ block: 'nearest' });
+          return next;
+        });
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHighlightIdx(prev => {
+          const next = prev > 0 ? prev - 1 : searchResults.length - 1;
+          listRef.current?.children[next + 1]?.scrollIntoView({ block: 'nearest' });
+          return next;
+        });
+        return;
+      }
+      if (e.key === 'Enter' && highlightIdx >= 0) {
+        e.preventDefault();
+        handleSelectApt(searchResults[highlightIdx]);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && inputValue.trim()) {
       const kw = inputValue.trim();
-      if (!searchKeywords.includes(kw)) onAddKeyword(kw);
-      setInputValue('');
+      if (searchKeywords.includes(kw)) { setInputValue(''); return; }
+
+      // API 호출하여 region/name 구분
+      try {
+        const res = await axios.get<SearchResult[]>(`${API_BASE}/api/apartments/search`, { params: { q: kw } });
+        const data = res.data;
+        const hasRegion = data.some(d => d.match_type === 'region');
+
+        if (hasRegion) {
+          onAddKeyword(kw);
+          setInputValue('');
+          setShowDropdown(false);
+        } else if (data.length > 0) {
+          const filtered = data.filter(d => d.lat != null);
+          setSearchResults(filtered);
+          setHighlightIdx(-1);
+          setShowDropdown(true);
+        } else {
+          setSearchResults([]);
+          setShowDropdown(false);
+          onAddKeyword(kw);
+          setInputValue('');
+        }
+      } catch {
+        onAddKeyword(kw);
+        setInputValue('');
+      }
     }
-  }, [inputValue, searchKeywords, onAddKeyword]);
+    if (e.key === 'Escape') {
+      setShowDropdown(false);
+      setHighlightIdx(-1);
+    }
+  }, [inputValue, searchKeywords, onAddKeyword, showDropdown, searchResults, highlightIdx, handleSelectApt]);
 
   return (
     <>
       {/* 검색 */}
-      <div className="relative flex-1 sm:flex-none">
+      <div className="relative flex-1 sm:flex-none" ref={dropdownRef}>
         <input
           type="text"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={(e) => { setInputValue(e.target.value); setShowDropdown(false); }}
           onKeyDown={handleKeyDown}
           placeholder="지역명·단지명 (Enter)"
           className="w-full sm:w-48 px-3 py-1.5 pr-7 text-sm border border-gray-300 rounded-full
@@ -123,6 +224,30 @@ function MapControls({
                      placeholder-gray-400"
         />
         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
+
+        {/* 단지명 검색 결과 드롭다운 */}
+        {showDropdown && searchResults.length > 0 && (
+          <div ref={listRef} className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg
+                          max-h-64 overflow-y-auto z-50">
+            <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
+              아파트를 선택하세요 ({searchResults.length}건) — ↑↓ 이동, Enter 선택
+            </div>
+            {searchResults.map((apt, idx) => (
+              <button
+                key={apt.pnu}
+                onClick={() => handleSelectApt(apt)}
+                onMouseEnter={() => setHighlightIdx(idx)}
+                className={`w-full text-left px-3 py-2 transition-colors border-b border-gray-50 last:border-b-0
+                  ${idx === highlightIdx ? 'bg-blue-50 text-blue-800' : 'hover:bg-gray-50'}`}
+              >
+                <div className="text-sm font-medium truncate">{apt.bld_nm}</div>
+                {apt.new_plat_plc && (
+                  <div className="text-xs text-gray-500 truncate">{apt.new_plat_plc}</div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 넛지 칩 (데스크톱) */}

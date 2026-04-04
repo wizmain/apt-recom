@@ -16,11 +16,20 @@ def update_facilities(conn, facility_rows, logger):
 
     cur = conn.cursor()
 
-    # 수집된 subtype의 기존 데이터 삭제
-    subtypes = set(r["facility_subtype"] for r in facility_rows)
-    for st in subtypes:
-        cur.execute("DELETE FROM facilities WHERE facility_subtype = %s", [st])
+    # 수집된 subtype 중 실제 데이터가 있는 것만 DELETE → INSERT
+    subtype_counts: dict[str, int] = {}
+    for r in facility_rows:
+        subtype_counts[r["facility_subtype"]] = subtype_counts.get(r["facility_subtype"], 0) + 1
+
+    subtypes = set()
+    for st, cnt in subtype_counts.items():
+        if cnt > 0:
+            subtypes.add(st)
+            cur.execute("DELETE FROM facilities WHERE facility_subtype = %s", [st])
+            logger.info(f"  {st}: 기존 삭제 → {cnt}건 신규 적재 예정")
     conn.commit()
+
+    # 수집 0건인 subtype은 건드리지 않음 (API 실패 시 기존 데이터 보존)
 
     # facility_id + 좌표+subtype 중복 제거
     seen_id = set()

@@ -138,7 +138,7 @@ def full_sync(logger):
         logger.info("1/3 Railway DB dump 시작...")
         result = subprocess.run(
             [pg_dump, railway_url, "--format=custom", "--no-owner", "--no-acl", f"--file={dump_file}"],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, timeout=1800,
         )
         if result.returncode != 0:
             logger.error(f"pg_dump 실패: {result.stderr}")
@@ -150,7 +150,7 @@ def full_sync(logger):
         logger.info("2/3 로컬 DB restore 시작...")
         result = subprocess.run(
             [pg_restore, "--clean", "--if-exists", "--no-owner", "--no-acl", f"--dbname={local_url}", dump_file],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, timeout=1800,
         )
         if result.returncode != 0 and "error" in result.stderr.lower():
             logger.warning(f"pg_restore 경고: {result.stderr[:500]}")
@@ -202,7 +202,7 @@ def push_to_railway(logger):
         logger.info("1/3 로컬 DB dump 시작...")
         result = subprocess.run(
             [pg_dump, local_url, "--format=custom", "--no-owner", "--no-acl", f"--file={dump_file}"],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, timeout=1800,
         )
         if result.returncode != 0:
             logger.error(f"pg_dump 실패: {result.stderr}")
@@ -214,7 +214,7 @@ def push_to_railway(logger):
         logger.info("2/3 Railway DB restore 시작...")
         result = subprocess.run(
             [pg_restore, "--clean", "--if-exists", "--no-owner", "--no-acl", f"--dbname={railway_url}", dump_file],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, timeout=1800,
         )
         if result.returncode != 0 and "error" in result.stderr.lower():
             logger.warning(f"pg_restore 경고: {result.stderr[:500]}")
