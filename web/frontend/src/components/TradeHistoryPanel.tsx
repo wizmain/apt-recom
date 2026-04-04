@@ -28,8 +28,12 @@ interface TradeHistoryPanelProps {
   aptName: string;
   sggCd: string;
   area: number | null;
+  pnu?: string;
   onClose: () => void;
+  onGoToMap?: (aptName: string, sggCd: string, pnu: string) => void;
 }
+
+const METRO_PREFIXES = ['11', '41', '28']; // 서울, 경기, 인천
 
 function formatPrice(val: number): string {
   if (val >= 10000) {
@@ -40,7 +44,8 @@ function formatPrice(val: number): string {
   return `${val.toLocaleString()}`;
 }
 
-export default function TradeHistoryPanel({ aptName, sggCd, area, onClose }: TradeHistoryPanelProps) {
+export default function TradeHistoryPanel({ aptName, sggCd, area, pnu, onClose, onGoToMap }: TradeHistoryPanelProps) {
+  const showMapBtn = !!pnu && METRO_PREFIXES.some(p => sggCd.startsWith(p));
   const [data, setData] = useState<TradesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'trade' | 'rent'>('trade');
@@ -75,14 +80,25 @@ export default function TradeHistoryPanel({ aptName, sggCd, area, onClose }: Tra
               {data?.sigungu ?? sggCd} · {areaLabel}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 flex-shrink-0"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {showMapBtn && onGoToMap && (
+              <button
+                onClick={() => onGoToMap(aptName, sggCd, pnu!)}
+                className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200
+                           rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap"
+              >
+                🗺 지도로 이동
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}

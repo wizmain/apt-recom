@@ -44,6 +44,7 @@ interface RecentTrade {
   price?: number;
   deposit?: number;
   monthly_rent?: number;
+  pnu?: string;
 }
 
 interface RegionOption {
@@ -80,7 +81,11 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hours / 24)}일 전`;
 }
 
-export default function Dashboard() {
+interface DashboardProps {
+  onGoToMap?: (aptName: string, sggCd: string, pnu: string) => void;
+}
+
+export default function Dashboard({ onGoToMap }: DashboardProps) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
   const [ranking, setRanking] = useState<RankingItem[]>([]);
@@ -93,7 +98,7 @@ export default function Dashboard() {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [rankingType, setRankingType] = useState<'trade' | 'rent'>('trade');
   const [recentType, setRecentType] = useState<'trade' | 'rent'>('trade');
-  const [selectedApt, setSelectedApt] = useState<{ aptName: string; sggCd: string; area: number | null } | null>(null);
+  const [selectedApt, setSelectedApt] = useState<{ aptName: string; sggCd: string; area: number | null; pnu?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 바깥 클릭 시 드롭다운 닫기
@@ -328,7 +333,7 @@ export default function Dashboard() {
                   <tr
                     key={i}
                     className="hover:bg-blue-50 cursor-pointer transition-colors"
-                    onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd, area: r.area })}
+                    onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd, area: r.area, pnu: r.pnu })}
                   >
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{r.date}</td>
                     <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{r.sigungu}</td>
@@ -359,7 +364,9 @@ export default function Dashboard() {
           aptName={selectedApt.aptName}
           sggCd={selectedApt.sggCd}
           area={selectedApt.area}
+          pnu={selectedApt.pnu}
           onClose={() => setSelectedApt(null)}
+          onGoToMap={onGoToMap}
         />
       )}
 

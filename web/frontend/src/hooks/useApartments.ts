@@ -143,12 +143,11 @@ export function useApartments() {
     }
   }, [filters, fetchApartments]);
 
-  // 전체 키워드 클리어
+  // 전체 키워드 클리어 (fetch 없이 state만 초기화, 다음 bounds 변경 시 자동 fetch)
   const clearKeywords = useCallback(() => {
     keywordsRef.current = [];
     searchResultsRef.current = [];
-    fetchApartments(filters, boundsRef.current, []);
-  }, [filters, fetchApartments]);
+  }, []);
 
   // 필터 변경
   const applyFilters = useCallback((newFilters: ApartmentFilters) => {

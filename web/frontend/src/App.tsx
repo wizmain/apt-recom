@@ -9,6 +9,7 @@ import CompareModal from './components/CompareModal';
 import ChatButton from './components/ChatButton';
 import ChatModal from './components/ChatModal';
 import FilterPanel from './components/FilterPanel';
+import { API_BASE } from './config';
 import { useApartments } from './hooks/useApartments';
 import { useNudge } from './hooks/useNudge';
 import type { MapBounds } from './types/apartment';
@@ -183,7 +184,27 @@ function App() {
         </>
       ) : (
         <div className={`absolute inset-0 ${barHeight} overflow-y-auto`}>
-          <Dashboard />
+          <Dashboard onGoToMap={(_aptName, _sggCd, pnu) => {
+            // 검색 조건 초기화 (fetch 없이 state만)
+            setSearchKeywords([]);
+            clearKeywords();
+            setSelectedNudges([]);
+            setSelectedPnu(null);
+            setChatHighlightApts([]);
+            setChatFocusApts([]);
+            // pnu 기반 좌표 조회 → 지도 전환 + 포커스 동시 설정
+            import('axios').then(({ default: ax }) => {
+              ax.get(`${API_BASE}/api/apartment/${encodeURIComponent(pnu)}`).then(res => {
+                const b = res.data?.basic;
+                if (b?.lat && b?.lng) {
+                  setFocusPnu({ pnu, lat: b.lat, lng: b.lng, name: b.bld_nm || _aptName });
+                  setViewMode('map');
+                }
+              }).catch(() => {
+                setViewMode('map');
+              });
+            });
+          }} />
         </div>
       )}
 
