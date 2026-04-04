@@ -10,7 +10,8 @@ interface NudgeBarProps {
   onOpenFilter: () => void;
   filterCount: number;
   searchKeywords: string[];
-  onAddKeyword: (keyword: string) => void;
+  keywordLabels?: Record<string, string>;
+  onAddKeyword: (keyword: string, label?: string) => void;
   onRemoveKeyword: (keyword: string) => void;
   onClearAll?: () => void;
   viewMode: 'map' | 'dashboard';
@@ -25,6 +26,7 @@ export default function NudgeBar({
   onOpenFilter,
   filterCount,
   searchKeywords,
+  keywordLabels,
   onAddKeyword,
   onRemoveKeyword,
   onClearAll,
@@ -65,6 +67,7 @@ export default function NudgeBar({
           />
           <KeywordTags
             searchKeywords={searchKeywords}
+            keywordLabels={keywordLabels}
             onRemoveKeyword={onRemoveKeyword}
             onClearAll={onClearAll}
           />
@@ -99,7 +102,8 @@ interface SearchResult {
   lat: number | null;
   lng: number | null;
   new_plat_plc: string | null;
-  match_type: 'region' | 'name';
+  match_type: 'region' | 'name' | 'region_empty';
+  region_label?: string;
 }
 
 function MapControls({
@@ -107,7 +111,7 @@ function MapControls({
 }: {
   selectedNudges: string[]; onToggleNudge: (id: string) => void;
   onOpenSettings: () => void; onOpenFilter: () => void; filterCount: number;
-  searchKeywords: string[]; onAddKeyword: (kw: string) => void;
+  searchKeywords: string[]; onAddKeyword: (kw: string, label?: string) => void;
   onSelectApartment?: (pnu: string, lat: number, lng: number, name: string) => void;
 }) {
   const { codes: nudgeCodes } = useCodes('nudge');
@@ -116,6 +120,7 @@ function MapControls({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(-1);
+  const [noResultsMsg, setNoResultsMsg] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -181,22 +186,31 @@ function MapControls({
       try {
         const res = await axios.get<SearchResult[]>(`${API_BASE}/api/apartments/search`, { params: { q: kw } });
         const data = res.data;
+        const regionEmpty = data.find(d => d.match_type === 'region_empty');
         const hasRegion = data.some(d => d.match_type === 'region');
 
-        if (hasRegion) {
-          onAddKeyword(kw);
+        if (regionEmpty) {
+          // 지역 매칭됐지만 아파트 없음
+          setSearchResults([]);
+          setNoResultsMsg(`${regionEmpty.region_label || kw} 지역에 등록된 아파트가 없습니다`);
+          setShowDropdown(true);
+        } else if (hasRegion) {
+          const regionItem = data.find(d => d.match_type === 'region' && d.region_label);
+          const label = regionItem?.region_label || undefined;
+          onAddKeyword(kw, label);
           setInputValue('');
           setShowDropdown(false);
+          setNoResultsMsg('');
         } else if (data.length > 0) {
           const filtered = data.filter(d => d.lat != null);
           setSearchResults(filtered);
           setHighlightIdx(-1);
           setShowDropdown(true);
+          setNoResultsMsg('');
         } else {
           setSearchResults([]);
-          setShowDropdown(false);
-          onAddKeyword(kw);
-          setInputValue('');
+          setNoResultsMsg('검색 결과가 없습니다');
+          setShowDropdown(true);
         }
       } catch {
         onAddKeyword(kw);
@@ -216,7 +230,7 @@ function MapControls({
         <input
           type="text"
           value={inputValue}
-          onChange={(e) => { setInputValue(e.target.value); setShowDropdown(false); }}
+          onChange={(e) => { setInputValue(e.target.value); setShowDropdown(false); setNoResultsMsg(''); }}
           onKeyDown={handleKeyDown}
           placeholder="지역명·단지명 (Enter)"
           className="w-full sm:w-48 px-3 py-1.5 pr-7 text-sm border border-gray-300 rounded-full
@@ -226,7 +240,13 @@ function MapControls({
         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
 
         {/* 단지명 검색 결과 드롭다운 */}
-        {showDropdown && searchResults.length > 0 && (
+        {showDropdown && (noResultsMsg ? (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+            <div className="px-3 py-3 text-sm text-gray-500 text-center">
+              {noResultsMsg}
+            </div>
+          </div>
+        ) : searchResults.length > 0 && (
           <div ref={listRef} className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg
                           max-h-64 overflow-y-auto z-50">
             <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
@@ -247,7 +267,7 @@ function MapControls({
               </button>
             ))}
           </div>
-        )}
+        ))}
       </div>
 
       {/* 넛지 칩 (데스크톱) */}
@@ -341,9 +361,9 @@ function NudgeChip({
 }
 
 function KeywordTags({
-  searchKeywords, onRemoveKeyword, onClearAll,
+  searchKeywords, keywordLabels, onRemoveKeyword, onClearAll,
 }: {
-  searchKeywords: string[]; onRemoveKeyword: (kw: string) => void; onClearAll?: () => void;
+  searchKeywords: string[]; keywordLabels?: Record<string, string>; onRemoveKeyword: (kw: string) => void; onClearAll?: () => void;
 }) {
   if (searchKeywords.length === 0) return null;
 
@@ -351,7 +371,7 @@ function KeywordTags({
     <div className="flex items-center gap-1.5 px-3 sm:px-4 pb-2 -mt-1 overflow-x-auto scrollbar-hide">
       {searchKeywords.map(kw => (
         <span key={kw} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full whitespace-nowrap">
-          📍 {kw}
+          📍 {keywordLabels?.[kw] || kw}
           <button onClick={() => onRemoveKeyword(kw)} className="hover:text-blue-900 ml-0.5">✕</button>
         </span>
       ))}

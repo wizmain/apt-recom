@@ -91,54 +91,11 @@ def list_apartments(
 
 @router.get("/apartments/search")
 def search_apartments(q: str = Query(..., min_length=1)):
-    """키워드로 아파트 검색 (지역명, 단지명, 시군구명)"""
+    """검색어를 분석하여 지역/단지명을 자동 분류 후 아파트 검색."""
+    from services.search_engine import search
+
     conn = DictConnection()
     try:
-        import re
-        pattern = f"%{q}%"
-        norm_q = re.sub(r'[\s()\-·]', '', q)
-        norm_pattern = f"%{norm_q}%"
-
-        # 시군구명으로 sigungu_code 매칭 (주소 없는 비수도권 아파트 지원)
-        sgg_codes = conn.execute(
-            "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s)",
-            [pattern, pattern],
-        ).fetchall()
-        sgg_code_list = [r["code"] for r in sgg_codes]
-
-        if sgg_code_list:
-            ph = ",".join(["%s"] * len(sgg_code_list))
-            # 지역 매칭 (sigungu_code 기준)
-            region_rows = conn.execute(f"""
-                SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
-                FROM apartments
-                WHERE group_pnu = pnu AND sigungu_code IN ({ph})
-                LIMIT 100
-            """, sgg_code_list).fetchall()
-            region_pnus = {r["pnu"] for r in region_rows}
-
-            # 이름 매칭 (지역 매칭과 중복 제외)
-            name_rows = conn.execute("""
-                SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
-                FROM apartments
-                WHERE group_pnu = pnu
-                  AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
-                LIMIT 100
-            """, [pattern, pattern, pattern, norm_pattern]).fetchall()
-
-            results = [{**dict(r), "match_type": "region"} for r in region_rows]
-            for r in name_rows:
-                if r["pnu"] not in region_pnus:
-                    results.append({**dict(r), "match_type": "name"})
-            return results[:100]
-        else:
-            rows = conn.execute("""
-                SELECT pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc
-                FROM apartments
-                WHERE group_pnu = pnu
-                  AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
-                LIMIT 100
-            """, [pattern, pattern, pattern, norm_pattern]).fetchall()
-        return [{**dict(r), "match_type": "name"} for r in rows]
+        return search(conn, q)["results"]
     finally:
         conn.close()

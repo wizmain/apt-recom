@@ -213,5 +213,59 @@ def collect_all_facilities(logger, dry_run=False):
     except Exception as e:
         logger.error(f"  동물병원 수집 실패: {e}")
 
+    # 7. 가로등
+    logger.info("가로등 수집 중...")
+    try:
+        items = _collect_via_api(
+            "http://api.data.go.kr/openapi/tn_pubr_public_strplgc_api", "가로등"
+        )
+        items = _filter_metro(items, ("rdnmadr", "lnmadr"))
+        idx = 1
+        for item in items:
+            row = _to_facility_row(item, "safety", "streetlight", "STL", idx,
+                                   name_key="lgtPrvNm")
+            if row:
+                all_rows.append(row)
+                idx += 1
+        logger.info(f"  가로등: {idx - 1:,}건")
+    except Exception as e:
+        logger.error(f"  가로등 수집 실패: {e}")
+
+    # 8. 보안등
+    logger.info("보안등 수집 중...")
+    try:
+        items = _collect_via_api(
+            "http://api.data.go.kr/openapi/tn_pubr_public_securitylamp_api", "보안등"
+        )
+        items = _filter_metro(items, ("rdnmadr", "lnmadr"))
+        idx = 1
+        for item in items:
+            row = _to_facility_row(item, "safety", "security_light", "SCL", idx,
+                                   name_key="instlPlcNm")
+            if row:
+                all_rows.append(row)
+                idx += 1
+        logger.info(f"  보안등: {idx - 1:,}건")
+    except Exception as e:
+        logger.error(f"  보안등 수집 실패: {e}")
+
+    # 9. 어린이보호구역
+    logger.info("어린이보호구역 수집 중...")
+    try:
+        items = _collect_via_api(
+            "http://api.data.go.kr/openapi/tn_pubr_public_child_safety_zone_api", "어린이보호구역"
+        )
+        items = _filter_metro(items, ("rdnmadr", "lnmadr"))
+        idx = 1
+        for item in items:
+            row = _to_facility_row(item, "safety", "child_zone", "CZN", idx,
+                                   name_key="fcltyNm")
+            if row:
+                all_rows.append(row)
+                idx += 1
+        logger.info(f"  어린이보호구역: {idx - 1:,}건")
+    except Exception as e:
+        logger.error(f"  어린이보호구역 수집 실패: {e}")
+
     logger.info(f"시설 수집 완료: 총 {len(all_rows):,}건")
     return all_rows

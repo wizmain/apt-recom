@@ -296,12 +296,25 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
           .then(res => res.json())
           .catch(() => [])
       )
-    ).then((results: Array<Array<{ lat: number; lng: number; match_type?: string }>>) => {
+    ).then((results: Array<Array<{ lat: number; lng: number; match_type?: string; sigungu_code?: string }>>) => {
       if (!window.kakao?.maps || !mapRef.current) return;
       const allApts = results.flat();
       const regionApts = allApts.filter(a => a.match_type === 'region');
-      // 지역 매칭이 있으면 그 범위만, 없으면 최대 20개로 제한
-      const boundsTargets = regionApts.length > 0 ? regionApts : allApts.slice(0, 20);
+
+      let boundsTargets;
+      if (regionApts.length > 0) {
+        // 가장 많은 아파트가 있는 시군구로 제한 (동명이인 동 대응)
+        const sggCounts: Record<string, number> = {};
+        for (const a of regionApts) {
+          const sgg = (a.sigungu_code || '').slice(0, 5);
+          if (sgg) sggCounts[sgg] = (sggCounts[sgg] || 0) + 1;
+        }
+        const topSgg = Object.entries(sggCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const filtered = topSgg ? regionApts.filter(a => (a.sigungu_code || '').startsWith(topSgg)) : regionApts;
+        boundsTargets = filtered;
+      } else {
+        boundsTargets = allApts.slice(0, 20);
+      }
 
       const bounds = new window.kakao.maps.LatLngBounds();
       let count = 0;

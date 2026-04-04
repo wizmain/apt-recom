@@ -240,6 +240,8 @@ async def search_apartments(
     built_after: int | None = None,
 ) -> str:
     """Search apartments with nudge scoring and filters."""
+    from services.search_engine import search as search_apts
+
     conn = _get_conn()
     try:
         # If no nudges provided, try to infer from keyword
@@ -248,53 +250,76 @@ async def search_apartments(
         if not nudges:
             nudges = ["commute"]  # default
 
-        # Search apartments by keyword with filters
-        import re as _re
-        kw = keyword.strip()
-        norm_kw = _re.sub(r'[\s()\-·]', '', kw)
-        # 시군구명→코드 매칭 (주소 없는 비수도권 아파트 지원)
-        sgg_rows = conn.execute(
-            "SELECT code FROM common_code WHERE group_id = 'sigungu' AND (name LIKE %s OR extra || name LIKE %s)",
-            [f"%{kw}%", f"%{kw}%"],
-        ).fetchall()
-        sgg_codes = [r["code"] for r in sgg_rows]
+        # 검색 엔진으로 아파트 조회 (지역/단지명 자동 분류)
+        search_result = search_apts(conn, keyword)
+        raw_results = search_result["results"]
+        region_candidates = search_result.get("region_candidates")
 
-        addr_condition = "(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s"
-        params: list = [f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{norm_kw}%"]
-        if sgg_codes:
-            ph = ",".join(["%s"] * len(sgg_codes))
-            addr_condition += f" OR a.sigungu_code IN ({ph})"
-            params.extend(sgg_codes)
-        addr_condition += ")"
+        # 다중 지역 후보가 있으면 사용자에게 선택 요청
+        if region_candidates:
+            # 각 후보에 재검색 keyword 추가 (LLM이 바로 사용 가능)
+            for c in region_candidates:
+                parts = c["label"].split()
+                # "경기도 용인시기흥구 중동" → "용인 중동"
+                if len(parts) >= 3:
+                    c["search_keyword"] = f"{parts[-2]} {parts[-1]}"
+                elif len(parts) == 2:
+                    c["search_keyword"] = f"{parts[0]} {parts[1]}"
+                else:
+                    c["search_keyword"] = c["label"]
+            candidate_list = [f"{c['label']} ({c['count']}건)" for c in region_candidates]
+            return json.dumps({
+                "results": [],
+                "region_candidates": region_candidates,
+                "message": f"'{keyword}'은(는) 여러 지역에 있습니다: {', '.join(candidate_list)}. 사용자에게 어느 지역인지 확인 후, 해당 후보의 search_keyword로 재검색하세요.",
+            }, ensure_ascii=False)
 
-        apt_sql = (
-            "SELECT a.pnu, a.bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc "
-            "FROM apartments a "
-            "LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu "
-            "LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu "
-            f"WHERE a.lat IS NOT NULL AND a.group_pnu = a.pnu AND {addr_condition}"
-        )
+        # region_empty 제외, 좌표 있는 것만
+        apartments = [r for r in raw_results if r.get("lat") and r.get("match_type") != "region_empty"]
 
-        if min_area is not None:
-            apt_sql += " AND ai.max_area >= %s"
-            params.append(min_area)
-        if max_area is not None:
-            apt_sql += " AND ai.min_area <= %s"
-            params.append(max_area)
-        if min_price is not None:
-            apt_sql += " AND ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s"
-            params.append(min_price)
-        if max_price is not None:
-            apt_sql += " AND ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 <= %s"
-            params.append(max_price)
-        if min_floor is not None:
-            apt_sql += " AND a.max_floor >= %s"
-            params.append(min_floor)
-        if built_after is not None:
-            apt_sql += " AND a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int >= %s"
-            params.append(built_after)
+        # 필터 적용 (면적/가격/층수/준공년도)
+        if any(v is not None for v in [min_area, max_area, min_price, max_price, min_floor, built_after]):
+            pnu_list = [a["pnu"] for a in apartments]
+            if pnu_list:
+                ph = ",".join(["%s"] * len(pnu_list))
+                filter_rows = conn.execute(f"""
+                    SELECT a.pnu, ai.min_area, ai.max_area, ai.avg_area,
+                           ps.price_per_m2, a.max_floor, a.use_apr_day
+                    FROM apartments a
+                    LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
+                    LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu
+                    WHERE a.pnu IN ({ph})
+                """, pnu_list).fetchall()
+                filter_map = {r["pnu"]: r for r in filter_rows}
 
-        apartments = conn.execute(apt_sql, params).fetchall()
+                filtered = []
+                for apt in apartments:
+                    f = filter_map.get(apt["pnu"])
+                    if not f:
+                        continue
+                    if min_area is not None and (f.get("max_area") or 0) < min_area:
+                        continue
+                    if max_area is not None and (f.get("min_area") or 999) > max_area:
+                        continue
+                    if min_price is not None:
+                        est = (f.get("price_per_m2") or 0) * (f.get("avg_area") or 60) / 10000
+                        if est < min_price:
+                            continue
+                    if max_price is not None:
+                        est = (f.get("price_per_m2") or 0) * (f.get("avg_area") or 60) / 10000
+                        if est > max_price:
+                            continue
+                    if min_floor is not None and (f.get("max_floor") or 0) < min_floor:
+                        continue
+                    if built_after is not None:
+                        try:
+                            yr = int(str(f.get("use_apr_day", ""))[:4])
+                            if yr < built_after:
+                                continue
+                        except (ValueError, TypeError):
+                            continue
+                    filtered.append(apt)
+                apartments = filtered
 
         if not apartments:
             return json.dumps(
