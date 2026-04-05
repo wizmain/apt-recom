@@ -173,7 +173,25 @@ def create_tables(conn) -> None:
             cctv_count_500m INTEGER,
             cctv_count_1km INTEGER,
             nearest_cctv_m DOUBLE PRECISION,
-            crime_safety_score DOUBLE PRECISION
+            crime_safety_score DOUBLE PRECISION,
+            micro_score DOUBLE PRECISION,
+            access_score DOUBLE PRECISION,
+            macro_score DOUBLE PRECISION,
+            complex_score DOUBLE PRECISION,
+            data_reliability DOUBLE PRECISION
+        );
+
+        CREATE TABLE IF NOT EXISTS traffic_accident_hotspot (
+            id SERIAL PRIMARY KEY,
+            sigungu_name TEXT,
+            spot_name TEXT,
+            accident_cnt INTEGER,
+            casualty_cnt INTEGER,
+            death_cnt INTEGER,
+            serious_cnt INTEGER,
+            lat DOUBLE PRECISION,
+            lng DOUBLE PRECISION,
+            bjd_code TEXT
         );
 
         CREATE TABLE IF NOT EXISTS apt_kapt_info (
