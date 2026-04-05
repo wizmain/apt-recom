@@ -199,6 +199,18 @@ def create_tables(conn) -> None:
             updated_at TIMESTAMPTZ DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS apt_mgmt_cost (
+            pnu TEXT,
+            year_month TEXT,
+            common_cost BIGINT,
+            individual_cost BIGINT,
+            repair_fund BIGINT,
+            total_cost BIGINT,
+            cost_per_unit BIGINT,
+            detail JSONB,
+            PRIMARY KEY (pnu, year_month)
+        );
+
         CREATE TABLE IF NOT EXISTS population_by_district (
             sigungu_code TEXT,
             sigungu_name TEXT,

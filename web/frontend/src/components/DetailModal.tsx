@@ -46,6 +46,21 @@ interface KaptInfo {
   bus_time?: string;
 }
 
+interface MgmtCostMonth {
+  year_month: string;
+  common_cost: number;
+  individual_cost: number;
+  repair_fund: number;
+  total_cost: number;
+  cost_per_unit: number;
+  detail: Record<string, number>;
+}
+
+interface MgmtCost {
+  months: MgmtCostMonth[];
+  region_avg_per_unit: number | null;
+}
+
 interface ApartmentDetail {
   basic: BasicInfo;
   scores: Record<string, number>;
@@ -55,6 +70,7 @@ interface ApartmentDetail {
   safety?: SafetyData | null;
   population?: PopulationData;
   kapt_info?: KaptInfo | null;
+  mgmt_cost?: MgmtCost | null;
 }
 
 interface SchoolInfo {
@@ -100,7 +116,7 @@ interface TradesResponse {
 
 // nudgeLabels, facilityLabels는 컴포넌트 내부에서 useCodes로 로드
 
-const TABS = ['기본정보', '가격분석', '주변시설', '학군', '안전', '인구'] as const;
+const TABS = ['기본정보', '가격분석', '관리비', '주변시설', '학군', '안전', '인구'] as const;
 type TabName = (typeof TABS)[number];
 
 const BLUE = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'];
@@ -211,6 +227,7 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
             <>
               {activeTab === '기본정보' && <TabBasicInfo detail={detail} />}
               {activeTab === '가격분석' && <TabPriceAnalysis trades={tradesData.trades} rents={tradesData.rents} />}
+              {activeTab === '관리비' && <TabMgmtCost mgmtCost={detail?.mgmt_cost ?? undefined} />}
               {activeTab === '주변시설' && <TabFacilities detail={detail} />}
               {activeTab === '학군' && <TabSchool school={detail?.school ?? undefined} />}
               {activeTab === '안전' && <TabSafety safety={detail?.safety} />}
@@ -676,7 +693,105 @@ function TabFacilities({ detail }: { detail: ApartmentDetail | null }) {
 }
 
 /* ================================================================== */
-/*  Tab 4 – 학군                                                       */
+/*  Tab – 관리비                                                        */
+/* ================================================================== */
+
+function formatWon(val: number): string {
+  if (val >= 10000) return `${Math.round(val / 10000)}만`;
+  return `${val.toLocaleString()}`;
+}
+
+function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
+  if (!mgmtCost || mgmtCost.months.length === 0) return <EmptyState text="관리비 데이터가 없습니다." />;
+
+  const latest = mgmtCost.months[0];
+  const detail = typeof latest.detail === 'string' ? JSON.parse(latest.detail) : latest.detail;
+  const regionAvg = mgmtCost.region_avg_per_unit;
+  const diff = regionAvg ? latest.cost_per_unit - regionAvg : null;
+
+  // 주요 항목 정렬 (금액 큰 순)
+  const detailItems = Object.entries(detail as Record<string, number>)
+    .filter(([, v]) => v > 0)
+    .sort(([, a], [, b]) => b - a);
+
+  return (
+    <div className="space-y-4">
+      {/* 요약 카드 */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="bg-blue-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-blue-500">세대당 관리비</p>
+          <p className="text-lg font-bold text-blue-800">{formatWon(latest.cost_per_unit)}원</p>
+        </div>
+        {regionAvg && (
+          <div className="bg-gray-50 rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500">지역 평균</p>
+            <p className="text-base font-semibold text-gray-800">{formatWon(regionAvg)}원</p>
+          </div>
+        )}
+        {diff !== null && (
+          <div className={`rounded-lg p-3 text-center ${diff > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+            <p className={`text-xs ${diff > 0 ? 'text-red-500' : 'text-green-500'}`}>지역 대비</p>
+            <p className={`text-base font-semibold ${diff > 0 ? 'text-red-700' : 'text-green-700'}`}>
+              {diff > 0 ? '+' : ''}{formatWon(diff)}원
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* 공용/개별/장충금 비율 */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <div className="flex justify-between text-xs text-gray-500 mb-2">
+          <span>공용관리비</span><span>개별사용료</span><span>장기수선</span>
+        </div>
+        <div className="flex h-4 rounded-full overflow-hidden">
+          {latest.total_cost > 0 && (
+            <>
+              <div className="bg-blue-400" style={{ width: `${(latest.common_cost / latest.total_cost) * 100}%` }} />
+              <div className="bg-amber-400" style={{ width: `${(latest.individual_cost / latest.total_cost) * 100}%` }} />
+              <div className="bg-green-400" style={{ width: `${(latest.repair_fund / latest.total_cost) * 100}%` }} />
+            </>
+          )}
+        </div>
+        <div className="flex justify-between text-xs text-gray-600 mt-1">
+          <span>{formatWon(latest.common_cost)}원</span>
+          <span>{formatWon(latest.individual_cost)}원</span>
+          <span>{formatWon(latest.repair_fund)}원</span>
+        </div>
+      </div>
+
+      {/* 월별 추이 (여러 달 있을 때) */}
+      {mgmtCost.months.length > 1 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">월별 추이</h3>
+          <div className="space-y-1">
+            {mgmtCost.months.map(m => (
+              <div key={m.year_month} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                <span className="text-sm text-gray-600">{m.year_month.slice(0, 4)}.{m.year_month.slice(4)}</span>
+                <span className="text-sm font-semibold text-gray-800">{formatWon(m.cost_per_unit)}원/세대</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 항목별 상세 */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">항목별 상세 ({latest.year_month.slice(0, 4)}.{latest.year_month.slice(4)})</h3>
+        <div className="grid grid-cols-2 gap-2">
+          {detailItems.map(([name, val]) => (
+            <div key={name} className="flex justify-between bg-gray-50 rounded-lg px-3 py-2">
+              <span className="text-xs text-gray-600 truncate">{name}</span>
+              <span className="text-xs font-semibold text-gray-800 ml-2">{formatWon(val)}원</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Tab – 학군                                                       */
 /* ================================================================== */
 
 function TabSchool({ school }: { school?: SchoolInfo }) {
