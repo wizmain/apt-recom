@@ -178,7 +178,8 @@ def create_tables(conn) -> None:
             access_score DOUBLE PRECISION,
             macro_score DOUBLE PRECISION,
             complex_score DOUBLE PRECISION,
-            data_reliability DOUBLE PRECISION
+            data_reliability DOUBLE PRECISION,
+            crime_hotspot_grade DOUBLE PRECISION
         );
 
         CREATE TABLE IF NOT EXISTS traffic_accident_hotspot (
@@ -238,6 +239,19 @@ def create_tables(conn) -> None:
             male_pop INTEGER,
             female_pop INTEGER,
             PRIMARY KEY (sigungu_code, age_group)
+        );
+
+        CREATE TABLE IF NOT EXISTS sigungu_safety_index (
+            sigungu_code TEXT PRIMARY KEY,
+            sido_name TEXT,
+            sigungu_name TEXT,
+            traffic_grade INTEGER,
+            fire_grade INTEGER,
+            crime_grade INTEGER,
+            living_safety_grade INTEGER,
+            suicide_grade INTEGER,
+            infection_grade INTEGER,
+            composite_score DOUBLE PRECISION
         );
 
         CREATE TABLE IF NOT EXISTS apt_vectors (

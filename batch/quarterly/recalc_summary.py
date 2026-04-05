@@ -104,6 +104,13 @@ def _load_traffic_accident_rates(conn):
     return {codes[i]: round(float(100 - pct[i] * 100), 1) for i in range(len(codes))}
 
 
+def _load_safety_index(conn):
+    """행안부 지역안전지수 composite_score 로드 (0~100, 높을수록 안전)."""
+    rows = query_all(conn,
+        "SELECT sigungu_code, composite_score FROM sigungu_safety_index")
+    return {r["sigungu_code"]: r["composite_score"] for r in rows}
+
+
 def _load_kapt_data(conn):
     """K-APT 단지 정보 로드 (CCTV, 경비, 관리)."""
     rows = query_all(conn,
@@ -141,10 +148,19 @@ def _load_apt_hhld(conn):
     return {r["pnu"]: r["total_hhld_cnt"] for r in rows}
 
 
+def _load_crime_hotspot_grades(conn):
+    """apt_safety_score에서 범죄주의구간 등급 로드."""
+    rows = query_all(conn,
+        "SELECT pnu, crime_hotspot_grade FROM apt_safety_score "
+        "WHERE crime_hotspot_grade IS NOT NULL AND crime_hotspot_grade >= 0")
+    return {r["pnu"]: r["crime_hotspot_grade"] for r in rows}
+
+
 def _calc_safety_v2(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
                      cctv_data, light_data, accident_data,
                      crime_scores, accident_scores, kapt_map, security_costs, hhld_map,
-                     fire_data, hospital_data):
+                     fire_data, hospital_data, crime_hotspot_grades=None,
+                     safety_index=None):
     """v2 안전점수 계산: 4영역 + 데이터 신뢰도.
 
     반환: [(pnu, safety_score, cctv_500m, cctv_1km, nearest_cctv_m, crime_safety_score,
@@ -157,11 +173,9 @@ def _calc_safety_v2(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
     hospital_nearest = hospital_data
     n = len(apt_pnus)
 
-    # -- percentile rank 사전 계산 (전체 아파트 기준) --
-    cctv_500m_pct = _percentile_rank(cctv_500m.astype(float))
-    light_500m_pct = _percentile_rank(light_500m.astype(float))
-    # 교통사고: 높을수록 위험 → 역순
-    acc_500m_pct = _percentile_rank(acc_500m.astype(float))
+    # 보안등 데이터 유효성: 커버리지 10% 미만이면 점수 제외
+    light_coverage = float(np.count_nonzero(light_500m)) / max(n, 1)
+    use_light = light_coverage >= 0.10
 
     # K-APT CCTV 비율 percentile
     kapt_cctv_ratios = np.zeros(n)
@@ -186,16 +200,55 @@ def _calc_safety_v2(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
         sgg = apt_sgg_codes[i] if i < len(apt_sgg_codes) else ""
 
         # ===== 1. 미시환경점수 (55점) =====
-        # CCTV 밀도: 12점
-        cctv_score = cctv_500m_pct[i] * 12
-        # 야간조명 (보안등): 10점
-        light_score = light_500m_pct[i] * 10
-        # 교통안전: 13점 (사고 적을수록 높은 점수)
-        traffic_score = (1 - acc_500m_pct[i]) * 13
-        # 범죄주의구간: 20점 (추후) → 현재 비율 재조정
-        # 현재 가용: CCTV 12 + 보안등 10 + 교통 13 = 35점 → 55점 만점으로 스케일
-        micro_raw = cctv_score + light_score + traffic_score  # 0~35
-        micro_score = micro_raw / 35 * 55
+        # 절대 기준(threshold) 점수 — percentile rank 대신 현실적 기준 사용
+        micro_items = []
+        micro_max = 0
+
+        # CCTV 밀도: 12점 (500m 이내 대수 기준)
+        cctv_cnt = int(cctv_500m[i])
+        if cctv_cnt >= 30:
+            cctv_s = 12.0
+        elif cctv_cnt >= 15:
+            cctv_s = 10.0 + (cctv_cnt - 15) / 15 * 2
+        elif cctv_cnt >= 5:
+            cctv_s = 7.0 + (cctv_cnt - 5) / 10 * 3
+        elif cctv_cnt >= 1:
+            cctv_s = 3.0 + (cctv_cnt - 1) / 4 * 4
+        else:
+            cctv_s = 0.0
+        micro_items.append(cctv_s)
+        micro_max += 12
+
+        # 야간조명 (보안등): 10점 — 커버리지 부족 시 제외
+        if use_light:
+            light_cnt = int(light_500m[i])
+            light_s = min(10.0, light_cnt * 0.5)
+            micro_items.append(light_s)
+            micro_max += 10
+
+        # 교통안전: 13점 (500m 내 사고다발지역 수 기준)
+        acc_cnt = int(acc_500m[i])
+        if acc_cnt == 0:
+            traffic_s = 13.0
+        elif acc_cnt <= 2:
+            traffic_s = 10.0 - (acc_cnt - 1) * 2
+        elif acc_cnt <= 5:
+            traffic_s = 6.0 - (acc_cnt - 2) * 1.5
+        else:
+            traffic_s = max(0, 2.0 - (acc_cnt - 5) * 0.4)
+        micro_items.append(traffic_s)
+        micro_max += 13
+
+        # 범죄주의구간: 20점 (등급 0~10 → 0=안전(20점), 10=위험(0점))
+        hotspot_grade = (crime_hotspot_grades or {}).get(pnu)
+        if hotspot_grade is not None and hotspot_grade >= 0:
+            hotspot_s = max(0.0, 20.0 * (1 - hotspot_grade / 10))
+            micro_items.append(hotspot_s)
+            micro_max += 20
+
+        # 가용 항목 합산 → 55점 만점으로 스케일
+        micro_raw = sum(micro_items)
+        micro_score = micro_raw / micro_max * 55 if micro_max > 0 else 27.5
 
         # ===== 2. 접근성점수 (20점) =====
         police_dist = summary_map.get(pnu, {}).get("police", 10000)
@@ -208,11 +261,24 @@ def _calc_safety_v2(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
         access_score = police_s + fire_s + hosp_s
 
         # ===== 3. 광역위험점수 (15점) =====
-        crime_s = crime_scores.get(sgg, 50.0) / 100 * 6  # 0~6점
-        acc_s = accident_scores.get(sgg, 50.0) / 100 * 4  # 0~4점
-        # 자연재해(3) + 안전지수(2) = 추후 → 현재 10점 만점 → 15점 스케일
-        macro_raw = crime_s + acc_s  # 0~10
-        macro_score = macro_raw / 10 * 15
+        macro_items = []
+        macro_max = 0
+        # 범죄율: 6점
+        crime_s = crime_scores.get(sgg, 50.0) / 100 * 6
+        macro_items.append(crime_s)
+        macro_max += 6
+        # 교통사고율: 4점
+        acc_s = accident_scores.get(sgg, 50.0) / 100 * 4
+        macro_items.append(acc_s)
+        macro_max += 4
+        # 지역안전지수 보정: 2점 (행안부 composite 0~100 → 0~2점)
+        si = (safety_index or {}).get(sgg)
+        if si is not None:
+            macro_items.append(si / 100 * 2)
+            macro_max += 2
+        # 가용 항목 → 15점 스케일 (범죄율 6 + 교통사고율 4 + 안전지수 2 = 12점 만점)
+        macro_raw = sum(macro_items)
+        macro_score = macro_raw / macro_max * 15 if macro_max > 0 else 7.5
 
         # ===== 4. 단지내부점수 (10점) =====
         kapt = kapt_map.get(pnu)
@@ -229,7 +295,8 @@ def _calc_safety_v2(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
         safety_total = round(micro_score + access_score + macro_score + complex_score, 1)
 
         # ===== 데이터 신뢰도 =====
-        reliability = _calc_reliability(pnu, sgg, kapt_map, crime_scores, light_500m[i])
+        has_hotspot = hotspot_grade is not None and hotspot_grade >= 0
+        reliability = _calc_reliability(pnu, sgg, kapt_map, crime_scores, light_500m[i], has_hotspot)
 
         # 기존 호환 필드
         crime_safety = crime_scores.get(sgg, 50.0)
@@ -247,7 +314,7 @@ def _calc_safety_v2(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
     return safety_rows
 
 
-def _calc_reliability(pnu, sgg, kapt_map, crime_scores, light_count):
+def _calc_reliability(pnu, sgg, kapt_map, crime_scores, light_count, has_hotspot=False):
     """데이터 신뢰도 점수 (0~100).
 
     최신성 35 + 완전성 25 + 좌표정확도 20 + 커버리지 20
@@ -257,13 +324,15 @@ def _calc_reliability(pnu, sgg, kapt_map, crime_scores, light_count):
     # 최신성 (35점): 현재 사용 데이터 모두 2024년 기준 → 기본 30점
     score += 30.0
 
-    # 완전성 (25점): K-APT + 범죄 + 보안등 데이터 존재 여부
+    # 완전성 (25점): K-APT + 범죄 + 보안등 + 범죄주의구간 존재 여부
     completeness = 0.0
     if pnu in kapt_map:
-        completeness += 10.0
+        completeness += 8.0
     if sgg in crime_scores:
-        completeness += 10.0
+        completeness += 7.0
     if light_count > 0:
+        completeness += 5.0
+    if has_hotspot:
         completeness += 5.0
     score += completeness
 
@@ -341,6 +410,8 @@ def _load_all_v2_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summ
     kapt_map = _load_kapt_data(conn)
     security_costs = _load_kapt_security_cost(conn)
     hhld_map = _load_apt_hhld(conn)
+    crime_hotspot_grades = _load_crime_hotspot_grades(conn)
+    safety_index = _load_safety_index(conn)
 
     return {
         "cctv_data": cctv_data,
@@ -353,6 +424,8 @@ def _load_all_v2_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summ
         "kapt_map": kapt_map,
         "security_costs": security_costs,
         "hhld_map": hhld_map,
+        "crime_hotspot_grades": crime_hotspot_grades,
+        "safety_index": safety_index,
     }
 
 
@@ -420,12 +493,23 @@ def recalc_for_new_apartments(conn, logger, pnu_list):
     safety_rows = _calc_safety_v2(
         apt_pnus, apt_sgg_codes, apt_coords, summary_map, **v2_data)
 
-    cur.execute(f"DELETE FROM apt_safety_score WHERE pnu IN ({ph})", pnu_list)
     if safety_rows:
         execute_values_chunked(conn,
-            "INSERT INTO apt_safety_score "
-            "(pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m, crime_safety_score, "
-            " micro_score, access_score, macro_score, complex_score, data_reliability) VALUES %s",
+            """INSERT INTO apt_safety_score
+               (pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m, crime_safety_score,
+                micro_score, access_score, macro_score, complex_score, data_reliability)
+               VALUES %s
+               ON CONFLICT (pnu) DO UPDATE SET
+                   safety_score = EXCLUDED.safety_score,
+                   cctv_count_500m = EXCLUDED.cctv_count_500m,
+                   cctv_count_1km = EXCLUDED.cctv_count_1km,
+                   nearest_cctv_m = EXCLUDED.nearest_cctv_m,
+                   crime_safety_score = EXCLUDED.crime_safety_score,
+                   micro_score = EXCLUDED.micro_score,
+                   access_score = EXCLUDED.access_score,
+                   macro_score = EXCLUDED.macro_score,
+                   complex_score = EXCLUDED.complex_score,
+                   data_reliability = EXCLUDED.data_reliability""",
             safety_rows)
 
     conn.commit()
@@ -498,11 +582,23 @@ def recalc_summary(conn, logger):
     safety_rows = _calc_safety_v2(
         apt_pnus, apt_sgg_codes, apt_coords, summary_map, **v2_data)
 
-    cur.execute("TRUNCATE apt_safety_score")
+    # UPSERT로 crime_hotspot_grade 보존
     execute_values_chunked(conn,
-        "INSERT INTO apt_safety_score "
-        "(pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m, crime_safety_score, "
-        " micro_score, access_score, macro_score, complex_score, data_reliability) VALUES %s",
+        """INSERT INTO apt_safety_score
+           (pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m, crime_safety_score,
+            micro_score, access_score, macro_score, complex_score, data_reliability)
+           VALUES %s
+           ON CONFLICT (pnu) DO UPDATE SET
+               safety_score = EXCLUDED.safety_score,
+               cctv_count_500m = EXCLUDED.cctv_count_500m,
+               cctv_count_1km = EXCLUDED.cctv_count_1km,
+               nearest_cctv_m = EXCLUDED.nearest_cctv_m,
+               crime_safety_score = EXCLUDED.crime_safety_score,
+               micro_score = EXCLUDED.micro_score,
+               access_score = EXCLUDED.access_score,
+               macro_score = EXCLUDED.macro_score,
+               complex_score = EXCLUDED.complex_score,
+               data_reliability = EXCLUDED.data_reliability""",
         safety_rows)
 
     logger.info(f"apt_safety_score v2 재계산 완료: {len(safety_rows):,}건")
