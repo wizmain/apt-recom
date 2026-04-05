@@ -227,6 +227,30 @@ def apartment_detail(pnu: str):
             kapt_info = dict(kapt_row)
             kapt_info.pop("updated_at", None)
 
+        # 관리비 (최근 3개월 + 지역 평균)
+        mgmt_cost = None
+        cost_rows = conn.execute(
+            "SELECT year_month, common_cost, individual_cost, repair_fund, total_cost, cost_per_unit, detail "
+            "FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 6",
+            [pnu],
+        ).fetchall()
+        if cost_rows:
+            # 지역 평균 (같은 시군구, 같은 월)
+            sgg = basic.get("sigungu_code", "")[:5]
+            latest_ym = cost_rows[0]["year_month"]
+            avg_row = conn.execute("""
+                SELECT AVG(cost_per_unit) as avg_per_unit, AVG(total_cost) as avg_total
+                FROM apt_mgmt_cost m
+                JOIN apt_kapt_info k ON m.pnu = k.pnu
+                JOIN apartments a ON m.pnu = a.pnu
+                WHERE a.sigungu_code = %s AND m.year_month = %s AND m.cost_per_unit > 0
+            """, [sgg, latest_ym]).fetchone()
+
+            mgmt_cost = {
+                "months": [dict(r) for r in cost_rows],
+                "region_avg_per_unit": round(avg_row["avg_per_unit"]) if avg_row and avg_row["avg_per_unit"] else None,
+            }
+
         return {
             "basic": basic,
             "scores": scores,
@@ -236,6 +260,7 @@ def apartment_detail(pnu: str):
             "safety": safety_info,
             "population": population,
             "kapt_info": kapt_info,
+            "mgmt_cost": mgmt_cost,
         }
     finally:
         conn.close()
