@@ -103,12 +103,16 @@ def apartment_detail(pnu: str):
                     if items:
                         nearby[subtype] = items
 
-        # School zone
-        school = conn.execute(
-            "SELECT * FROM school_zones WHERE pnu = %s", [pnu]
-        ).fetchone()
-        if school:
-            school = dict(school)
+        # School zone — 법정동 LIKE로 1회 조회 후 PNU 비교
+        school = None
+        bjd = basic.get("bjd_code") or pnu[:10]
+        school_rows = conn.execute(
+            "SELECT * FROM school_zones WHERE pnu LIKE %s", [f"{bjd}%"]
+        ).fetchall()
+        if school_rows:
+            exact = next((r for r in school_rows if r["pnu"] == pnu), None)
+            school = dict(exact if exact else school_rows[0])
+            school["estimated"] = exact is None
 
         # CCTV/safety info + crime score
         safety_info = None
@@ -216,6 +220,13 @@ def apartment_detail(pnu: str):
         except Exception:
             pass
 
+        # K-APT 상세정보
+        kapt_info = None
+        kapt_row = conn.execute("SELECT * FROM apt_kapt_info WHERE pnu = %s", [pnu]).fetchone()
+        if kapt_row:
+            kapt_info = dict(kapt_row)
+            kapt_info.pop("updated_at", None)
+
         return {
             "basic": basic,
             "scores": scores,
@@ -224,6 +235,7 @@ def apartment_detail(pnu: str):
             "school": school,
             "safety": safety_info,
             "population": population,
+            "kapt_info": kapt_info,
         }
     finally:
         conn.close()

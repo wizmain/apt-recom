@@ -27,6 +27,25 @@ interface BasicInfo {
   lng?: number;
 }
 
+interface KaptInfo {
+  sale_type?: string;
+  heat_type?: string;
+  builder?: string;
+  developer?: string;
+  apt_type?: string;
+  mgr_type?: string;
+  hall_type?: string;
+  structure?: string;
+  total_area?: number;
+  priv_area?: number;
+  parking_cnt?: number;
+  cctv_cnt?: number;
+  elevator_cnt?: number;
+  ev_charger_cnt?: number;
+  subway_info?: string;
+  bus_time?: string;
+}
+
 interface ApartmentDetail {
   basic: BasicInfo;
   scores: Record<string, number>;
@@ -35,6 +54,7 @@ interface ApartmentDetail {
   school: SchoolInfo | null;
   safety?: SafetyData | null;
   population?: PopulationData;
+  kapt_info?: KaptInfo | null;
 }
 
 interface SchoolInfo {
@@ -46,6 +66,7 @@ interface SchoolInfo {
   high_school_zone_type?: string;
   edu_office_name?: string;
   edu_district?: string;
+  estimated?: boolean;
 }
 
 interface TradeRecord {
@@ -218,6 +239,20 @@ function TabBasicInfo({ detail }: { detail: ApartmentDetail | null }) {
     { label: '사용승인일', value: b.use_apr_day ?? '-' },
   ];
 
+  const k = detail.kapt_info;
+  const kaptItems = k ? [
+    k.builder && { label: '시공사', value: k.builder },
+    k.heat_type && { label: '난방', value: k.heat_type },
+    k.hall_type && { label: '복도', value: k.hall_type },
+    k.structure && { label: '구조', value: k.structure },
+    k.parking_cnt && { label: '주차', value: `${k.parking_cnt}대` },
+    k.elevator_cnt && { label: '승강기', value: `${k.elevator_cnt}대` },
+    k.cctv_cnt && { label: 'CCTV', value: `${k.cctv_cnt}대` },
+    k.ev_charger_cnt && { label: '전기차충전', value: `${k.ev_charger_cnt}대` },
+    k.mgr_type && { label: '관리', value: k.mgr_type },
+    k.sale_type && { label: '분양형태', value: k.sale_type },
+  ].filter(Boolean) as { label: string; value: string }[] : [];
+
   const radarData = detail.scores
     ? Object.entries(detail.scores).map(([key, value]) => ({
         subject: nudgeLabels[key] ?? key,
@@ -237,6 +272,21 @@ function TabBasicInfo({ detail }: { detail: ApartmentDetail | null }) {
           </div>
         ))}
       </div>
+
+      {/* K-APT 상세정보 */}
+      {kaptItems.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">단지 상세</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {kaptItems.map((item) => (
+              <div key={item.label} className="bg-blue-50 rounded-lg px-3 py-2">
+                <p className="text-xs text-blue-500">{item.label}</p>
+                <p className="text-sm font-semibold text-blue-800">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Radar chart */}
       {radarData.length > 0 && (
@@ -641,14 +691,21 @@ function TabSchool({ school }: { school?: SchoolInfo }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {items.map((item) => (
-        <div key={item.label} className="bg-gray-50 rounded-lg p-4">
-          <p className="text-xs text-gray-500 mb-1">{item.label}</p>
-          <p className="text-base font-semibold text-gray-800">{item.value}</p>
-          {item.sub && <p className="text-sm text-gray-500 mt-0.5">{item.sub}</p>}
+    <div>
+      {school.estimated && (
+        <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+          동일 법정동 기준 예상 학군 정보입니다. 정확한 배정은 해당 교육청에 확인하세요.
         </div>
-      ))}
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {items.map((item) => (
+          <div key={item.label} className="bg-gray-50 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-1">{item.label}</p>
+            <p className="text-base font-semibold text-gray-800">{item.value}</p>
+            {item.sub && <p className="text-sm text-gray-500 mt-0.5">{item.sub}</p>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

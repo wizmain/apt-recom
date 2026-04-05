@@ -218,14 +218,4 @@ def enrich_new_apartments(conn, logger):
     conn.commit()
     logger.info(f"  아파트 보충 완료: 신규={created}, 기존매칭={matched}, fallback={fallback}, 실패={failed}")
 
-    # 신규 등록 아파트 시설 집계 + 안전점수
-    if new_pnus:
-        from batch.quarterly.recalc_summary import recalc_for_new_apartments
-        recalc_for_new_apartments(conn, logger, new_pnus)
-
-    # 유사도 벡터 재생성
-    if created > 0:
-        from batch.ml.build_vectors import build_all_vectors
-        build_all_vectors(conn, logger)
-
-    return created + matched
+    return created + matched, new_pnus

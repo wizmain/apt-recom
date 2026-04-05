@@ -176,6 +176,29 @@ def create_tables(conn) -> None:
             crime_safety_score DOUBLE PRECISION
         );
 
+        CREATE TABLE IF NOT EXISTS apt_kapt_info (
+            pnu TEXT PRIMARY KEY,
+            kapt_code TEXT,
+            sale_type TEXT,
+            heat_type TEXT,
+            builder TEXT,
+            developer TEXT,
+            apt_type TEXT,
+            mgr_type TEXT,
+            hall_type TEXT,
+            structure TEXT,
+            total_area DOUBLE PRECISION,
+            priv_area DOUBLE PRECISION,
+            parking_cnt INTEGER,
+            cctv_cnt INTEGER,
+            elevator_cnt INTEGER,
+            ev_charger_cnt INTEGER,
+            subway_info TEXT,
+            bus_time TEXT,
+            welfare TEXT,
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
         CREATE TABLE IF NOT EXISTS population_by_district (
             sigungu_code TEXT,
             sigungu_name TEXT,
