@@ -263,16 +263,18 @@ def apartment_detail(pnu: str):
             sgg = basic.get("sigungu_code", "")[:5]
             latest_ym = cost_rows[0]["year_month"]
             avg_row = conn.execute("""
-                SELECT AVG(cost_per_unit) as avg_per_unit, AVG(total_cost) as avg_total
+                SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_unit) as median_per_unit
                 FROM apt_mgmt_cost m
                 JOIN apt_kapt_info k ON m.pnu = k.pnu
                 JOIN apartments a ON m.pnu = a.pnu
-                WHERE a.sigungu_code = %s AND m.year_month = %s AND m.cost_per_unit > 0
+                WHERE a.sigungu_code = %s AND m.year_month = %s
+                  AND m.cost_per_unit > 0
+                  AND m.cost_per_unit != m.total_cost
             """, [sgg, latest_ym]).fetchone()
 
             mgmt_cost = {
                 "months": [dict(r) for r in cost_rows],
-                "region_avg_per_unit": round(avg_row["avg_per_unit"]) if avg_row and avg_row["avg_per_unit"] else None,
+                "region_avg_per_unit": round(avg_row["median_per_unit"]) if avg_row and avg_row["median_per_unit"] else None,
             }
 
         return {
