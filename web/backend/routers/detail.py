@@ -56,7 +56,9 @@ def apartment_detail(pnu: str):
         safety_row = None
         try:
             safety_row = conn.execute(
-                "SELECT safety_score FROM apt_safety_score WHERE pnu = %s", [pnu]
+                "SELECT safety_score, micro_score, access_score, macro_score, "
+                "complex_score, data_reliability "
+                "FROM apt_safety_score WHERE pnu = %s", [pnu]
             ).fetchone()
         except Exception:
             pass
@@ -167,6 +169,23 @@ def apartment_detail(pnu: str):
             police_dist = facility_summary.get("police", {}).get("nearest_distance_m")
             fire_dist = facility_summary.get("fire_station", {}).get("nearest_distance_m")
 
+            # 보안등/소방센터/병원 거리
+            light_dist = facility_summary.get("security_light", {}).get("nearest_distance_m")
+            light_500m = facility_summary.get("security_light", {}).get("count_1km", 0)
+            fire_center_dist = facility_summary.get("fire_center", {}).get("nearest_distance_m")
+            hospital_dist = facility_summary.get("hospital", {}).get("nearest_distance_m")
+
+            # v2 세부 점수
+            v2_scores = None
+            if safety_row and safety_row.get("micro_score") is not None:
+                v2_scores = {
+                    "micro_score": safety_row["micro_score"],
+                    "access_score": safety_row["access_score"],
+                    "macro_score": safety_row["macro_score"],
+                    "complex_score": safety_row["complex_score"],
+                    "data_reliability": safety_row["data_reliability"],
+                }
+
             safety_info = {
                 "safety_score": safety_score_val,
                 "crime_safety_score": crime_score,
@@ -178,7 +197,12 @@ def apartment_detail(pnu: str):
                 "police_count_3km": facility_summary.get("police", {}).get("count_3km", 0),
                 "fire_nearest_m": fire_dist,
                 "fire_count_3km": facility_summary.get("fire_station", {}).get("count_3km", 0),
+                "light_nearest_m": light_dist,
+                "light_count_1km": light_500m,
+                "fire_center_nearest_m": fire_center_dist,
+                "hospital_nearest_m": hospital_dist,
                 "nudge_safety_score": scores.get("safety", 0),
+                "v2": v2_scores,
             }
         except Exception:
             pass
