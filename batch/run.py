@@ -43,8 +43,28 @@ def run_trade(args, logger, result):
 
         # 4. 신규 아파트 등록 + 건물정보 보충
         t0 = time.time()
-        enriched = enrich_new_apartments(conn, logger)
+        enriched, new_pnus = enrich_new_apartments(conn, logger)
         result.record("신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0)
+
+        # 5. K-APT 정보 수집 (점수 계산 전에 실행)
+        if enriched > 0:
+            from batch.kapt.collect_kapt_info import enrich_kapt_for_new
+            t0 = time.time()
+            kapt_cnt = enrich_kapt_for_new(conn, logger, new_pnus)
+            result.record("K-APT 정보 수집", "success", rows=kapt_cnt, duration=time.time() - t0)
+
+        # 6. 시설 집계 + 안전점수 + 유사도 벡터 (모든 데이터 반영 후 계산)
+        if new_pnus:
+            from batch.quarterly.recalc_summary import recalc_for_new_apartments
+            t0 = time.time()
+            recalc_for_new_apartments(conn, logger, new_pnus)
+            result.record("시설집계/안전점수", "success", rows=len(new_pnus), duration=time.time() - t0)
+
+        if enriched > 0:
+            from batch.ml.build_vectors import build_all_vectors
+            t0 = time.time()
+            build_all_vectors(conn, logger)
+            result.record("벡터 재생성", "success", duration=time.time() - t0)
 
     except Exception as e:
         logger.error(f"거래 배치 실패: {e}")
