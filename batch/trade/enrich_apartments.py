@@ -112,7 +112,7 @@ def enrich_new_apartments(conn, logger):
     """미매핑 apt_seq → 정규 PNU로 등록 (TRADE_는 최후 fallback)."""
     if not KAKAO_API_KEY or not DATA_GO_KR_API_KEY:
         logger.warning("  KAKAO_API_KEY 또는 DATA_GO_KR_API_KEY 미설정, 보충 생략")
-        return 0
+        return 0, []
 
     headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
 
@@ -135,7 +135,7 @@ def enrich_new_apartments(conn, logger):
 
     if not unmapped:
         logger.info("  보충 대상 신규 아파트 없음")
-        return 0
+        return 0, []
 
     logger.info(f"  미매핑 apt_seq {len(unmapped)}건 처리 시작")
 
