@@ -45,7 +45,12 @@ def nudge_score(req: NudgeScoreRequest):
             FROM apartments a
             LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu"""
-        conditions: list[str] = ["a.lat IS NOT NULL", "a.group_pnu = a.pnu"]  # 좌표 없는 아파트 제외 + 대표 PNU만
+        conditions: list[str] = [
+            "a.lat IS NOT NULL",
+            "a.group_pnu = a.pnu",
+            "a.total_hhld_cnt > 0",
+            "a.use_apr_day IS NOT NULL AND a.use_apr_day != ''",
+        ]
         params: list = []
 
         # 다중 키워드 지원 (keywords 우선, 없으면 keyword 단일 호환)

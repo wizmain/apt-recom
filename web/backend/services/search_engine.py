@@ -6,6 +6,8 @@
 import re
 
 APT_COLS = "pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc"
+# 기본 필터: 좌표·세대수·준공일이 모두 있는 아파트만 조회
+APT_BASE_FILTER = "group_pnu = pnu AND lat IS NOT NULL AND total_hhld_cnt > 0 AND use_apr_day IS NOT NULL AND use_apr_day != ''"
 _STRIP_SIDO = re.compile(r"(특별자치도|광역시|특별시|특별자치시)")
 _STRIP_SUFFIX = re.compile(r"[시도구군읍면동 ]")
 
@@ -133,7 +135,7 @@ def _fetch_region(conn, codes: list[str], region_type: str, label: str) -> list[
     if region_type == "sigungu":
         rows = conn.execute(f"""
             SELECT {APT_COLS} FROM apartments
-            WHERE group_pnu = pnu AND sigungu_code IN ({ph})
+            WHERE {APT_BASE_FILTER} AND sigungu_code IN ({ph})
             LIMIT 100
         """, codes).fetchall()
         return [{**dict(r), "match_type": "region", "region_label": label} for r in rows]
@@ -141,7 +143,7 @@ def _fetch_region(conn, codes: list[str], region_type: str, label: str) -> list[
     elif region_type == "emd":
         rows = conn.execute(f"""
             SELECT {APT_COLS}, bjd_code FROM apartments
-            WHERE group_pnu = pnu AND bjd_code IN ({ph})
+            WHERE {APT_BASE_FILTER} AND bjd_code IN ({ph})
             LIMIT 100
         """, codes).fetchall()
         # 읍면동별 라벨 매핑
@@ -162,7 +164,7 @@ def _fetch_name(conn, keyword: str) -> list[dict]:
     norm = re.sub(r"[\s()\-·]", "", keyword)
     rows = conn.execute(f"""
         SELECT {APT_COLS} FROM apartments
-        WHERE group_pnu = pnu
+        WHERE {APT_BASE_FILTER}
           AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s)
         LIMIT 100
     """, [f"%{keyword}%", f"%{norm}%"]).fetchall()
@@ -175,7 +177,7 @@ def _fetch_fallback(conn, query: str) -> list[dict]:
     norm = re.sub(r"[\s()\-·]", "", query)
     rows = conn.execute(f"""
         SELECT {APT_COLS} FROM apartments
-        WHERE group_pnu = pnu
+        WHERE {APT_BASE_FILTER}
           AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
         LIMIT 100
     """, [pattern, pattern, pattern, f"%{norm}%"]).fetchall()

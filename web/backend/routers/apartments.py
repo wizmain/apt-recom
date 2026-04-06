@@ -35,7 +35,12 @@ def list_apartments(
             LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu
         """
-        conditions: list[str] = ["a.group_pnu = a.pnu"]  # 대표 PNU만
+        conditions: list[str] = [
+            "a.group_pnu = a.pnu",
+            "a.lat IS NOT NULL",
+            "a.total_hhld_cnt > 0",
+            "a.use_apr_day IS NOT NULL AND a.use_apr_day != ''",
+        ]
         params: list = []
 
         # Map bounds
