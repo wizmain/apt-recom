@@ -57,7 +57,10 @@ def apartment_detail(pnu: str):
         try:
             safety_row = conn.execute(
                 "SELECT safety_score, micro_score, access_score, macro_score, "
-                "complex_score, data_reliability "
+                "complex_score, data_reliability, score_version, "
+                "complex_cctv_score, complex_security_score, complex_mgr_score, "
+                "complex_parking_score, regional_safety_score, crime_adjust_score, "
+                "complex_data_source, crime_safety_score "
                 "FROM apt_safety_score WHERE pnu = %s", [pnu]
             ).fetchone()
         except Exception:
@@ -121,22 +124,6 @@ def apartment_detail(pnu: str):
         try:
             safety_score_val = safety_row["safety_score"] if safety_row else None
 
-            # CCTV: apt_safety_score (500m) + apt_facility_summary (거리, 1km)
-            cctv_fs = facility_summary.get("cctv", {})
-            cctv_nearest = cctv_fs.get("nearest_distance_m")
-            cctv_1km = cctv_fs.get("count_1km", 0)
-            cctv_500m = 0
-            if safety_row:
-                ss_row = conn.execute(
-                    "SELECT cctv_count_500m, cctv_count_1km, nearest_cctv_m FROM apt_safety_score WHERE pnu = %s", [pnu]
-                ).fetchone()
-                if ss_row:
-                    cctv_500m = ss_row["cctv_count_500m"] or 0
-                    if cctv_nearest is None:
-                        cctv_nearest = ss_row["nearest_cctv_m"]
-                    if cctv_1km == 0 and ss_row["cctv_count_1km"]:
-                        cctv_1km = ss_row["cctv_count_1km"]
-
             # 범죄율 점수 + 상세
             crime_score = None
             crime_detail = None
@@ -168,17 +155,28 @@ def apartment_detail(pnu: str):
 
             police_dist = facility_summary.get("police", {}).get("nearest_distance_m")
             fire_dist = facility_summary.get("fire_station", {}).get("nearest_distance_m")
-
-            # 보안등/소방센터/병원 거리
-            light_dist = facility_summary.get("security_light", {}).get("nearest_distance_m")
-            light_500m = facility_summary.get("security_light", {}).get("count_1km", 0)
             fire_center_dist = facility_summary.get("fire_center", {}).get("nearest_distance_m")
             hospital_dist = facility_summary.get("hospital", {}).get("nearest_distance_m")
 
-            # v2 세부 점수
-            v2_scores = None
-            if safety_row and safety_row.get("micro_score") is not None:
-                v2_scores = {
+            # v3 세부 점수
+            v3_scores = None
+            score_version = safety_row.get("score_version", 2) if safety_row else 2
+            if safety_row and score_version == 3:
+                v3_scores = {
+                    "complex_score": safety_row.get("complex_score"),
+                    "complex_cctv_score": safety_row.get("complex_cctv_score"),
+                    "complex_security_score": safety_row.get("complex_security_score"),
+                    "complex_mgr_score": safety_row.get("complex_mgr_score"),
+                    "complex_parking_score": safety_row.get("complex_parking_score"),
+                    "access_score": safety_row.get("access_score"),
+                    "regional_safety_score": safety_row.get("regional_safety_score"),
+                    "crime_adjust_score": safety_row.get("crime_adjust_score"),
+                    "data_reliability": safety_row.get("data_reliability"),
+                    "complex_data_source": safety_row.get("complex_data_source"),
+                }
+            elif safety_row and safety_row.get("micro_score") is not None:
+                # v2 호환
+                v3_scores = {
                     "micro_score": safety_row["micro_score"],
                     "access_score": safety_row["access_score"],
                     "macro_score": safety_row["macro_score"],
@@ -186,23 +184,64 @@ def apartment_detail(pnu: str):
                     "data_reliability": safety_row["data_reliability"],
                 }
 
+            # 행안부 지역안전지수 등급
+            regional_grades = None
+            if sigungu:
+                si_row = conn.execute(
+                    "SELECT traffic_grade, fire_grade, crime_grade, living_safety_grade "
+                    "FROM sigungu_safety_index WHERE sigungu_code = %s", [sigungu]
+                ).fetchone()
+                if si_row:
+                    regional_grades = {
+                        "traffic": si_row["traffic_grade"],
+                        "fire": si_row["fire_grade"],
+                        "crime": si_row["crime_grade"],
+                        "living_safety": si_row["living_safety_grade"],
+                    }
+
+            # K-APT 단지 보안 현황
+            kapt_security = None
+            try:
+                kapt_row = conn.execute(
+                    "SELECT cctv_cnt, parking_cnt, mgr_type FROM apt_kapt_info WHERE pnu = %s", [pnu]
+                ).fetchone()
+                if kapt_row:
+                    hhld_row = conn.execute(
+                        "SELECT total_hhld_cnt FROM apartments WHERE pnu = %s", [pnu]
+                    ).fetchone()
+                    hhld = hhld_row["total_hhld_cnt"] if hhld_row and hhld_row["total_hhld_cnt"] else None
+                    # 최신 경비비
+                    mgmt_row = conn.execute(
+                        "SELECT detail FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 1", [pnu]
+                    ).fetchone()
+                    security_cost = None
+                    if mgmt_row and mgmt_row.get("detail"):
+                        detail = mgmt_row["detail"]
+                        security_cost = detail.get("경비비") or detail.get("security")
+
+                    kapt_security = {
+                        "cctv_cnt": kapt_row.get("cctv_cnt"),
+                        "parking_cnt": kapt_row.get("parking_cnt"),
+                        "mgr_type": kapt_row.get("mgr_type"),
+                        "total_hhld_cnt": hhld,
+                        "security_cost_per_unit": round(int(security_cost) / hhld) if security_cost and hhld else None,
+                    }
+            except Exception:
+                pass
+
             safety_info = {
                 "safety_score": safety_score_val,
+                "score_version": score_version,
                 "crime_safety_score": crime_score,
                 "crime_detail": crime_detail,
-                "cctv_nearest_m": cctv_nearest,
-                "cctv_count_500m": cctv_500m,
-                "cctv_count_1km": cctv_1km,
                 "police_nearest_m": police_dist,
-                "police_count_3km": facility_summary.get("police", {}).get("count_3km", 0),
                 "fire_nearest_m": fire_dist,
-                "fire_count_3km": facility_summary.get("fire_station", {}).get("count_3km", 0),
-                "light_nearest_m": light_dist,
-                "light_count_1km": light_500m,
                 "fire_center_nearest_m": fire_center_dist,
                 "hospital_nearest_m": hospital_dist,
                 "nudge_safety_score": scores.get("safety", 0),
-                "v2": v2_scores,
+                "v3": v3_scores,
+                "regional_grades": regional_grades,
+                "kapt_security": kapt_security,
             }
         except Exception:
             pass
