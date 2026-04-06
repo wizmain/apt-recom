@@ -1,7 +1,8 @@
-"""apt_facility_summary + apt_safety_score v2 재계산 (BallTree).
+"""apt_facility_summary + apt_safety_score v3 재계산 (BallTree).
 
-v2 점수 구조:
-    최종안전점수 = 미시환경(55%) + 접근성(20%) + 광역위험(15%) + 단지내부(10%)
+v3 점수 구조:
+    최종안전점수 = 단지내부보안(35) + 응급접근성(30) + 지역안전(35)
+    지역안전 = 행안부 3분야(20, 범죄 제외) + 범죄율(15, 경찰청 독립 소스)
 """
 
 import numpy as np
@@ -314,6 +315,214 @@ def _calc_safety_v2(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
     return safety_rows
 
 
+def _load_kapt_fallback_stats(kapt_map, security_costs, hhld_map, apt_pnus, apt_sgg_codes):
+    """K-APT 데이터 없는 아파트용 시군구/시도 중위값 계산."""
+    from collections import defaultdict
+
+    sgg_ratios = defaultdict(lambda: {"cctv": [], "security": [], "parking": [], "mgr_types": []})
+
+    for pnu in apt_pnus:
+        kapt = kapt_map.get(pnu)
+        hhld = hhld_map.get(pnu, 0)
+        if not kapt or hhld <= 0:
+            continue
+        sgg = pnu[:5] if len(pnu) >= 5 else ""
+        sido = sgg[:2]
+
+        cctv_ratio = kapt.get("cctv_cnt", 0) / hhld
+        cost = security_costs.get(pnu, 0)
+        sec_ratio = cost / hhld if cost > 0 else 0
+        parking = kapt.get("parking_cnt", 0) or 0
+        park_ratio = parking / hhld
+
+        for key in (sgg, sido):
+            sgg_ratios[key]["cctv"].append(cctv_ratio)
+            sgg_ratios[key]["security"].append(sec_ratio)
+            sgg_ratios[key]["parking"].append(park_ratio)
+            sgg_ratios[key]["mgr_types"].append(kapt.get("mgr_type", ""))
+
+    # 중위값 계산
+    result = {}
+    for key, data in sgg_ratios.items():
+        if len(data["cctv"]) < 1:
+            continue
+        import statistics
+        mgr_mode = max(set(data["mgr_types"]), key=data["mgr_types"].count) if data["mgr_types"] else ""
+        result[key] = {
+            "cctv_median": statistics.median(data["cctv"]),
+            "security_median": statistics.median(data["security"]),
+            "parking_median": statistics.median(data["parking"]),
+            "mgr_mode": mgr_mode,
+            "count": len(data["cctv"]),
+        }
+    return result
+
+
+def _calc_safety_v3(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
+                     fire_data, hospital_data, crime_scores,
+                     kapt_map, security_costs, hhld_map, safety_index):
+    """v3 안전점수: 단지내부(35) + 응급접근성(30) + 지역안전지수(20) + 범죄보정(15).
+
+    반환: [(pnu, safety_score, cctv_500m, cctv_1km, nearest_cctv_m, crime_safety_score,
+            micro_score, access_score, macro_score, complex_score, data_reliability,
+            score_version, complex_cctv_score, complex_security_score,
+            complex_mgr_score, complex_parking_score, regional_safety_score,
+            crime_adjust_score, complex_data_source), ...]
+    """
+    fire_nearest = fire_data
+    hospital_nearest = hospital_data
+    n = len(apt_pnus)
+
+    # K-APT 비율 percentile (전체 아파트 기준)
+    cctv_ratios = np.zeros(n)
+    security_ratios = np.zeros(n)
+    parking_ratios = np.zeros(n)
+
+    for i, pnu in enumerate(apt_pnus):
+        kapt = kapt_map.get(pnu)
+        hhld = hhld_map.get(pnu, 0)
+        if kapt and hhld > 0:
+            cctv_ratios[i] = kapt.get("cctv_cnt", 0) / hhld
+            cost = security_costs.get(pnu, 0)
+            security_ratios[i] = cost / hhld if cost > 0 else 0
+            parking = kapt.get("parking_cnt", 0) or 0
+            parking_ratios[i] = parking / hhld
+
+    cctv_pct = _percentile_rank(cctv_ratios)
+    security_pct = _percentile_rank(security_ratios)
+    parking_pct = _percentile_rank(parking_ratios)
+
+    # fallback 중위값
+    fallback_stats = _load_kapt_fallback_stats(
+        kapt_map, security_costs, hhld_map, apt_pnus, apt_sgg_codes)
+
+    safety_rows = []
+    for i, pnu in enumerate(apt_pnus):
+        sgg = apt_sgg_codes[i] if i < len(apt_sgg_codes) else ""
+        sido = sgg[:2]
+
+        # ===== A. 단지내부보안 (35점) =====
+        kapt = kapt_map.get(pnu)
+        if kapt and hhld_map.get(pnu, 0) > 0:
+            complex_cctv = cctv_pct[i] * 14
+            complex_security = security_pct[i] * 11
+            mgr = kapt.get("mgr_type", "")
+            complex_mgr = 5.0 if "위탁" in mgr else (3.0 if "자치" in mgr else 1.0)
+            complex_parking = parking_pct[i] * 5
+            complex_score = complex_cctv + complex_security + complex_mgr + complex_parking
+            data_source = "kapt_actual"
+        else:
+            # fallback: 시군구 → 시도
+            fb = fallback_stats.get(sgg)
+            cap = 0.9
+            source = "sgg_median"
+            if not fb or fb["count"] < 3:
+                fb = fallback_stats.get(sido)
+                cap = 0.75
+                source = "sido_median"
+            if fb:
+                # fallback 비율을 전체 percentile에 대입
+                fb_cctv_pct = float(np.searchsorted(np.sort(cctv_ratios), fb["cctv_median"])) / max(n, 1)
+                fb_sec_pct = float(np.searchsorted(np.sort(security_ratios), fb["security_median"])) / max(n, 1)
+                fb_park_pct = float(np.searchsorted(np.sort(parking_ratios), fb["parking_median"])) / max(n, 1)
+                mgr = fb["mgr_mode"]
+                complex_cctv = fb_cctv_pct * 14 * cap
+                complex_security = fb_sec_pct * 11 * cap
+                complex_mgr = (5.0 if "위탁" in mgr else (3.0 if "자치" in mgr else 1.0)) * cap
+                complex_parking = fb_park_pct * 5 * cap
+                complex_score = complex_cctv + complex_security + complex_mgr + complex_parking
+            else:
+                complex_cctv = complex_security = complex_mgr = complex_parking = 0.0
+                complex_score = 24.5  # 전체 중간값 (cap 70%)
+                source = "national_default"
+            data_source = source
+
+        # ===== B. 응급접근성 (30점) =====
+        fire_dist = float(fire_nearest[i]) if fire_nearest[i] < 100000 else 10000
+        hosp_dist = float(hospital_nearest[i]) if hospital_nearest[i] < 100000 else 10000
+        police_dist = summary_map.get(pnu, {}).get("police", None)
+
+        is_metro = sido in ("11", "28", "41")
+        if is_metro and police_dist is not None:
+            # 수도권: 경찰서 포함
+            fire_s = _distance_decay_score(fire_dist, 12, half_dist=3000)
+            hosp_s = _distance_decay_score(hosp_dist, 10, half_dist=5000)
+            police_s = _distance_decay_score(police_dist, 8, half_dist=3000)
+        else:
+            # 비수도권: 경찰서 제외, 배점 재분배
+            fire_s = _distance_decay_score(fire_dist, 16, half_dist=3000)
+            hosp_s = _distance_decay_score(hosp_dist, 14, half_dist=5000)
+            police_s = 0.0
+        access_score = fire_s + hosp_s + police_s
+
+        # ===== C. 지역안전 (35점) = 행안부 3분야(20점) + 범죄율(15점) =====
+        # 행안부 3분야 (범죄 제외): 생활안전·화재·교통사고
+        si = (safety_index or {}).get(sgg)
+        if si is not None:
+            regional_safety = si / 100 * 20
+        else:
+            regional_safety = 10.0  # 중간값
+
+        # 범죄율 (경찰청 통계 기반, 행안부와 독립 소스)
+        crime_safety = crime_scores.get(sgg, 50.0)
+        crime_adjust = crime_safety / 100 * 15
+
+        # ===== 종합 =====
+        safety_total = round(complex_score + access_score + regional_safety + crime_adjust, 1)
+
+        # ===== 신뢰도 =====
+        reliability = _calc_reliability_v3(pnu, sgg, kapt_map, crime_scores, safety_index, is_metro)
+
+        safety_rows.append((
+            pnu, float(safety_total),
+            None, None, None,  # cctv_500m, cctv_1km, nearest_cctv_m (v3에서 미사용)
+            float(crime_safety),
+            None,  # micro_score (v3에서 미사용)
+            round(float(access_score), 1),
+            None,  # macro_score (v3에서 미사용)
+            round(float(complex_score), 1),
+            round(float(reliability), 1),
+            3,  # score_version
+            round(float(complex_cctv), 1),
+            round(float(complex_security), 1),
+            round(float(complex_mgr), 1),
+            round(float(complex_parking), 1),
+            round(float(regional_safety), 1),
+            round(float(crime_adjust), 1),
+            data_source,
+        ))
+
+    return safety_rows
+
+
+def _calc_reliability_v3(pnu, sgg, kapt_map, crime_scores, safety_index, is_metro):
+    """v3 데이터 신뢰도 (0~100)."""
+    score = 28.0  # 최신성 기본
+
+    # 완전성 (40점)
+    if kapt_map.get(pnu):
+        score += 15.0
+    else:
+        score += 5.0  # fallback 사용
+    if crime_scores.get(sgg):
+        score += 10.0
+    if (safety_index or {}).get(sgg) is not None:
+        score += 10.0
+    # 소방서/병원 좌표 항상 존재 → +5
+    score += 5.0
+
+    # 좌표정확도 (15점): 기본
+    score += 12.0
+
+    # 커버리지 (15점)
+    if is_metro:
+        score += 15.0
+    else:
+        score += 10.0
+
+    return min(100.0, score)
+
+
 def _calc_reliability(pnu, sgg, kapt_map, crime_scores, light_count, has_hotspot=False):
     """데이터 신뢰도 점수 (0~100).
 
@@ -392,45 +601,62 @@ def _build_facility_nearest(conn, apt_coords, apt_count, subtype):
     return np.full(apt_count, np.inf)
 
 
-def _load_all_v2_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summary_map, logger):
-    """v2 점수 계산에 필요한 모든 데이터를 로드."""
-    logger.info("  v2 데이터 로드: CCTV, 보안등, 교통사고, 소방, 병원, 범죄, K-APT...")
+def _load_all_v3_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summary_map, logger):
+    """v3 점수 계산에 필요한 데이터 로드 (CCTV/보안등/교통사고 BallTree 제거)."""
+    logger.info("  v3 데이터 로드: 소방, 병원, 범죄, K-APT, 행안부 안전지수...")
 
-    cctv_data = _build_cctv_data(conn, apt_coords, apt_count)
-    light_data = _build_light_data(conn, apt_coords, apt_count)
-    accident_data = _build_accident_data(conn, apt_coords, apt_count)
     fire_nearest = _build_facility_nearest(conn, apt_coords, apt_count, "fire_station")
-    # fire_center도 고려: 둘 중 가까운 쪽
     fire_center_nearest = _build_facility_nearest(conn, apt_coords, apt_count, "fire_center")
     fire_combined = np.minimum(fire_nearest, fire_center_nearest)
     hospital_nearest = _build_facility_nearest(conn, apt_coords, apt_count, "hospital")
 
     crime_scores = _load_crime_scores(conn)
-    accident_scores = _load_traffic_accident_rates(conn)
     kapt_map = _load_kapt_data(conn)
     security_costs = _load_kapt_security_cost(conn)
     hhld_map = _load_apt_hhld(conn)
-    crime_hotspot_grades = _load_crime_hotspot_grades(conn)
     safety_index = _load_safety_index(conn)
 
     return {
-        "cctv_data": cctv_data,
-        "light_data": light_data,
-        "accident_data": accident_data,
         "fire_data": fire_combined,
         "hospital_data": hospital_nearest,
         "crime_scores": crime_scores,
-        "accident_scores": accident_scores,
         "kapt_map": kapt_map,
         "security_costs": security_costs,
         "hhld_map": hhld_map,
-        "crime_hotspot_grades": crime_hotspot_grades,
         "safety_index": safety_index,
     }
 
 
+_V3_UPSERT_SQL = """INSERT INTO apt_safety_score
+    (pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m, crime_safety_score,
+     micro_score, access_score, macro_score, complex_score, data_reliability,
+     score_version, complex_cctv_score, complex_security_score,
+     complex_mgr_score, complex_parking_score, regional_safety_score,
+     crime_adjust_score, complex_data_source)
+    VALUES %s
+    ON CONFLICT (pnu) DO UPDATE SET
+        safety_score = EXCLUDED.safety_score,
+        cctv_count_500m = EXCLUDED.cctv_count_500m,
+        cctv_count_1km = EXCLUDED.cctv_count_1km,
+        nearest_cctv_m = EXCLUDED.nearest_cctv_m,
+        crime_safety_score = EXCLUDED.crime_safety_score,
+        micro_score = EXCLUDED.micro_score,
+        access_score = EXCLUDED.access_score,
+        macro_score = EXCLUDED.macro_score,
+        complex_score = EXCLUDED.complex_score,
+        data_reliability = EXCLUDED.data_reliability,
+        score_version = EXCLUDED.score_version,
+        complex_cctv_score = EXCLUDED.complex_cctv_score,
+        complex_security_score = EXCLUDED.complex_security_score,
+        complex_mgr_score = EXCLUDED.complex_mgr_score,
+        complex_parking_score = EXCLUDED.complex_parking_score,
+        regional_safety_score = EXCLUDED.regional_safety_score,
+        crime_adjust_score = EXCLUDED.crime_adjust_score,
+        complex_data_source = EXCLUDED.complex_data_source"""
+
+
 def recalc_for_new_apartments(conn, logger, pnu_list):
-    """신규 아파트만 대상으로 시설 집계 + 안전점수 v2 계산."""
+    """신규 아파트만 대상으로 시설 집계 + 안전점수 v3 계산."""
     if not pnu_list:
         return
 
@@ -439,8 +665,6 @@ def recalc_for_new_apartments(conn, logger, pnu_list):
     except ImportError:
         logger.error("scikit-learn 미설치, 시설 집계 생략")
         return
-
-    RADII = {"1km": 1000, "3km": 3000, "5km": 5000}
 
     ph = ",".join(["%s"] * len(pnu_list))
     apts = query_all(conn,
@@ -488,36 +712,19 @@ def recalc_for_new_apartments(conn, logger, pnu_list):
             summary_map[pnu] = {}
         summary_map[pnu][subtype] = dist
 
-    # v2 안전점수
-    v2_data = _load_all_v2_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summary_map, logger)
-    safety_rows = _calc_safety_v2(
-        apt_pnus, apt_sgg_codes, apt_coords, summary_map, **v2_data)
+    # v3 안전점수
+    v3_data = _load_all_v3_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summary_map, logger)
+    safety_rows = _calc_safety_v3(apt_pnus, apt_sgg_codes, apt_coords, summary_map, **v3_data)
 
     if safety_rows:
-        execute_values_chunked(conn,
-            """INSERT INTO apt_safety_score
-               (pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m, crime_safety_score,
-                micro_score, access_score, macro_score, complex_score, data_reliability)
-               VALUES %s
-               ON CONFLICT (pnu) DO UPDATE SET
-                   safety_score = EXCLUDED.safety_score,
-                   cctv_count_500m = EXCLUDED.cctv_count_500m,
-                   cctv_count_1km = EXCLUDED.cctv_count_1km,
-                   nearest_cctv_m = EXCLUDED.nearest_cctv_m,
-                   crime_safety_score = EXCLUDED.crime_safety_score,
-                   micro_score = EXCLUDED.micro_score,
-                   access_score = EXCLUDED.access_score,
-                   macro_score = EXCLUDED.macro_score,
-                   complex_score = EXCLUDED.complex_score,
-                   data_reliability = EXCLUDED.data_reliability""",
-            safety_rows)
+        execute_values_chunked(conn, _V3_UPSERT_SQL, safety_rows)
 
     conn.commit()
     logger.info(f"  신규 아파트 시설 집계 완료: summary={len(summary_rows)}, safety={len(safety_rows)}")
 
 
 def recalc_summary(conn, logger):
-    """시설 변경 후 apt_facility_summary + apt_safety_score v2 재계산."""
+    """시설 변경 후 apt_facility_summary + apt_safety_score v3 재계산."""
     try:
         from sklearn.neighbors import BallTree
     except ImportError:
@@ -575,30 +782,12 @@ def recalc_summary(conn, logger):
             summary_map[pnu] = {}
         summary_map[pnu][subtype] = dist
 
-    # apt_safety_score v2 재계산
-    logger.info("apt_safety_score v2 재계산 중...")
+    # apt_safety_score v3 재계산
+    logger.info("apt_safety_score v3 재계산 중...")
 
-    v2_data = _load_all_v2_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summary_map, logger)
-    safety_rows = _calc_safety_v2(
-        apt_pnus, apt_sgg_codes, apt_coords, summary_map, **v2_data)
+    v3_data = _load_all_v3_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summary_map, logger)
+    safety_rows = _calc_safety_v3(apt_pnus, apt_sgg_codes, apt_coords, summary_map, **v3_data)
 
-    # UPSERT로 crime_hotspot_grade 보존
-    execute_values_chunked(conn,
-        """INSERT INTO apt_safety_score
-           (pnu, safety_score, cctv_count_500m, cctv_count_1km, nearest_cctv_m, crime_safety_score,
-            micro_score, access_score, macro_score, complex_score, data_reliability)
-           VALUES %s
-           ON CONFLICT (pnu) DO UPDATE SET
-               safety_score = EXCLUDED.safety_score,
-               cctv_count_500m = EXCLUDED.cctv_count_500m,
-               cctv_count_1km = EXCLUDED.cctv_count_1km,
-               nearest_cctv_m = EXCLUDED.nearest_cctv_m,
-               crime_safety_score = EXCLUDED.crime_safety_score,
-               micro_score = EXCLUDED.micro_score,
-               access_score = EXCLUDED.access_score,
-               macro_score = EXCLUDED.macro_score,
-               complex_score = EXCLUDED.complex_score,
-               data_reliability = EXCLUDED.data_reliability""",
-        safety_rows)
+    execute_values_chunked(conn, _V3_UPSERT_SQL, safety_rows)
 
-    logger.info(f"apt_safety_score v2 재계산 완료: {len(safety_rows):,}건")
+    logger.info(f"apt_safety_score v3 재계산 완료: {len(safety_rows):,}건")

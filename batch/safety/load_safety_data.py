@@ -401,6 +401,90 @@ def _update_crime_safety_scores(conn, logger):
     logger.info(f"  범죄 안전 점수 갱신: {len(rates)}건 (percentile rank)")
 
 
+def load_safety_index(conn, logger):
+    """행안부 지역안전지수 CSV → sigungu_safety_index 테이블.
+
+    4개 분야 가중평균으로 composite_score 산출:
+      생활안전(35%) > 범죄(30%) > 화재(20%) > 교통사고(15%)
+    등급 1(안전)~5(위험) → 점수 100~0 변환.
+    """
+    path = DATA_DIR / "행정안전부생활안전점수.csv"
+    if not path.exists():
+        logger.warning(f"행안부 안전지수 파일 없음: {path}")
+        return 0
+
+    df = pd.read_csv(path)
+    logger.info(f"  행안부 안전지수: {len(df)}개 시군구")
+
+    # CSV 시도 약칭 → _build_csv_name_to_codes 형식 변환
+    SIDO_EXPAND = {
+        "서울": "서울", "부산": "부산", "대구": "대구", "인천": "인천",
+        "광주": "광주", "대전": "대전", "울산": "울산", "세종": "세종",
+        "경기": "경기도", "강원": "강원도",
+        "충북": "충북", "충남": "충남",
+        "전북": "전북", "전남": "전남",
+        "경북": "경북", "경남": "경남", "제주": "제주",
+    }
+
+    # 등급 → 점수 (1=100, 5=20, 최소 보장)
+    GRADE_TO_SCORE = {1: 100, 2: 80, 3: 60, 4: 40, 5: 20}
+
+    # 가중치 (범죄·자살·감염병 제외 — 범죄는 경찰청 통계로 별도 반영)
+    WEIGHTS = {
+        "생활안전": 0.40,
+        "화재": 0.30,
+        "교통사고": 0.30,
+    }
+
+    name_to_codes = _build_csv_name_to_codes(conn)
+
+    cur = get_dict_cursor(conn)
+    upserted = 0
+
+    for _, row in df.iterrows():
+        sido_short = SIDO_EXPAND.get(row["시도"], row["시도"])
+        sigungu_name = row["시군구"]
+        key = f"{sido_short} {sigungu_name}"
+
+        codes = name_to_codes.get(key, [])
+        if not codes:
+            continue
+
+        # 가중평균 composite_score 계산
+        composite = sum(
+            GRADE_TO_SCORE.get(int(row[field]), 50) * weight
+            for field, weight in WEIGHTS.items()
+        )
+
+        for code in codes:
+            cur.execute("""
+                INSERT INTO sigungu_safety_index
+                    (sigungu_code, sido_name, sigungu_name,
+                     traffic_grade, fire_grade, crime_grade,
+                     living_safety_grade, suicide_grade, infection_grade,
+                     composite_score)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (sigungu_code) DO UPDATE SET
+                    sido_name = EXCLUDED.sido_name,
+                    sigungu_name = EXCLUDED.sigungu_name,
+                    traffic_grade = EXCLUDED.traffic_grade,
+                    fire_grade = EXCLUDED.fire_grade,
+                    crime_grade = EXCLUDED.crime_grade,
+                    living_safety_grade = EXCLUDED.living_safety_grade,
+                    suicide_grade = EXCLUDED.suicide_grade,
+                    infection_grade = EXCLUDED.infection_grade,
+                    composite_score = EXCLUDED.composite_score
+            """, [code, row["시도"], sigungu_name,
+                  int(row["교통사고"]), int(row["화재"]), int(row["범죄"]),
+                  int(row["생활안전"]), int(row["자살"]), int(row["감염병"]),
+                  round(composite, 1)])
+            upserted += 1
+
+    conn.commit()
+    logger.info(f"  행안부 안전지수 적재: {upserted}건")
+    return upserted
+
+
 def main():
     logger = setup_logger("load_safety")
     conn = get_connection()
@@ -411,6 +495,7 @@ def main():
         load_fire_stations(conn, logger)
         load_traffic_accidents(conn, logger)
         load_crime_stats_2024(conn, logger)
+        load_safety_index(conn, logger)
         logger.info("안전 데이터 적재 완료")
     finally:
         conn.close()

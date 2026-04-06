@@ -179,7 +179,15 @@ def create_tables(conn) -> None:
             macro_score DOUBLE PRECISION,
             complex_score DOUBLE PRECISION,
             data_reliability DOUBLE PRECISION,
-            crime_hotspot_grade DOUBLE PRECISION
+            crime_hotspot_grade DOUBLE PRECISION,
+            score_version INTEGER DEFAULT 2,
+            complex_cctv_score DOUBLE PRECISION,
+            complex_security_score DOUBLE PRECISION,
+            complex_mgr_score DOUBLE PRECISION,
+            complex_parking_score DOUBLE PRECISION,
+            regional_safety_score DOUBLE PRECISION,
+            crime_adjust_score DOUBLE PRECISION,
+            complex_data_source TEXT
         );
 
         CREATE TABLE IF NOT EXISTS traffic_accident_hotspot (
