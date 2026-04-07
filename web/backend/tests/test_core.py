@@ -272,15 +272,17 @@ def test_safety_detail_api():
 # 6. 면적 정보 테스트
 # ============================================================
 
-@test("면적: apt_area_info 커버리지 > 95%")
+@test("면적: apt_area_info 커버리지 > 95% (정규 PNU 기준)")
 def test_area_coverage():
     from database import DictConnection
     conn = DictConnection()
-    total = conn.execute("SELECT COUNT(*) as cnt FROM apartments").fetchone()['cnt']
-    area = conn.execute("SELECT COUNT(*) as cnt FROM apt_area_info").fetchone()['cnt']
+    total = conn.execute(
+        "SELECT COUNT(*) as cnt FROM apartments WHERE pnu NOT LIKE %s", ['TRADE_%']
+    ).fetchone()['cnt']
+    area = conn.execute("SELECT COUNT(DISTINCT pnu) as cnt FROM apt_area_info").fetchone()['cnt']
     conn.close()
     coverage = area / total * 100
-    assert coverage > 95, f"면적 커버리지 {coverage:.1f}% (95% 이상 필요)"
+    assert coverage > 95, f"면적 커버리지 {coverage:.1f}% (정규 PNU {total}건 기준, 95% 이상 필요)"
 
 
 # ============================================================

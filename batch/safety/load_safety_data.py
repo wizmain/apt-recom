@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from batch.config import DATA_GO_KR_API_KEY, KOSIS_RATE
+from batch.config import DATA_GO_KR_API_KEY, KOSIS_API_KEY, KOSIS_RATE
 from batch.db import get_connection, get_dict_cursor, query_all
 from batch.logger import setup_logger
 
@@ -511,9 +511,9 @@ def collect_daytime_population(conn, logger):
     항목: T00(상주인구), T30(주간인구)
     최신 데이터: 2020년 (인구총조사 5년 주기)
     """
-    api_key = DATA_GO_KR_API_KEY
+    api_key = KOSIS_API_KEY
     if not api_key:
-        logger.warning("KOSIS API 키 없음 (DATA_GO_KR_API_KEY). 주간인구 수집 건너뜀")
+        logger.warning("KOSIS API 키 없음 (KOSIS_API_KEY). 주간인구 수집 건너뜀")
         return 0
 
     logger.info("KOSIS 주간인구 수집 시작 (등록센서스 DT_1PA2020)...")
@@ -547,31 +547,39 @@ def collect_daytime_population(conn, logger):
         logger.error(f"KOSIS 응답 오류: {err_msg}")
         return 0
 
-    # 시군구 코드(5자리)별 주간인구/상주인구 파싱
-    pop_data = {}  # {sigungu_code: {"resident": int, "daytime": int}}
+    # KOSIS 시군구명별 주간인구 파싱 (KOSIS 코드 ≠ 행정표준코드)
+    kosis_pop = {}  # {시군구명: {"resident": int, "daytime": int}}
     for item in data:
         code_raw = item.get("C1", "")
-        code = code_raw[:5] if len(code_raw) >= 5 else code_raw
-        if len(code) != 5:
+        if len(code_raw) < 5:
+            continue  # 시도 단위(2자리) 또는 전국(2자리) 건너뜀
+        name = item.get("C1_NM", "").strip()
+        if not name:
             continue
         itm_id = item.get("ITM_ID", "")
         value = int(float(item.get("DT", 0) or 0))
 
-        if code not in pop_data:
-            pop_data[code] = {"resident": 0, "daytime": 0}
+        if name not in kosis_pop:
+            kosis_pop[name] = {"resident": 0, "daytime": 0}
 
         if itm_id == "T00":
-            pop_data[code]["resident"] = value
+            kosis_pop[name]["resident"] = value
         elif itm_id == "T30":
-            pop_data[code]["daytime"] = value
+            kosis_pop[name]["daytime"] = value
 
-    daytime_count = sum(1 for v in pop_data.values() if v["daytime"] > 0)
-    logger.info(f"  KOSIS 응답: {len(pop_data)}개 시군구, 주간인구 있음: {daytime_count}개")
+    daytime_count = sum(1 for v in kosis_pop.values() if v["daytime"] > 0)
+    logger.info(f"  KOSIS 응답: {len(kosis_pop)}개 시군구, 주간인구 있음: {daytime_count}개")
 
-    # population_by_district.daytime_pop 갱신
+    # DB의 시군구명 → 시군구코드 매핑 구축
+    db_rows = query_all(conn,
+        "SELECT sigungu_code, sigungu_name FROM population_by_district WHERE age_group = '계'")
+    name_to_code = {}
+    for r in db_rows:
+        # DB: "광진구", KOSIS: "광진구" — 직접 매칭
+        name_to_code[r["sigungu_name"]] = r["sigungu_code"]
+
+    # daytime_pop 컬럼 존재 확인
     cur = get_dict_cursor(conn)
-
-    # daytime_pop 컬럼 존재 확인 (ALTER TABLE 필요 시)
     cur.execute("""
         SELECT column_name FROM information_schema.columns
         WHERE table_name = 'population_by_district' AND column_name = 'daytime_pop'
@@ -582,20 +590,23 @@ def collect_daytime_population(conn, logger):
         conn.commit()
 
     updated = 0
-    for code, pops in pop_data.items():
+    for kosis_name, pops in kosis_pop.items():
         if pops["daytime"] <= 0:
+            continue
+        db_code = name_to_code.get(kosis_name)
+        if not db_code:
             continue
         cur.execute(
             """UPDATE population_by_district
                SET daytime_pop = %s
                WHERE sigungu_code = %s AND age_group = '계'""",
-            [pops["daytime"], code])
+            [pops["daytime"], db_code])
         if cur.rowcount > 0:
             updated += 1
 
     conn.commit()
     time.sleep(KOSIS_RATE)
-    logger.info(f"  주간인구 갱신 완료: {updated}/{len(pop_data)}개 시군구")
+    logger.info(f"  주간인구 갱신 완료: {updated}/{len(kosis_pop)}개 시군구 (DB 매칭: {len(name_to_code)}개)")
     return updated
 
 
