@@ -1,0 +1,91 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv pip *)",
+      "Bash(cd web/frontend && npm *)",
+      "Bash(cd web/frontend && npx *)",
+      "Bash(cd web/backend && *)",
+      "Bash(git diff*)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(git checkout *)",
+      "Bash(git branch *)",
+      "Bash(git commit *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(jq *)",
+      "Bash(mkdir *)",
+      "Bash(touch *)",
+      "Bash(chmod +x *)",
+      "Bash(curl -s http://localhost:8000/*)",
+      "Bash(ruff *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/uvicorn *)",
+      "Bash(.claude/hooks/*)",
+      "Read",
+      "Write",
+      "Edit"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(DROP DATABASE*)",
+      "Bash(DROP TABLE*)",
+      "Bash(TRUNCATE *)",
+      "Bash(sudo *)",
+      "Bash(curl * | bash*)",
+      "Bash(curl * | sh*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git push origin main*)",
+      "Bash(git push origin master*)",
+      "Bash(chmod 777*)",
+      "Bash(pip install*)",
+      "Bash(pip3 install*)",
+      "Bash(python -m pip*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/guard-env-files.sh",
+            "if": "Write(**/.env)|Write(**/.env.*)|Edit(**/.env)|Edit(**/.env.*)"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "커밋 전 코드 리뷰를 수행합니다. git diff --cached로 스테이징된 변경사항을 확인하고, 다음 기준으로 리뷰하세요:\n1. 버그 또는 로직 오류\n2. 보안 취약점 (SQL injection, 하드코딩된 비밀값 등)\n3. 프로젝트 규칙 위반 (CLAUDE.md 참조)\n\nhigh-priority 이슈가 있으면 JSON으로 차단하세요: {\"decision\": \"block\", \"reason\": \"이슈 설명\"}\n이슈가 없으면 통과시키세요.",
+            "if": "Bash(git commit *)",
+            "timeout": 120,
+            "statusMessage": "커밋 전 코드 리뷰 중..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/auto-format-python.sh",
+            "if": "Write(**/*.py)|Edit(**/*.py)"
+          }
+        ]
+      }
+    ]
+  }
+}

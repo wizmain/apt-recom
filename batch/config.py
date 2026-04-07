@@ -13,6 +13,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # API Keys
 DATA_GO_KR_API_KEY = os.getenv("DATA_GO_KR_API_KEY", "")
 KAKAO_API_KEY = os.getenv("KAKAO_API_KEY", "")
+KOSIS_API_KEY = os.getenv("KOSIS_API_KEY", "")
 
 # Rate limits (seconds)
 DATA_GO_KR_RATE = 0.15
@@ -25,3 +26,6 @@ RENT_URL = "http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptR
 
 # 수도권 시도 코드 (서울 11, 경기 41, 인천 28)
 METRO_SIDO_PREFIXES = ("11", "41", "28")
+
+# 병렬 처리
+ENRICH_WORKERS = int(os.getenv("ENRICH_WORKERS", "5"))
