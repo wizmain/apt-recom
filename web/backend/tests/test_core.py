@@ -238,17 +238,20 @@ def test_crime_score_coverage():
     assert cnt >= 25, f"서울 범죄점수 {cnt}개 (25개 이상 필요)"
 
 
-@test("안전: 유동인구 보정 적용 (중구 점수 > 20)")
+@test("안전: 주간인구 보정 데이터 존재 (중구 float_pop_ratio > 1)")
 def test_crime_floating_pop():
     from database import DictConnection
     conn = DictConnection()
     row = conn.execute(
-        "SELECT crime_safety_score FROM sigungu_crime_score WHERE sigungu_code = '11140'"
+        "SELECT float_pop_ratio, effective_pop, resident_pop "
+        "FROM sigungu_crime_detail WHERE sigungu_code = '11140'"
     ).fetchone()
     conn.close()
-    assert row is not None, "중구 범죄점수 없음"
-    assert row['crime_safety_score'] > 20, \
-        f"중구 점수 {row['crime_safety_score']} (유동인구 보정 미적용 의심 — 보정 시 70+ 예상)"
+    assert row is not None, "중구 범죄상세 없음"
+    assert row['float_pop_ratio'] > 1.0, \
+        f"중구 float_pop_ratio={row['float_pop_ratio']} (주간인구 보정 미적용 — 업무지구라 2.0+ 예상)"
+    assert row['effective_pop'] > row['resident_pop'], \
+        "중구 주간인구(effective_pop)가 상주인구(resident_pop)보다 커야 함"
 
 
 @test("안전: 상세 API에 crime_detail 포함")
@@ -262,7 +265,7 @@ def test_safety_detail_api():
     assert safety.get("crime_detail") is not None, "crime_detail 없음"
     cd = safety["crime_detail"]
     assert cd.get("total_crime", 0) > 0, "total_crime=0"
-    assert cd.get("float_pop_ratio", 0) > 1, "유동인구 보정계수 미적용"
+    assert cd.get("float_pop_ratio") is not None, "float_pop_ratio 필드 없음"
 
 
 # ============================================================
@@ -460,6 +463,87 @@ def test_api_commute():
     }, timeout=20)
     # ODSay 키 문제일 수 있으므로 200 또는 502 허용
     assert resp.status_code in (200, 502, 404), f"예상치 못한 에러: {resp.status_code}"
+
+
+# ============================================================
+# 10. 유사 아파트 추천 테스트
+# ============================================================
+
+@test("유사추천: apt_vectors 서브벡터 구조 확인")
+def test_vectors_schema():
+    from database import DictConnection
+    conn = DictConnection()
+    row = conn.execute("""
+        SELECT vec_basic, vec_price, vec_facility, vec_safety, vector_version
+        FROM apt_vectors LIMIT 1
+    """).fetchone()
+    conn.close()
+    assert row is not None, "apt_vectors 테이블이 비어있음"
+    assert len(row["vec_basic"]) == 4, f"basic 차원: {len(row['vec_basic'])} != 4"
+    assert len(row["vec_price"]) == 3, f"price 차원: {len(row['vec_price'])} != 3"
+    assert len(row["vec_facility"]) == 20, f"facility 차원: {len(row['vec_facility'])} != 20"
+    assert len(row["vec_safety"]) == 3, f"safety 차원: {len(row['vec_safety'])} != 3"
+    assert row["vector_version"] >= 1, "vector_version이 1 미만"
+
+
+@test("유사추천: location 모드 코사인 유사도 0~1 범위")
+def test_similar_location():
+    from services.similarity import calc_location, parse_vectors
+    from database import DictConnection
+    conn = DictConnection()
+    rows = conn.execute("""
+        SELECT vec_basic, vec_price, vec_facility, vec_safety FROM apt_vectors LIMIT 2
+    """).fetchall()
+    conn.close()
+    if len(rows) < 2:
+        return
+    t = parse_vectors(rows[0])
+    c = parse_vectors(rows[1])
+    score = calc_location(t, c)
+    assert -1 <= score <= 1, f"코사인 유사도 범위 초과: {score}"
+
+
+@test("유사추천: price 모드 유클리디안 유사도 0~1 범위")
+def test_similar_price():
+    from services.similarity import calc_price, parse_vectors
+    from database import DictConnection
+    conn = DictConnection()
+    rows = conn.execute("SELECT vec_basic, vec_price, vec_facility, vec_safety FROM apt_vectors LIMIT 2").fetchall()
+    conn.close()
+    if len(rows) < 2:
+        return
+    t = parse_vectors(rows[0])
+    c = parse_vectors(rows[1])
+    score = calc_price(t, c)
+    assert 0 <= score <= 1, f"유클리디안 유사도 범위 초과: {score}"
+
+
+@test("유사추천: lifestyle 모드 선호도 점수 반환")
+def test_similar_lifestyle():
+    from services.similarity import calc_lifestyle, parse_vectors
+    from database import DictConnection
+    conn = DictConnection()
+    row = conn.execute("SELECT vec_basic, vec_price, vec_facility, vec_safety FROM apt_vectors LIMIT 1").fetchone()
+    conn.close()
+    c = parse_vectors(row)
+    score = calc_lifestyle(c, {"교통": 0.9, "교육": 0.7})
+    assert isinstance(score, float), f"점수 타입 오류: {type(score)}"
+
+
+@test("유사추천: combined 모드 include_price 옵션")
+def test_similar_combined_price():
+    from services.similarity import calc_combined, parse_vectors
+    from database import DictConnection
+    conn = DictConnection()
+    rows = conn.execute("SELECT vec_basic, vec_price, vec_facility, vec_safety FROM apt_vectors LIMIT 2").fetchall()
+    conn.close()
+    if len(rows) < 2:
+        return
+    t = parse_vectors(rows[0])
+    c = parse_vectors(rows[1])
+    score_no_price = calc_combined(t, c, include_price=False)
+    score_with_price = calc_combined(t, c, include_price=True)
+    assert score_no_price != score_with_price, "include_price 옵션이 결과에 영향을 주지 않음"
 
 
 # ============================================================

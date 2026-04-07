@@ -246,6 +246,7 @@ def create_tables(conn) -> None:
             total_pop INTEGER,
             male_pop INTEGER,
             female_pop INTEGER,
+            daytime_pop INTEGER,
             PRIMARY KEY (sigungu_code, age_group)
         );
 

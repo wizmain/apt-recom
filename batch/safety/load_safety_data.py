@@ -1,4 +1,4 @@
-"""안전 데이터 CSV 적재 — 보안등, 소방서, 교통사고, 범죄통계.
+"""안전 데이터 CSV 적재 — 보안등, 소방서, 교통사고, 범죄통계, 주간인구.
 
 사용법:
   python -m batch.safety.load_safety_data
@@ -6,14 +6,19 @@
 
 import hashlib
 import re
+import time
 from pathlib import Path
 
 import pandas as pd
+import requests
 
+from batch.config import DATA_GO_KR_API_KEY, KOSIS_RATE
 from batch.db import get_connection, get_dict_cursor, query_all
 from batch.logger import setup_logger
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "apt_eda" / "data" / "안전자료"
+
+KOSIS_URL = "https://kosis.kr/openapi/Param/statisticsParameterData.do"
 
 
 def _make_fid(prefix: str, lat: float, lng: float, name: str) -> str:
@@ -308,12 +313,18 @@ def load_crime_stats_2024(conn, logger):
     # CSV 지역명 → 시군구코드 매핑
     name_to_codes = _build_csv_name_to_codes(conn)
 
-    # 인구 데이터 조회 (유동인구 보정용)
-    pop_map = {}
+    # 인구 데이터 조회 (주간인구 보정용)
+    pop_map = {}  # {code: {"resident": int, "daytime": int}}
     pop_rows = query_all(conn,
-        "SELECT sigungu_code, total_pop FROM population_by_district WHERE age_group = '계'")
+        "SELECT sigungu_code, total_pop, daytime_pop FROM population_by_district WHERE age_group = '계'")
     for r in pop_rows:
-        pop_map[r["sigungu_code"]] = r["total_pop"]
+        pop_map[r["sigungu_code"]] = {
+            "resident": r["total_pop"] or 0,
+            "daytime": r["daytime_pop"] or 0,
+        }
+
+    daytime_available = sum(1 for v in pop_map.values() if v["daytime"] > 0)
+    logger.info(f"  인구 데이터: {len(pop_map)}개 시군구, 주간인구 보유: {daytime_available}개")
 
     # sigungu_crime_detail INSERT
     cur = get_dict_cursor(conn)
@@ -328,10 +339,18 @@ def load_crime_stats_2024(conn, logger):
 
         total_crime = sum(crimes.values())
         for code in codes:
-            resident_pop = pop_map.get(code, 0)
-            # 유동인구 보정: 인구 데이터가 없으면 기본 주민등록인구 사용
-            effective_pop = resident_pop or 100000
-            float_pop_ratio = 1.0
+            pops = pop_map.get(code, {"resident": 0, "daytime": 0})
+            resident_pop = pops["resident"]
+            daytime_pop = pops["daytime"]
+
+            # 주간인구가 있으면 보정 적용, 없으면 상주인구 사용
+            if daytime_pop > 0 and resident_pop > 0:
+                effective_pop = daytime_pop
+                float_pop_ratio = round(daytime_pop / resident_pop, 2)
+            else:
+                effective_pop = resident_pop or 100000
+                float_pop_ratio = 1.0
+
             crime_rate = total_crime / effective_pop * 100000 if effective_pop else 0
 
             insert_rows.append((
@@ -485,6 +504,101 @@ def load_safety_index(conn, logger):
     return upserted
 
 
+def collect_daytime_population(conn, logger):
+    """KOSIS 등록센서스 주간인구 수집 → population_by_district.daytime_pop 갱신.
+
+    통계표: DT_1PA2020 (성별/연령별 상주·주간 인구 - 시군구)
+    항목: T00(상주인구), T30(주간인구)
+    최신 데이터: 2020년 (인구총조사 5년 주기)
+    """
+    api_key = DATA_GO_KR_API_KEY
+    if not api_key:
+        logger.warning("KOSIS API 키 없음 (DATA_GO_KR_API_KEY). 주간인구 수집 건너뜀")
+        return 0
+
+    logger.info("KOSIS 주간인구 수집 시작 (등록센서스 DT_1PA2020)...")
+
+    params = {
+        "method": "getList",
+        "apiKey": api_key,
+        "orgId": "101",
+        "tblId": "DT_1PA2020",
+        "itmId": "T00+T30",
+        "objL1": "ALL",
+        "objL2": "0",
+        "objL3": "000",
+        "format": "json",
+        "jsonVD": "Y",
+        "prdSe": "F",
+        "startPrdDe": "2020",
+        "endPrdDe": "2020",
+    }
+
+    try:
+        resp = requests.get(KOSIS_URL, params=params, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.error(f"KOSIS API 호출 실패: {e}")
+        return 0
+
+    if not isinstance(data, list):
+        err_msg = data.get("err", "") if isinstance(data, dict) else str(data)[:200]
+        logger.error(f"KOSIS 응답 오류: {err_msg}")
+        return 0
+
+    # 시군구 코드(5자리)별 주간인구/상주인구 파싱
+    pop_data = {}  # {sigungu_code: {"resident": int, "daytime": int}}
+    for item in data:
+        code_raw = item.get("C1", "")
+        code = code_raw[:5] if len(code_raw) >= 5 else code_raw
+        if len(code) != 5:
+            continue
+        itm_id = item.get("ITM_ID", "")
+        value = int(float(item.get("DT", 0) or 0))
+
+        if code not in pop_data:
+            pop_data[code] = {"resident": 0, "daytime": 0}
+
+        if itm_id == "T00":
+            pop_data[code]["resident"] = value
+        elif itm_id == "T30":
+            pop_data[code]["daytime"] = value
+
+    daytime_count = sum(1 for v in pop_data.values() if v["daytime"] > 0)
+    logger.info(f"  KOSIS 응답: {len(pop_data)}개 시군구, 주간인구 있음: {daytime_count}개")
+
+    # population_by_district.daytime_pop 갱신
+    cur = get_dict_cursor(conn)
+
+    # daytime_pop 컬럼 존재 확인 (ALTER TABLE 필요 시)
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'population_by_district' AND column_name = 'daytime_pop'
+    """)
+    if not cur.fetchone():
+        logger.info("  daytime_pop 컬럼 추가 중...")
+        cur.execute("ALTER TABLE population_by_district ADD COLUMN daytime_pop INTEGER")
+        conn.commit()
+
+    updated = 0
+    for code, pops in pop_data.items():
+        if pops["daytime"] <= 0:
+            continue
+        cur.execute(
+            """UPDATE population_by_district
+               SET daytime_pop = %s
+               WHERE sigungu_code = %s AND age_group = '계'""",
+            [pops["daytime"], code])
+        if cur.rowcount > 0:
+            updated += 1
+
+    conn.commit()
+    time.sleep(KOSIS_RATE)
+    logger.info(f"  주간인구 갱신 완료: {updated}/{len(pop_data)}개 시군구")
+    return updated
+
+
 def main():
     logger = setup_logger("load_safety")
     conn = get_connection()
@@ -494,6 +608,7 @@ def main():
         load_security_lights(conn, logger)
         load_fire_stations(conn, logger)
         load_traffic_accidents(conn, logger)
+        collect_daytime_population(conn, logger)
         load_crime_stats_2024(conn, logger)
         load_safety_index(conn, logger)
         logger.info("안전 데이터 적재 완료")
