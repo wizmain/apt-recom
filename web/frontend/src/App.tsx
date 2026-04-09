@@ -10,7 +10,7 @@ import ChatButton from './components/ChatButton';
 import ChatModal from './components/ChatModal';
 import FilterPanel from './components/FilterPanel';
 import { API_BASE } from './config';
-import { useApartments } from './hooks/useApartments';
+import { useApartments, countActiveFilters } from './hooks/useApartments';
 import { useNudge } from './hooks/useNudge';
 import type { MapBounds } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
@@ -144,7 +144,7 @@ function App() {
         onToggleNudge={handleToggleNudge}
         onOpenSettings={() => setShowWeightDrawer(true)}
         onOpenFilter={() => setShowFilterPanel(true)}
-        filterCount={Object.values(filters).filter(v => v !== undefined).length}
+        filterCount={countActiveFilters(filters)}
         searchKeywords={searchKeywords}
         keywordLabels={keywordLabels}
         onAddKeyword={handleAddKeyword}

@@ -483,12 +483,12 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
               <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                <YAxis tick={{ fontSize: 11 }} label={{ value: '만원', position: 'insideTopLeft', offset: -5, fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => fmtManwon(v)} />
                 <Tooltip
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- recharts Formatter type is complex
                   formatter={(val: any, name: any) => {
                     const at = areaTypes.find((t: { key: string }) => t.key === name);
-                    return [`${Number(val).toLocaleString()}만원`, at?.label ?? name];
+                    return [fmtManwon(Number(val)), at?.label ?? name];
                   }}
                 />
                 <Legend
@@ -597,7 +597,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
                     <td className="px-3 py-2 text-right text-gray-700">{t.floor ?? '-'}</td>
                     <td className="px-3 py-2 text-right text-gray-700">{t.exclu_use_ar ?? '-'}</td>
                     <td className="px-3 py-2 text-right font-medium text-blue-600">
-                      {t.deal_amount != null ? t.deal_amount.toLocaleString() : '-'}
+                      {t.deal_amount != null ? fmtManwon(t.deal_amount) : '-'}
                     </td>
                   </tr>
                 ))}
@@ -781,7 +781,7 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
           {detailItems.map(([name, val]) => (
             <div key={name} className="flex justify-between bg-gray-50 rounded-lg px-3 py-2">
               <span className="text-xs text-gray-600 truncate">{name}</span>
-              <span className="text-xs font-semibold text-gray-800 ml-2">{formatWon(val)}원</span>
+              <span className="text-xs font-semibold text-gray-800 ml-2">{Math.round(val / 10000).toLocaleString()}만원</span>
             </div>
           ))}
         </div>
@@ -1035,9 +1035,9 @@ function TabSafety({ safety }: { safety?: SafetyData | null }) {
         <div>
           <h3 className="text-sm font-bold text-gray-700 mb-3">영역별 안전 점수</h3>
           <div className="grid grid-cols-3 gap-3">
-            <AreaScoreCard title="단지보안" score={v3.complex_score ?? 0} maxScore={35} desc="CCTV·경비·관리·주차" color="#4d9e8e" />
-            <AreaScoreCard title="응급접근" score={v3.access_score ?? 0} maxScore={30} desc="소방·병원·경찰" color="#5b82b0" />
-            <AreaScoreCard title="지역안전" score={(v3.regional_safety_score ?? 0) + (v3.crime_adjust_score ?? 0)} maxScore={35} desc="안전지수·범죄율" color="#7b6ea8" />
+            <AreaScoreCard title="단지보안" score={v3.complex_score ?? 0} maxScore={35} desc="CCTV·경비·관리·주차" color="#10b981" />
+            <AreaScoreCard title="응급접근" score={v3.access_score ?? 0} maxScore={30} desc="소방·병원·경찰" color="#3b82f6" />
+            <AreaScoreCard title="지역안전" score={(v3.regional_safety_score ?? 0) + (v3.crime_adjust_score ?? 0)} maxScore={35} desc="안전지수·범죄율" color="#8b5cf6" />
           </div>
         </div>
       )}
@@ -1168,17 +1168,16 @@ function TabSafety({ safety }: { safety?: SafetyData | null }) {
                 { key: 'fire', label: '화재', grade: safety.regional_grades.fire },
                 { key: 'traffic', label: '교통사고', grade: safety.regional_grades.traffic },
               ].map(item => {
-                const safeLevel = 6 - item.grade;
                 const labels = ['', '우수', '양호', '보통', '주의', '위험'];
-                const barColor = item.grade <= 1 ? '#3d9a86' : item.grade <= 2 ? '#5aab9a' :
-                  item.grade <= 3 ? '#7ca8b0' : item.grade <= 4 ? '#c4a46e' : '#c48a6e';
-                const textColor = item.grade <= 2 ? 'text-teal-600' : item.grade <= 3 ? 'text-slate-600' : 'text-amber-700';
+                const barColor = item.grade <= 1 ? '#10b981' : item.grade <= 2 ? '#34d399' :
+                  item.grade <= 3 ? '#60a5fa' : item.grade <= 4 ? '#f59e0b' : '#ef4444';
+                const textColor = item.grade <= 2 ? 'text-emerald-600' : item.grade <= 3 ? 'text-blue-500' : 'text-amber-600';
                 return (
                   <div key={item.key} className="flex items-center gap-3">
                     <span className="text-xs text-gray-600 w-16 shrink-0">{item.label}</span>
                     <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
                       <div className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${safeLevel * 20}%`, backgroundColor: barColor }} />
+                        style={{ width: `${item.grade * 20}%`, backgroundColor: barColor }} />
                     </div>
                     <span className={`text-xs font-bold w-14 text-right shrink-0 ${textColor}`}>
                       {item.grade}등급 {labels[item.grade]}
@@ -1306,6 +1305,17 @@ function AreaScoreCard({ title, score, maxScore, color, desc }: {
       <div className="text-[10px] text-gray-400">{desc}</div>
     </div>
   );
+}
+
+/** 만원 단위 금액을 "12억0,000" 형식으로 변환 */
+function fmtManwon(manwon: number): string {
+  const eok = Math.floor(manwon / 10000);
+  const remainder = manwon % 10000;
+  if (eok > 0) {
+    const remStr = String(remainder).padStart(4, '0');
+    return `${eok}억${remStr.slice(0, 1)},${remStr.slice(1)}`;
+  }
+  return manwon.toLocaleString();
 }
 
 function fmtDist(d?: number | null): string {
