@@ -139,10 +139,25 @@ def run_annual(args, logger, result):
         conn.close()
 
 
+def run_mgmt_cost(args, logger, result):
+    from batch.kapt.collect_mgmt_cost import collect_from_api
+
+    conn = get_connection()
+    try:
+        t0 = time.time()
+        count = collect_from_api(conn=conn, logger=logger, dry_run=args.dry_run)
+        result.record("관리비 API 수집", "success", rows=count, duration=time.time() - t0)
+    except Exception as e:
+        logger.error(f"관리비 배치 실패: {e}")
+        result.record("관리비 배치", "critical", error=str(e))
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="집토리 배치 데이터 수집/갱신")
-    parser.add_argument("--type", choices=["trade", "quarterly", "annual"], required=True,
-                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄)")
+    parser.add_argument("--type", choices=["trade", "quarterly", "annual", "mgmt_cost"], required=True,
+                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비)")
     parser.add_argument("--dry-run", action="store_true", help="수집만 하고 DB 적재 생략")
     args = parser.parse_args()
 
@@ -157,6 +172,8 @@ def main():
         run_quarterly(args, logger, result)
     elif args.type == "annual":
         run_annual(args, logger, result)
+    elif args.type == "mgmt_cost":
+        run_mgmt_cost(args, logger, result)
 
     result.summary(logger)
     sys.exit(result.exit_code())

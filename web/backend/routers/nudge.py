@@ -47,7 +47,7 @@ def nudge_score(req: NudgeScoreRequest):
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu"""
         conditions: list[str] = [
             "a.lat IS NOT NULL",
-            "a.group_pnu = a.pnu",
+            "a.pnu NOT LIKE 'TRADE_%%'",
             "a.total_hhld_cnt > 0",
             "a.use_apr_day IS NOT NULL AND a.use_apr_day != ''",
         ]

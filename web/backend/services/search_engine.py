@@ -7,7 +7,7 @@ import re
 
 APT_COLS = "pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc"
 # 기본 필터: 좌표·세대수·준공일이 모두 있는 아파트만 조회
-APT_BASE_FILTER = "group_pnu = pnu AND lat IS NOT NULL AND total_hhld_cnt > 0 AND use_apr_day IS NOT NULL AND use_apr_day != ''"
+APT_BASE_FILTER = "pnu NOT LIKE 'TRADE_%%' AND lat IS NOT NULL AND total_hhld_cnt > 0 AND use_apr_day IS NOT NULL AND use_apr_day != ''"
 _STRIP_SIDO = re.compile(r"(특별자치도|광역시|특별시|특별자치시)")
 _STRIP_SUFFIX = re.compile(r"[시도구군읍면동 ]")
 

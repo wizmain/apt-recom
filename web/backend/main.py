@@ -1,9 +1,13 @@
 """FastAPI backend for apartment recommendation app."""
 
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin
 
 app = FastAPI(title="Apartment Recommendation API")
 
@@ -25,6 +29,7 @@ app.include_router(feedback.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(codes.router, prefix="/api")
 app.include_router(similar.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -226,3 +231,31 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
 def map_page():
     """모바일 앱 WebView용 카카오맵 HTML 페이지."""
     return KAKAO_MAP_HTML
+
+
+# ── Admin SPA 정적 파일 서빙 ──────────────────────────────────
+
+_ADMIN_STATIC_DIR = Path(__file__).resolve().parent / "static" / "admin"
+
+if _ADMIN_STATIC_DIR.is_dir():
+    app.mount(
+        "/admin/assets",
+        StaticFiles(directory=str(_ADMIN_STATIC_DIR / "assets")),
+        name="admin-assets",
+    )
+
+    @app.get("/admin/{path:path}")
+    async def admin_spa_fallback(path: str = ""):
+        """React Router SPA fallback — /admin/* 경로를 index.html로."""
+        index = _ADMIN_STATIC_DIR / "index.html"
+        if index.is_file():
+            return FileResponse(str(index))
+        return HTMLResponse("Admin not built", status_code=404)
+
+    @app.get("/admin")
+    async def admin_root():
+        """관리자 페이지 루트."""
+        index = _ADMIN_STATIC_DIR / "index.html"
+        if index.is_file():
+            return FileResponse(str(index))
+        return HTMLResponse("Admin not built", status_code=404)

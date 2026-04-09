@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { ApartmentFilters } from '../hooks/useApartments';
+import { countActiveFilters, type ApartmentFilters } from '../hooks/useApartments';
 
 interface FilterPanelProps {
   isOpen: boolean;
@@ -67,7 +67,7 @@ export default function FilterPanel({ isOpen, onClose, filters, onApply, onClear
     onClose();
   };
 
-  const activeCount = Object.values(local).filter(v => v !== undefined).length;
+  const activeCount = countActiveFilters(local);
 
   return (
     <>

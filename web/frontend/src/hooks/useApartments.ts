@@ -15,6 +15,16 @@ export interface ApartmentFilters {
   builtBefore?: number;
 }
 
+export function countActiveFilters(f: ApartmentFilters): number {
+  let count = 0;
+  if (f.minArea !== undefined || f.maxArea !== undefined) count++;
+  if (f.minPrice !== undefined || f.maxPrice !== undefined) count++;
+  if (f.minFloor !== undefined) count++;
+  if (f.minHhld !== undefined || f.maxHhld !== undefined) count++;
+  if (f.builtAfter !== undefined || f.builtBefore !== undefined) count++;
+  return count;
+}
+
 export function useApartments() {
   const [apartments, setApartments] = useState<Apartment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -103,6 +113,18 @@ export function useApartments() {
           sw_lat: String(bounds.sw.lat), sw_lng: String(bounds.sw.lng),
           ne_lat: String(bounds.ne.lat), ne_lng: String(bounds.ne.lng),
         };
+        // 현재 필터를 bounds 요청에 반영
+        const f = filters;
+        if (f.minArea !== undefined) params.min_area = String(f.minArea);
+        if (f.maxArea !== undefined) params.max_area = String(f.maxArea);
+        if (f.minPrice !== undefined) params.min_price = String(f.minPrice);
+        if (f.maxPrice !== undefined) params.max_price = String(f.maxPrice);
+        if (f.minFloor !== undefined) params.min_floor = String(f.minFloor);
+        if (f.minHhld !== undefined) params.min_hhld = String(f.minHhld);
+        if (f.maxHhld !== undefined) params.max_hhld = String(f.maxHhld);
+        if (f.builtAfter !== undefined) params.built_after = String(f.builtAfter);
+        if (f.builtBefore !== undefined) params.built_before = String(f.builtBefore);
+
         const query = new URLSearchParams(params).toString();
         const res = await axios.get<Apartment[]>(`${API_BASE}/api/apartments?${query}`);
         const boundsApts = res.data;
@@ -121,7 +143,7 @@ export function useApartments() {
         setLoading(false);
       }
     }, delay);
-  }, []);
+  }, [filters]);
 
   // 키워드 추가
   const addKeyword = useCallback((kw: string) => {
