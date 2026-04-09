@@ -34,6 +34,7 @@ node_modules/
 
 # Build output
 dist/
+web/backend/static/admin/
 
 # Playwright MCP
 .playwright-mcp/
