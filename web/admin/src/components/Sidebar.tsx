@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { NavLink } from "react-router-dom";
 
 interface MenuItem {
@@ -19,17 +18,10 @@ const MENU_ITEMS: MenuItem[] = [
 ];
 
 export function Sidebar() {
-  const [expanded, setExpanded] = useState(false);
-
   return (
-    <nav
-      className="flex flex-col items-center bg-[#0f172a] text-white flex-shrink-0 transition-all duration-200"
-      style={{ width: expanded ? 200 : 56 }}
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
-    >
-      <div className="py-3 font-extrabold text-amber-400 text-sm tracking-tight">
-        {expanded ? "집토리 Admin" : "JT"}
+    <nav className="flex flex-col bg-[#0f172a] text-white flex-shrink-0 w-48">
+      <div className="py-3 px-4 font-extrabold text-amber-400 text-sm tracking-tight">
+        집토리 Admin
       </div>
 
       <div className="flex flex-col gap-1 w-full px-2">
@@ -46,10 +38,10 @@ export function Sidebar() {
               }`
             }
           >
-            <span className="text-base flex-shrink-0 w-8 text-center">
+            <span className="text-base flex-shrink-0 w-6 text-center">
               {item.icon}
             </span>
-            {expanded && <span className="whitespace-nowrap">{item.label}</span>}
+            <span className="whitespace-nowrap">{item.label}</span>
           </NavLink>
         ))}
       </div>
