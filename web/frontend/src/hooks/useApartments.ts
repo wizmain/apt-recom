@@ -145,12 +145,11 @@ export function useApartments() {
     }, delay);
   }, [filters]);
 
-  // 키워드 추가
+  // 키워드 추가 (기존 키워드 초기화 후 새 키워드만 검색)
   const addKeyword = useCallback((kw: string) => {
-    if (keywordsRef.current.includes(kw)) return;
-    const next = [...keywordsRef.current, kw];
-    keywordsRef.current = next;
-    fetchApartments(filters, undefined, next);
+    keywordsRef.current = [kw];
+    searchResultsRef.current = [];
+    fetchApartments(filters, undefined, [kw]);
   }, [filters, fetchApartments]);
 
   // 키워드 제거

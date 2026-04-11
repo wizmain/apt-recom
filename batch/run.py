@@ -46,12 +46,7 @@ def run_trade(args, logger, result):
         enriched, new_pnus = enrich_new_apartments(conn, logger)
         result.record("신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0)
 
-        # 5. K-APT 정보 수집 (점수 계산 전에 실행)
-        if enriched > 0:
-            from batch.kapt.collect_kapt_info import enrich_kapt_for_new
-            t0 = time.time()
-            kapt_cnt = enrich_kapt_for_new(conn, logger, new_pnus)
-            result.record("K-APT 정보 수집", "success", rows=kapt_cnt, duration=time.time() - t0)
+        # 5. K-APT 보완은 enrich_new_apartments 내부 Phase 3에서 처리됨
 
         # 6. 시설 집계 + 안전점수 + 유사도 벡터 (모든 데이터 반영 후 계산)
         if new_pnus:
@@ -155,6 +150,21 @@ def run_mgmt_cost(args, logger, result):
         conn.close()
 
 
+def run_kapt_refresh(args, logger, result):
+    from batch.kapt.collect_kapt_info import phase2_refresh
+
+    conn = get_connection()
+    try:
+        t0 = time.time()
+        count = phase2_refresh(conn, logger)
+        result.record("K-APT 정보 갱신", "success", rows=count, duration=time.time() - t0)
+    except Exception as e:
+        logger.error(f"K-APT 갱신 실패: {e}")
+        result.record("K-APT 갱신", "critical", error=str(e))
+    finally:
+        conn.close()
+
+
 def run_backfill(args, logger, result):
     from batch.trade.backfill_trades import backfill_trades
 
@@ -173,8 +183,8 @@ def run_backfill(args, logger, result):
 
 def main():
     parser = argparse.ArgumentParser(description="집토리 배치 데이터 수집/갱신")
-    parser.add_argument("--type", choices=["trade", "quarterly", "annual", "mgmt_cost", "backfill"], required=True,
-                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비), backfill(거래 백필)")
+    parser.add_argument("--type", choices=["trade", "quarterly", "annual", "mgmt_cost", "kapt_refresh", "backfill"], required=True,
+                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비), kapt_refresh(K-APT 갱신), backfill(거래 백필)")
     parser.add_argument("--dry-run", action="store_true", help="수집만 하고 DB 적재 생략")
     parser.add_argument("--region", default="metro",
                         help="시설 수집 지역 (metro/all/시도명). quarterly 전용")
@@ -195,6 +205,8 @@ def main():
         run_annual(args, logger, result)
     elif args.type == "mgmt_cost":
         run_mgmt_cost(args, logger, result)
+    elif args.type == "kapt_refresh":
+        run_kapt_refresh(args, logger, result)
     elif args.type == "backfill":
         run_backfill(args, logger, result)
 

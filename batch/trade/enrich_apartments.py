@@ -104,8 +104,12 @@ def _resolve_one(
     existing_pnus: set,
     kakao_limiter: RateLimiter,
     data_go_limiter: RateLimiter,
+    known_pnu: str | None = None,
 ) -> dict:
-    """단일 apt_seq에 대해 Kakao + 건축물대장 API 호출. DB 접근 없음."""
+    """단일 apt_seq에 대해 Kakao + 건축물대장 API 호출. DB 접근 없음.
+
+    known_pnu가 주어지면 PNU 조합 단계를 건너뛰고 좌표/주소만 Kakao로 확보.
+    """
     apt_seq = row["apt_seq"]
     sgg_cd = str(row["sgg_cd"])[:5]
     apt_nm = str(row["apt_nm"])
@@ -155,6 +159,21 @@ def _resolve_one(
     result["lng"] = lng
     result["new_plat"] = new_plat
     result["plat"] = plat
+
+    # known_pnu가 있으면 PNU 조합 단계 스킵, bld_params 역산
+    if known_pnu:
+        result["pnu"] = known_pnu
+        result["bjd_code"] = known_pnu[:10]
+        bld_params = {
+            "sigungu_cd": known_pnu[:5],
+            "bjdong_cd": known_pnu[5:10],
+            "plat_gb_cd": known_pnu[10],
+            "bun": known_pnu[11:15],
+            "ji": known_pnu[15:19],
+        }
+        result["bld_params"] = bld_params
+        result["bld_info"] = _fetch_building_info(bld_params, data_go_limiter)
+        return result
 
     address = new_plat or plat
     if not address:
@@ -305,6 +324,197 @@ def _resolve_pnu(headers: dict, sgg_cd: str, apt_nm: str, region: str):
     return real_pnu, lat, lng, new_plat, plat, bjd_code, bld_params
 
 
+# ── K-APT 타겟 보완 ──
+
+def _enrich_kapt_targeted(conn, logger, new_pnus: list[str]) -> int:
+    """신규 아파트에 대해 K-APT 정보 보완.
+
+    ① apt_kapt_info DB에서 PNU 조회 (월 1회 refresh 데이터)
+    ② 없으면 → apt_kapt_info DB에서 시군구+이름 검색
+    ③ DB에도 없으면 → K-APT API 타겟 호출
+    ④ 건축물대장에서 못 채운 세대수/동수/최고층/준공일도 K-APT로 보완
+    """
+    from batch.kapt.collect_kapt_info import (
+        _fetch_kapt_basic,
+        _fetch_detail,
+        _load_kapt_list,
+        _parse_detail_item,
+    )
+    from batch.trade.recalc_price import _normalize_name, _core_name
+    from batch.config import DATA_GO_KR_API_KEY, DATA_GO_KR_RATE
+
+    if not DATA_GO_KR_API_KEY or not new_pnus:
+        return 0
+
+    cur = conn.cursor()
+
+    # ① DB에서 이미 있는 PNU 확인
+    ph = ",".join(["%s"] * len(new_pnus))
+    existing_kapt = set(
+        r["pnu"] for r in query_all(conn,
+            f"SELECT pnu FROM apt_kapt_info WHERE pnu IN ({ph})", new_pnus)
+    )
+
+    # 이미 kapt_info가 있는 건: apartments 빈 값만 보완
+    for pnu in existing_kapt:
+        kapt = query_one(conn,
+            "SELECT * FROM apt_kapt_info WHERE pnu = %s", [pnu])
+        if not kapt:
+            continue
+        _fill_apartments_from_kapt_basic(cur, pnu, {
+            "hoCnt": kapt.get("total_hhld_cnt") or 0,
+            "kaptDongCnt": kapt.get("dong_count") or 0,
+            "ktownFlrNo": kapt.get("max_floor") or 0,
+        })
+
+    need_kapt = [p for p in new_pnus if p not in existing_kapt]
+    if not need_kapt:
+        conn.commit()
+        return 0
+
+    logger.info(f"  K-APT 타겟 매칭 시작 ({len(need_kapt)}건)")
+
+    # 신규 아파트 정보 조회
+    ph2 = ",".join(["%s"] * len(need_kapt))
+    new_apts = query_all(conn,
+        f"SELECT pnu, bld_nm, sigungu_code FROM apartments WHERE pnu IN ({ph2})",
+        need_kapt)
+
+    matched = 0
+    api_fallback = 0
+
+    for apt in new_apts:
+        norm = _normalize_name(apt["bld_nm"])
+        core = _core_name(apt["bld_nm"])
+        sgg = (apt["sigungu_code"] or "")[:5]
+        kapt_code = None
+        kapt_name_val = None
+
+        # ② apt_kapt_info DB에서 시군구+이름 검색
+        db_matches = query_all(conn,
+            "SELECT kapt_code, kapt_name FROM apt_kapt_info "
+            "WHERE sigungu_code = %s AND kapt_name IS NOT NULL",
+            [sgg])
+
+        for row in db_matches:
+            if _normalize_name(row["kapt_name"]) == norm:
+                kapt_code = row["kapt_code"]
+                kapt_name_val = row["kapt_name"]
+                break
+
+        if not kapt_code and core and len(core) >= 2:
+            for row in db_matches:
+                if _core_name(row["kapt_name"]) == core:
+                    kapt_code = row["kapt_code"]
+                    kapt_name_val = row["kapt_name"]
+                    break
+
+        # ③ DB에도 없으면 → K-APT 목록 API로 매칭
+        if not kapt_code:
+            if api_fallback == 0:
+                kapt_list = _load_kapt_list()
+                kapt_api_index: dict[tuple[str, str], dict] = {}
+                for item in kapt_list:
+                    kname = _normalize_name(item.get("kaptName", ""))
+                    bjd = item.get("bjdCode") or ""
+                    k_sgg = bjd[:5] if len(bjd) >= 5 else ""
+                    if kname and k_sgg:
+                        key = (kname, k_sgg)
+                        if key not in kapt_api_index:
+                            kapt_api_index[key] = item
+                logger.info(f"  K-APT API 목록 로드: {len(kapt_list)}건")
+
+            api_match = kapt_api_index.get((norm, sgg))
+            if not api_match and core and len(core) >= 2:
+                for (k_name, k_sgg), item in kapt_api_index.items():
+                    if k_sgg == sgg and _core_name(k_name) == core:
+                        api_match = item
+                        break
+
+            if api_match:
+                kapt_code = api_match["kaptCode"]
+                kapt_name_val = api_match.get("kaptName", "")
+            api_fallback += 1
+
+        if not kapt_code:
+            continue
+
+        # K-APT 기본정보 → apartments 빈 값 보완
+        basic = _fetch_kapt_basic(kapt_code)
+        time.sleep(DATA_GO_KR_RATE)
+
+        if basic:
+            _fill_apartments_from_kapt_basic(cur, apt["pnu"], basic)
+            if not kapt_name_val:
+                kapt_name_val = basic.get("kaptName", "")
+
+        # K-APT 상세정보 → apt_kapt_info INSERT
+        detail_item = _fetch_detail(kapt_code)
+        time.sleep(DATA_GO_KR_RATE)
+
+        vals = _parse_detail_item(detail_item) if detail_item else {}
+
+        cur.execute("""
+            INSERT INTO apt_kapt_info (pnu, kapt_code, kapt_name, sigungu_code,
+                sale_type, heat_type, builder, developer,
+                apt_type, mgr_type, hall_type, structure, total_area, priv_area,
+                parking_cnt, cctv_cnt, elevator_cnt, ev_charger_cnt, subway_info, bus_time, welfare)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (pnu) DO UPDATE SET
+                kapt_code=EXCLUDED.kapt_code,
+                kapt_name=COALESCE(EXCLUDED.kapt_name, apt_kapt_info.kapt_name),
+                sigungu_code=COALESCE(EXCLUDED.sigungu_code, apt_kapt_info.sigungu_code),
+                parking_cnt=EXCLUDED.parking_cnt,
+                cctv_cnt=EXCLUDED.cctv_cnt, ev_charger_cnt=EXCLUDED.ev_charger_cnt,
+                structure=EXCLUDED.structure, updated_at=NOW()
+        """, [
+            apt["pnu"], kapt_code, kapt_name_val, sgg,
+            basic.get("codeSaleNm", "") if basic else "",
+            basic.get("codeHeatNm", "") if basic else "",
+            basic.get("kaptBcompany", "") if basic else "",
+            basic.get("kaptAcompany", "") if basic else "",
+            basic.get("codeAptNm", "") if basic else "",
+            basic.get("codeMgrNm", "") if basic else "",
+            basic.get("codeHallNm", "") if basic else "",
+            vals.get("structure"),
+            float(basic.get("kaptTarea") or 0) or None if basic else None,
+            float(basic.get("privArea") or 0) or None if basic else None,
+            vals.get("parking_cnt"), vals.get("cctv_cnt"),
+            int(basic.get("kaptdEcntp") or 0) or None if basic else None,
+            vals.get("ev_charger_cnt"), vals.get("subway_info"),
+            vals.get("bus_time"), vals.get("welfare"),
+        ])
+        matched += 1
+
+    conn.commit()
+    if api_fallback > 0:
+        logger.info(f"  K-APT DB 매칭 후 API fallback: {api_fallback}건")
+    return matched
+
+
+def _fill_apartments_from_kapt_basic(cur, pnu: str, basic: dict):
+    """K-APT 기본정보로 apartments 테이블의 빈 값 보완."""
+    try:
+        hhld = int(basic.get("hoCnt") or 0)
+        dong = int(basic.get("kaptDongCnt") or 0)
+        top_flr = int(basic.get("ktownFlrNo") or 0)
+    except (ValueError, TypeError):
+        return
+
+    if hhld > 0 or dong > 0 or top_flr > 0:
+        cur.execute("""
+            UPDATE apartments SET
+                total_hhld_cnt = GREATEST(COALESCE(total_hhld_cnt, 0), %s),
+                dong_count = GREATEST(COALESCE(dong_count, 0), %s),
+                max_floor = GREATEST(COALESCE(max_floor, 0), %s)
+            WHERE pnu = %s AND (
+                COALESCE(total_hhld_cnt, 0) < %s
+                OR COALESCE(dong_count, 0) < %s
+                OR COALESCE(max_floor, 0) < %s
+            )
+        """, [hhld, dong, top_flr, pnu, hhld, dong, top_flr])
+
+
 # ── 메인 ──
 
 def enrich_new_apartments(conn, logger):
@@ -353,52 +563,43 @@ def enrich_new_apartments(conn, logger):
     existing_pnus = set(r["pnu"] for r in apt_rows)
     existing_names = {r["pnu"]: r["bld_nm"] or "" for r in apt_rows}
 
-    # ── Phase 0: PNU 직접 조합으로 매핑 (API 호출 불필요) ──
+    # ── Phase 0: PNU 직접 조합으로 신규 아파트 후보 식별 ──
+    # _update_mapping에서 기존 PNU 매핑은 이미 처리됨.
+    # 여기서는 "PNU 조합 가능하지만 기존 apartments에 없는" 신규 건만 식별.
     cur = conn.cursor()
-    pnu_direct_matched = 0
-    pnu_direct_created = 0
-    remaining_unmapped = []
     new_pnus = []
     created_pnus = set()
+    pnu_known_map: dict[str, str] = {}  # apt_seq → known_pnu (Phase 1에 전달)
 
+    remaining_unmapped = []
     for row in unmapped:
         sgg_cd = str(row["sgg_cd"])[:5]
-        apt_nm = str(row["apt_nm"])
         umd_cd = row.get("umd_cd") or ""
         bonbun = (row.get("bonbun") or "").strip()
         bubun = (row.get("bubun") or "").strip()
-        land_cd = (row.get("land_cd") or "0").strip()
 
         if umd_cd and bonbun:
-            pnu = f"{sgg_cd}{umd_cd}{land_cd}{bonbun.zfill(4)}{(bubun or '0').zfill(4)}"
-            if len(pnu) == 19 and (pnu in existing_pnus or pnu in created_pnus):
-                existing_name = existing_names.get(pnu, "")
-                if not existing_name or _names_overlap(apt_nm, existing_name):
-                    cur.execute(
-                        "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
-                        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
-                        [row["apt_seq"], pnu, apt_nm, sgg_cd, "pnu_direct"],
-                    )
-                    pnu_direct_matched += 1
-                    continue
+            pnu = f"{sgg_cd}{umd_cd}0{bonbun.zfill(4)}{(bubun or '0').zfill(4)}"
+            if len(pnu) == 19 and pnu not in existing_pnus and pnu not in created_pnus:
+                pnu_known_map[row["apt_seq"]] = pnu
+                created_pnus.add(pnu)
 
         remaining_unmapped.append(row)
 
-    conn.commit()
-    if pnu_direct_matched:
-        logger.info(f"  Phase 0: PNU 직접 매핑 {pnu_direct_matched}건 (나머지 {len(remaining_unmapped)}건 → Kakao API)")
+    if pnu_known_map:
+        logger.info(f"  Phase 0: PNU 직접 조합 {len(pnu_known_map)}건 (신규 아파트 후보)")
 
     unmapped = remaining_unmapped
 
     if not unmapped:
-        logger.info("  모든 미매핑 건이 PNU 직접 매핑으로 처리됨")
-        return pnu_direct_matched, new_pnus
+        logger.info("  보충 대상 없음")
+        return 0, new_pnus
 
     # Rate limiters
     kakao_limiter = RateLimiter(KAKAO_RATE)
     data_go_limiter = RateLimiter(DATA_GO_KR_RATE)
 
-    # ── Phase 1: 병렬 API 호출 ──
+    # ── Phase 1: 병렬 API 호출 (known_pnu 전달) ──
     logger.info(f"  Phase 1: API 병렬 호출 시작 ({len(unmapped)}건)")
     results = []
 
@@ -407,6 +608,7 @@ def enrich_new_apartments(conn, logger):
             executor.submit(
                 _resolve_one, row, headers, sgg_map,
                 existing_pnus, kakao_limiter, data_go_limiter,
+                known_pnu=pnu_known_map.get(row["apt_seq"]),
             ): row
             for row in unmapped
         }
@@ -524,6 +726,11 @@ def enrich_new_apartments(conn, logger):
         )
 
     conn.commit()
-    logger.info(f"  아파트 보충 완료: PNU직접={pnu_direct_matched}, 신규={created}, 기존매칭={matched}, fallback={fallback}")
+    logger.info(f"  아파트 보충 완료: 신규={created}, 기존매칭={matched}, fallback={fallback}")
 
-    return pnu_direct_matched + created + matched, new_pnus
+    # ── Phase 3: K-APT 보완 ──
+    if new_pnus:
+        kapt_cnt = _enrich_kapt_targeted(conn, logger, new_pnus)
+        logger.info(f"  K-APT 보완: {kapt_cnt}건")
+
+    return created + matched, new_pnus
