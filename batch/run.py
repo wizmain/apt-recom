@@ -82,7 +82,8 @@ def run_quarterly(args, logger, result):
     try:
         # 1. 수집
         t0 = time.time()
-        facility_rows = collect_all_facilities(logger, dry_run=args.dry_run)
+        region = getattr(args, "region", "metro")
+        facility_rows = collect_all_facilities(logger, dry_run=args.dry_run, region=region)
         result.record("시설 데이터 수집", "success", rows=len(facility_rows), duration=time.time() - t0)
 
         if args.dry_run:
@@ -91,7 +92,7 @@ def run_quarterly(args, logger, result):
 
         # 2. DB 갱신
         t0 = time.time()
-        upserted = update_facilities(conn, facility_rows, logger)
+        upserted = update_facilities(conn, facility_rows, logger, region=region)
         result.record("시설 DB 갱신", "success", rows=upserted, duration=time.time() - t0)
 
         # 3. 집계 재계산
@@ -159,6 +160,8 @@ def main():
     parser.add_argument("--type", choices=["trade", "quarterly", "annual", "mgmt_cost"], required=True,
                         help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비)")
     parser.add_argument("--dry-run", action="store_true", help="수집만 하고 DB 적재 생략")
+    parser.add_argument("--region", default="metro",
+                        help="시설 수집 지역 (metro/all/시도명). quarterly 전용")
     args = parser.parse_args()
 
     logger = setup_logger()

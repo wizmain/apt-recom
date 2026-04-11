@@ -13,6 +13,11 @@ TRADE_COL_MAP = {
     "dealYear": "dealYear", "dealMonth": "dealMonth", "dealDay": "dealDay",
     "aptNm": "aptNm", "excluUseAr": "excluUseAr",
     "sggCd": "sggCd", "floor": "floor",
+    "umdNm": "umdNm", "umdCd": "umdCd", "jibun": "jibun",
+    "bonbun": "bonbun", "bubun": "bubun", "landCd": "landCd",
+    "roadNm": "roadNm", "roadNmBonbun": "roadNmBonbun", "roadNmBubun": "roadNmBubun",
+    "aptDong": "aptDong", "buyerGbn": "buyerGbn", "dealingGbn": "dealingGbn",
+    "rgstDate": "rgstDate", "aptSeq": "aptSeq",
 }
 
 RENT_COL_MAP = {
@@ -20,6 +25,11 @@ RENT_COL_MAP = {
     "excluUseAr": "excluUseAr", "aptNm": "aptNm",
     "floor": "floor", "dealYear": "dealYear",
     "dealMonth": "dealMonth", "dealDay": "dealDay", "sggCd": "sggCd",
+    "umdNm": "umdNm", "jibun": "jibun",
+    "roadnm": "roadNm", "roadnmbonbun": "roadNmBonbun", "roadnmbubun": "roadNmBubun",
+    "contractType": "contractType", "contractTerm": "contractTerm",
+    "preDeposit": "preDeposit", "preMonthlyRent": "preMonthlyRent",
+    "useRRRight": "useRRRight", "aptSeq": "aptSeq",
 }
 
 

@@ -4,9 +4,14 @@
 미매핑 apt_seq → Kakao API로 PNU 확보 → 정규 PNU로 등록.
 Kakao 검색 실패 시에만 TRADE_ PNU fallback.
 
+검증:
+  1. 시군구 일치: PNU 앞 5자리와 거래 sgg_cd 비교
+  2. 이름 유사도: 기존 아파트에 매핑 시 거래명과 아파트명 2글자 이상 공통 부분 필요
+
 v2: ThreadPoolExecutor 병렬화 (Phase 1 API / Phase 2 DB 분리)
 """
 
+import re
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -30,6 +35,21 @@ KAKAO_ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 
 MAX_RETRIES = 2
 RETRY_BACKOFFS = [1, 2]
+
+
+def _names_overlap(trade_nm: str, bld_nm: str) -> bool:
+    """거래명과 아파트명에 2글자 이상 공통 부분 문자열이 있는지 확인."""
+    a = re.sub(r"[\s\-·()（）,.\d]", "", trade_nm or "").lower()
+    b = re.sub(r"[\s\-·()（）,.\d]", "", bld_nm or "").lower()
+    if not a or not b:
+        return True  # 판단 불가 → 정상 취급
+    if a in b or b in a:
+        return True
+    for i in range(len(a)):
+        for length in range(2, len(a) - i + 1):
+            if a[i:i + length] in b:
+                return True
+    return False
 
 
 # ── Rate Limiter ──
@@ -301,15 +321,25 @@ def enrich_new_apartments(conn, logger):
         region = f"{r['extra']} {r['name']}" if r["extra"] and r["extra"] != r["name"] else r["name"]
         sgg_map[r["code"]] = region
 
-    # 미매핑 apt_seq 조회
+    # 미매핑 apt_seq 조회 (PNU 조합용 필드 포함)
     unmapped = query_all(conn, """
-        SELECT DISTINCT t.apt_seq, t.sgg_cd, t.apt_nm
-        FROM trade_history t
-        WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
-        UNION
-        SELECT DISTINCT r.apt_seq, r.sgg_cd, r.apt_nm
-        FROM rent_history r
-        WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
+        SELECT DISTINCT ON (apt_seq) apt_seq, sgg_cd, apt_nm, umd_cd, bonbun, bubun, land_cd, umd_nm
+        FROM (
+            SELECT t.apt_seq, t.sgg_cd, t.apt_nm, t.umd_cd, t.bonbun, t.bubun, t.land_cd, t.umd_nm
+            FROM trade_history t
+            WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
+              AND t.umd_cd IS NOT NULL
+            UNION ALL
+            SELECT t.apt_seq, t.sgg_cd, t.apt_nm, t.umd_cd, t.bonbun, t.bubun, t.land_cd, t.umd_nm
+            FROM trade_history t
+            WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
+              AND t.umd_cd IS NULL
+            UNION ALL
+            SELECT r.apt_seq, r.sgg_cd, r.apt_nm, NULL, NULL, NULL, NULL, r.umd_nm
+            FROM rent_history r
+            WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
+        ) sub
+        ORDER BY apt_seq, umd_cd NULLS LAST
     """)
 
     if not unmapped:
@@ -318,15 +348,58 @@ def enrich_new_apartments(conn, logger):
 
     logger.info(f"  미매핑 apt_seq {len(unmapped)}건 처리 시작 (workers={ENRICH_WORKERS})")
 
-    # 기존 PNU 사전 로드 (Phase 1에서 read-only)
-    existing_pnus = set(r["pnu"] for r in query_all(conn, "SELECT pnu FROM apartments"))
+    # 기존 PNU + 이름 사전 로드 (Phase 1에서 read-only, Phase 2에서 이름 유사도 검증)
+    apt_rows = query_all(conn, "SELECT pnu, bld_nm FROM apartments")
+    existing_pnus = set(r["pnu"] for r in apt_rows)
+    existing_names = {r["pnu"]: r["bld_nm"] or "" for r in apt_rows}
+
+    # ── Phase 0: PNU 직접 조합으로 매핑 (API 호출 불필요) ──
+    cur = conn.cursor()
+    pnu_direct_matched = 0
+    pnu_direct_created = 0
+    remaining_unmapped = []
+    new_pnus = []
+    created_pnus = set()
+
+    for row in unmapped:
+        sgg_cd = str(row["sgg_cd"])[:5]
+        apt_nm = str(row["apt_nm"])
+        umd_cd = row.get("umd_cd") or ""
+        bonbun = (row.get("bonbun") or "").strip()
+        bubun = (row.get("bubun") or "").strip()
+        land_cd = (row.get("land_cd") or "0").strip()
+
+        if umd_cd and bonbun:
+            pnu = f"{sgg_cd}{umd_cd}{land_cd}{bonbun.zfill(4)}{(bubun or '0').zfill(4)}"
+            if len(pnu) == 19 and (pnu in existing_pnus or pnu in created_pnus):
+                existing_name = existing_names.get(pnu, "")
+                if not existing_name or _names_overlap(apt_nm, existing_name):
+                    cur.execute(
+                        "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
+                        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
+                        [row["apt_seq"], pnu, apt_nm, sgg_cd, "pnu_direct"],
+                    )
+                    pnu_direct_matched += 1
+                    continue
+
+        remaining_unmapped.append(row)
+
+    conn.commit()
+    if pnu_direct_matched:
+        logger.info(f"  Phase 0: PNU 직접 매핑 {pnu_direct_matched}건 (나머지 {len(remaining_unmapped)}건 → Kakao API)")
+
+    unmapped = remaining_unmapped
+
+    if not unmapped:
+        logger.info("  모든 미매핑 건이 PNU 직접 매핑으로 처리됨")
+        return pnu_direct_matched, new_pnus
 
     # Rate limiters
     kakao_limiter = RateLimiter(KAKAO_RATE)
     data_go_limiter = RateLimiter(DATA_GO_KR_RATE)
 
     # ── Phase 1: 병렬 API 호출 ──
-    logger.info(f"  Phase 1: API 병렬 호출 시작")
+    logger.info(f"  Phase 1: API 병렬 호출 시작 ({len(unmapped)}건)")
     results = []
 
     with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as executor:
@@ -359,12 +432,9 @@ def enrich_new_apartments(conn, logger):
     logger.info(f"  Phase 1 완료: {len(results)}건 API 호출 완료")
 
     # ── Phase 2: 순차 DB 기록 ──
-    cur = conn.cursor()
     created = 0
     matched = 0
     fallback = 0
-    new_pnus = []
-    created_pnus = set()  # 배치 내 중복 방지
 
     for idx, r in enumerate(results):
         if (idx + 1) % 200 == 0:
@@ -377,11 +447,35 @@ def enrich_new_apartments(conn, logger):
         real_pnu = r["pnu"]
 
         if real_pnu:
-            if real_pnu in existing_pnus or real_pnu in created_pnus:
-                # 기존 아파트 또는 이번 배치에서 이미 생성
-                pnu = real_pnu
-                method = "kakao_pnu_existing"
-                matched += 1
+            # PNU 앞 5자리(sigungu_code)와 거래 sgg_cd 일치 확인
+            pnu_sgg = real_pnu[:5]
+            if pnu_sgg != sgg_cd:
+                # 시군구 불일치 → Kakao가 동명 다른 지역 아파트를 반환
+                pnu = f"TRADE_{sgg_cd}_{apt_nm}"
+                method = "trade_fallback_sgg_mismatch"
+                cur.execute(
+                    "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                    [pnu, apt_nm, sgg_cd, pnu, r["lat"], r["lng"], r["new_plat"], r["plat"]],
+                )
+                fallback += 1
+            elif real_pnu in existing_pnus or real_pnu in created_pnus:
+                # 기존 아파트 + 시군구 일치 → 이름 유사도 검증
+                existing_name = existing_names.get(real_pnu, "")
+                if existing_name and not _names_overlap(apt_nm, existing_name):
+                    # 이름 불일치 → Kakao가 인근 다른 아파트를 반환
+                    pnu = f"TRADE_{sgg_cd}_{apt_nm}"
+                    method = "trade_fallback_name_mismatch"
+                    cur.execute(
+                        "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                        [pnu, apt_nm, sgg_cd, pnu, r["lat"], r["lng"], r["new_plat"], r["plat"]],
+                    )
+                    fallback += 1
+                else:
+                    pnu = real_pnu
+                    method = "kakao_pnu_existing"
+                    matched += 1
             else:
                 # 신규 등록
                 pnu = real_pnu
@@ -430,6 +524,6 @@ def enrich_new_apartments(conn, logger):
         )
 
     conn.commit()
-    logger.info(f"  아파트 보충 완료: 신규={created}, 기존매칭={matched}, fallback={fallback}")
+    logger.info(f"  아파트 보충 완료: PNU직접={pnu_direct_matched}, 신규={created}, 기존매칭={matched}, fallback={fallback}")
 
-    return created + matched, new_pnus
+    return pnu_direct_matched + created + matched, new_pnus

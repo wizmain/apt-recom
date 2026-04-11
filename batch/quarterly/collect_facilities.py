@@ -1,18 +1,44 @@
-"""시설 데이터 수집 (변동 잦은 6종: 병원, CCTV, 편의점, 약국, 대형마트, 동물병원)."""
+"""시설 데이터 수집 (9종: 병원, CCTV, 편의점, 약국, 대형마트, 동물병원, 가로등, 보안등, 어린이보호구역).
+
+region 옵션으로 수집 지역을 지정:
+  - "metro": 수도권 (서울/경기/인천) — 기존 동작
+  - "all": 전국 (필터 없이 전체 수집)
+  - "부산", "광주" 등: 특정 시도만
+"""
 
 import hashlib
 import time
 import requests
 import xml.etree.ElementTree as ET
 
-from batch.config import DATA_GO_KR_API_KEY, DATA_GO_KR_RATE, METRO_SIDO_PREFIXES
+from batch.config import DATA_GO_KR_API_SECONDARY_KEY, DATA_GO_KR_RATE
+
+# 짧은 이름 → 주소 접두어 매핑 (튜플: 신/구 명칭 모두 매칭)
+# 전북: "전북특별자치도" + 구 명칭 "전라북도" 모두 매칭 필요
+# 강원: "강원"은 "강원도"/"강원특별자치도" 양쪽 다 매칭되므로 단일값 OK
+SIDO_SHORT_TO_PREFIXES = {
+    "서울": ("서울",), "부산": ("부산",), "대구": ("대구",), "인천": ("인천",),
+    "광주": ("광주",), "대전": ("대전",), "울산": ("울산",), "세종": ("세종",),
+    "경기": ("경기",), "강원": ("강원",),
+    "충북": ("충청북", "충북"), "충남": ("충청남", "충남"),
+    "전북": ("전북", "전라북"), "전남": ("전라남", "전남"),
+    "경북": ("경상북", "경북"), "경남": ("경상남", "경남"),
+    "제주": ("제주",),
+}
 
 NUM_OF_ROWS = 1000
 
 
+def _get_prefixes(region):
+    """region 문자열을 주소 매칭용 접두어 튜플로 변환."""
+    if region == "metro":
+        return ("서울", "경기", "인천")
+    return SIDO_SHORT_TO_PREFIXES.get(region, (region,))
+
+
 def _fetch_page(api_url, page, extra_params=None):
     params = {
-        "serviceKey": DATA_GO_KR_API_KEY,
+        "serviceKey": DATA_GO_KR_API_SECONDARY_KEY,
         "pageNo": str(page),
         "numOfRows": str(NUM_OF_ROWS),
         "type": "xml",
@@ -34,7 +60,7 @@ def _fetch_page(api_url, page, extra_params=None):
 
 
 def _collect_via_api(api_url, label, extra_params=None):
-    """data.go.kr API 페이지네이션 수집."""
+    """data.go.kr XML API 페이지네이션 수집."""
     items, total = _fetch_page(api_url, 1, extra_params)
     if total == 0:
         return []
@@ -49,14 +75,56 @@ def _collect_via_api(api_url, label, extra_params=None):
     return all_items
 
 
-def _filter_metro(items, addr_keys=("rdnmadr", "lnmadr")):
-    """수도권 필터 (주소에서 시도 코드 확인)."""
-    metro_prefixes = ("서울", "경기", "인천")
+def _fetch_json_page(api_url, page, per_page=100):
+    """JSON API 단일 페이지 호출."""
+    try:
+        resp = requests.get(api_url, params={
+            "serviceKey": DATA_GO_KR_API_KEY,
+            "pageNo": str(page),
+            "numOfRows": str(per_page),
+            "type": "JSON",
+        }, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        body = data["response"]["body"]
+        total = int(body.get("totalCount", 0))
+        items = body.get("items", {}).get("item", [])
+        return items, total
+    except Exception:
+        return [], 0
+
+
+def _collect_via_json_api(api_url, label, per_page=100):
+    """data.go.kr JSON API 페이지네이션 수집."""
+    items, total = _fetch_json_page(api_url, 1, per_page)
+    if total == 0:
+        return []
+    all_items = list(items)
+    total_pages = (total + per_page - 1) // per_page
+    for page in range(2, total_pages + 1):
+        page_items, _ = _fetch_json_page(api_url, page, per_page)
+        all_items.extend(page_items)
+        time.sleep(DATA_GO_KR_RATE)
+        if page % 500 == 0:
+            print(f"  {label}: {page:,}/{total_pages:,} pages ({len(all_items):,} rows)")
+    return all_items
+
+
+def _filter_region(items, addr_keys=("rdnmadr", "lnmadr"), region="metro"):
+    """지역 필터.
+
+    region="metro": 서울/경기/인천 (기존 동작)
+    region="all": 필터 스킵 (전국)
+    region="부산" 등: 해당 시도만
+    """
+    if region == "all":
+        return items
+    prefixes = _get_prefixes(region)
     result = []
     for item in items:
         for key in addr_keys:
             addr = item.get(key, "")
-            if any(addr.startswith(p) for p in metro_prefixes):
+            if any(addr.startswith(p) for p in prefixes):
                 result.append(item)
                 break
     return result
@@ -94,8 +162,8 @@ def _to_facility_row(item, ftype, fsubtype, code_prefix, idx,
     }
 
 
-def collect_all_facilities(logger, dry_run=False):
-    """변동 잦은 6종 시설 수집."""
+def collect_all_facilities(logger, dry_run=False, region="metro"):
+    """9종 시설 수집. region으로 수집 지역 지정."""
     all_rows = []
 
     # 1. 병원
@@ -105,7 +173,7 @@ def collect_all_facilities(logger, dry_run=False):
             "http://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList",
             "병원", {"sidoCd": ""}
         )
-        items = _filter_metro(items, ("addr",))
+        items = _filter_region(items, ("addr",), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "medical", "hospital", "HSP", idx,
@@ -117,17 +185,18 @@ def collect_all_facilities(logger, dry_run=False):
     except Exception as e:
         logger.error(f"  병원 수집 실패: {e}")
 
-    # 2. CCTV
+    # 2. CCTV (행안부 CCTV 통합관제 API — JSON, 페이지당 100건 제한)
     logger.info("CCTV 수집 중...")
     try:
-        items = _collect_via_api(
-            "http://api.data.go.kr/openapi/tn_pubr_public_cctv_api", "CCTV"
+        items = _collect_via_json_api(
+            "http://apis.data.go.kr/1741000/cctv_info/info", "CCTV", per_page=100
         )
-        items = _filter_metro(items, ("rdnmadr", "lnmadr"))
+        items = _filter_region(items, ("LCTN_LOTNO_ADDR", "LCTN_ROAD_NM_ADDR"), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "safety", "cctv", "CTV", idx,
-                                   name_key="institutionNm")
+                                   name_key="MNG_INST_NM", lat_key="WGS84_LAT",
+                                   lng_key="WGS84_LOT", addr_key="LCTN_LOTNO_ADDR")
             if row:
                 all_rows.append(row)
                 idx += 1
@@ -142,7 +211,7 @@ def collect_all_facilities(logger, dry_run=False):
             "http://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong",
             "편의점", {"indsMclsCd": "Q12"}
         )
-        items = _filter_metro(items, ("roadNmAddr", "jibunAddr"))
+        items = _filter_region(items, ("roadNmAddr", "jibunAddr"), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "living", "convenience_store", "CVS", idx,
@@ -162,7 +231,7 @@ def collect_all_facilities(logger, dry_run=False):
             "http://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong",
             "약국", {"indsMclsCd": "Q01"}
         )
-        items = _filter_metro(items, ("roadNmAddr", "jibunAddr"))
+        items = _filter_region(items, ("roadNmAddr", "jibunAddr"), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "living", "pharmacy", "PHR", idx,
@@ -181,7 +250,7 @@ def collect_all_facilities(logger, dry_run=False):
         items = _collect_via_api(
             "http://api.data.go.kr/openapi/tn_pubr_public_lrgscl_stlmnt_api", "대형마트"
         )
-        items = _filter_metro(items)
+        items = _filter_region(items, region=region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "commerce", "mart", "MRT", idx,
@@ -200,7 +269,7 @@ def collect_all_facilities(logger, dry_run=False):
             "http://apis.data.go.kr/1543061/animalHospService/getAnimalHospList",
             "동물병원"
         )
-        items = _filter_metro(items, ("roadNmAddr", "jibunAddr"))
+        items = _filter_region(items, ("roadNmAddr", "jibunAddr"), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "medical", "animal_hospital", "AHP", idx,
@@ -219,7 +288,7 @@ def collect_all_facilities(logger, dry_run=False):
         items = _collect_via_api(
             "http://api.data.go.kr/openapi/tn_pubr_public_strplgc_api", "가로등"
         )
-        items = _filter_metro(items, ("rdnmadr", "lnmadr"))
+        items = _filter_region(items, ("rdnmadr", "lnmadr"), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "safety", "streetlight", "STL", idx,
@@ -237,7 +306,7 @@ def collect_all_facilities(logger, dry_run=False):
         items = _collect_via_api(
             "http://api.data.go.kr/openapi/tn_pubr_public_securitylamp_api", "보안등"
         )
-        items = _filter_metro(items, ("rdnmadr", "lnmadr"))
+        items = _filter_region(items, ("rdnmadr", "lnmadr"), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "safety", "security_light", "SCL", idx,
@@ -255,7 +324,7 @@ def collect_all_facilities(logger, dry_run=False):
         items = _collect_via_api(
             "http://api.data.go.kr/openapi/tn_pubr_public_child_safety_zone_api", "어린이보호구역"
         )
-        items = _filter_metro(items, ("rdnmadr", "lnmadr"))
+        items = _filter_region(items, ("rdnmadr", "lnmadr"), region)
         idx = 1
         for item in items:
             row = _to_facility_row(item, "safety", "child_zone", "CZN", idx,

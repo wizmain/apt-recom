@@ -639,7 +639,7 @@ function TabFacilities({ detail }: { detail: ApartmentDetail | null }) {
               {facilityLabels[subtype] ?? subtype}
             </p>
             <p className="text-sm font-semibold text-gray-800">
-              최근접 {Math.round(data.nearest_distance_m)}m
+              {data.nearest_distance_m >= 5000 ? '최근접 없음' : `최근접 ${Math.round(data.nearest_distance_m)}m`}
             </p>
             <div className="flex gap-3 mt-1 text-xs text-gray-500">
               <span>1km: {data.count_1km}개</span>
@@ -995,6 +995,7 @@ interface RegionalGrades {
   fire: number;
   crime: number;
   living_safety: number;
+  region_name?: string;
 }
 
 interface KaptSecurity {
@@ -1159,7 +1160,7 @@ function TabSafety({ safety }: { safety?: SafetyData | null }) {
       {/* 지역 안전 등급 (행안부) */}
       {safety.regional_grades && (
         <div>
-          <h3 className="text-sm font-bold text-gray-700 mb-3">지역 안전 등급</h3>
+          <h3 className="text-sm font-bold text-gray-700 mb-3">지역 안전 등급 {safety.regional_grades.region_name && <span className="font-normal text-gray-500">({safety.regional_grades.region_name})</span>}</h3>
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <div className="space-y-3">
               {[

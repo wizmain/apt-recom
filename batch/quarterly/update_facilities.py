@@ -1,10 +1,15 @@
-"""facilities 테이블 갱신 (subtype별 DELETE → INSERT)."""
+"""facilities 테이블 갱신 (subtype별 DELETE → INSERT).
+
+region-aware: 특정 시도 수집 시 해당 시도 데이터만 DELETE하여
+다른 지역 데이터를 보존.
+"""
 
 import psycopg2.extras
 from batch.db import query_all
+from batch.quarterly.collect_facilities import _get_prefixes
 
 
-def update_facilities(conn, facility_rows, logger):
+def update_facilities(conn, facility_rows, logger, region="metro"):
     """시설 데이터 갱신: subtype별 기존 삭제 → 신규 INSERT.
 
     facility_id가 비즈니스 키(좌표+이름 해시) 기반이므로
@@ -25,8 +30,16 @@ def update_facilities(conn, facility_rows, logger):
     for st, cnt in subtype_counts.items():
         if cnt > 0:
             subtypes.add(st)
-            cur.execute("DELETE FROM facilities WHERE facility_subtype = %s", [st])
-            logger.info(f"  {st}: 기존 삭제 → {cnt}건 신규 적재 예정")
+            if region == "all":
+                cur.execute("DELETE FROM facilities WHERE facility_subtype = %s", [st])
+            else:
+                prefixes = _get_prefixes(region)
+                conditions = " OR ".join(["address LIKE %s"] * len(prefixes))
+                cur.execute(
+                    f"DELETE FROM facilities WHERE facility_subtype = %s AND ({conditions})",
+                    [st] + [f"{p}%" for p in prefixes],
+                )
+            logger.info(f"  {st}: 기존 삭제 (region={region}) → {cnt}건 신규 적재 예정")
     conn.commit()
 
     # 수집 0건인 subtype은 건드리지 않음 (API 실패 시 기존 데이터 보존)

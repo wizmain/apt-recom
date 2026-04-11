@@ -78,12 +78,20 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             new_rows.append((
                 apt_seq, sgg, apt_nm, amount,
                 _to_float(r.get("excluUseAr")), _to_int(r.get("floor")),
-                dy, dm, dd, _to_int(r.get("buildYear"))
+                dy, dm, dd, _to_int(r.get("buildYear")),
+                r.get("umdNm") or None, r.get("umdCd") or None,
+                r.get("jibun") or None, r.get("bonbun") or None,
+                r.get("bubun") or None, r.get("landCd") or None,
+                r.get("roadNm") or None, r.get("roadNmBonbun") or None,
+                r.get("roadNmBubun") or None, r.get("aptDong") or None,
+                r.get("buyerGbn") or None, r.get("dealingGbn") or None,
+                r.get("rgstDate") or None, r.get("aptSeq") or None,
             ))
 
         if new_rows:
             cnt = execute_values_chunked(conn,
-                "INSERT INTO trade_history (apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year) VALUES %s"
+                "INSERT INTO trade_history (apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year,"
+                " umd_nm, umd_cd, jibun, bonbun, bubun, land_cd, road_nm, road_nm_bonbun, road_nm_bubun, apt_dong, buyer_gbn, dealing_gbn, rgst_date, api_apt_seq) VALUES %s"
                 " ON CONFLICT (sgg_cd, apt_nm, exclu_use_ar, floor, deal_year, deal_month, deal_day, deal_amount) DO NOTHING",
                 new_rows)
             total_inserted += cnt
@@ -134,12 +142,20 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             new_rows.append((
                 apt_seq, sgg, apt_nm, deposit, monthly_rent,
                 _to_float(r.get("excluUseAr")), _to_int(r.get("floor")),
-                dy, dm, dd
+                dy, dm, dd,
+                r.get("umdNm") or None, r.get("jibun") or None,
+                r.get("roadNm") or None, r.get("roadNmBonbun") or None,
+                r.get("roadNmBubun") or None, r.get("contractType") or None,
+                r.get("contractTerm") or None,
+                _clean_amount(r.get("preDeposit")),
+                _clean_amount(r.get("preMonthlyRent")),
+                r.get("useRRRight") or None, r.get("aptSeq") or None,
             ))
 
         if new_rows:
             cnt = execute_values_chunked(conn,
-                "INSERT INTO rent_history (apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day) VALUES %s"
+                "INSERT INTO rent_history (apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day,"
+                " umd_nm, jibun, road_nm, road_nm_bonbun, road_nm_bubun, contract_type, contract_term, pre_deposit, pre_monthly_rent, use_rr_right, api_apt_seq) VALUES %s"
                 " ON CONFLICT (sgg_cd, apt_nm, exclu_use_ar, floor, deal_year, deal_month, deal_day, deposit) DO NOTHING",
                 new_rows)
             total_inserted += cnt
