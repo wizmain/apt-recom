@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from database import DictConnection
 from services.scoring import (
     get_nudge_weights,
+    get_region_profile,
     facility_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
@@ -152,13 +153,20 @@ def nudge_score(req: NudgeScoreRequest):
             summary_rows.extend(conn.execute(sql, chunk + list(all_subtypes)).fetchall())
 
         # 4. Build per-apartment facility scores (거리 70% + 밀도 30% 블렌딩)
+        pnu_profiles = {
+            pnu: get_region_profile(apt_map[pnu].get("sigungu_code"))
+            for pnu in pnu_list
+        }
         apt_facility_scores: dict[str, dict[str, float]] = {}
         for row in summary_rows:
             pnu = row["pnu"]
             if pnu not in apt_facility_scores:
                 apt_facility_scores[pnu] = {}
             apt_facility_scores[pnu][row["facility_subtype"]] = facility_score(
-                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
+                row["nearest_distance_m"],
+                row["count_1km"],
+                row["facility_subtype"],
+                profile=pnu_profiles.get(pnu, "metro"),
             )
 
         # 4b. Price scores

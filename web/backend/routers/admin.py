@@ -28,6 +28,15 @@ from services.mgmt_cost_parser import (
 )
 from services.scoring import get_max_distances, get_nudge_weights, invalidate_cache
 
+# 캐시 무효화 대상 common_code 그룹
+_SCORING_GROUPS = {
+    "nudge_weight", "facility_distance", "facility_max_distance",
+    "region_profile",
+    "facility_decay_metro", "facility_decay_major_city", "facility_decay_provincial",
+    "density_factor_metro", "density_factor_major_city", "density_factor_provincial",
+    "facility_distance_metro", "facility_distance_major_city", "facility_distance_provincial",
+}
+
 router = APIRouter(
     prefix="/admin",
     dependencies=[Depends(verify_admin_token)],
@@ -766,7 +775,7 @@ async def update_code(group: str, code: str, req: CodeUpdateRequest):
         logger.info(f"Admin: code updated {group}/{code}")
 
         # 가중치/거리기준 관련 그룹이면 캐시 무효화
-        if group in ("nudge_weight", "facility_distance", "facility_max_distance"):
+        if group in _SCORING_GROUPS:
             invalidate_cache()
 
         return {"message": f"코드 수정됨: {group}/{code}"}
@@ -795,7 +804,7 @@ async def delete_code(group: str, code: str):
         conn.commit()
         logger.info(f"Admin: code deleted {group}/{code}")
 
-        if group in ("nudge_weight", "facility_distance", "facility_max_distance"):
+        if group in _SCORING_GROUPS:
             invalidate_cache()
 
         return {"message": f"코드 삭제됨: {group}/{code}"}

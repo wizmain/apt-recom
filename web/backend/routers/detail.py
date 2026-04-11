@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from database import DictConnection
 from services.scoring import (
     get_nudge_weights,
+    get_region_profile,
     facility_score,
     calculate_nudge_score,
 )
@@ -38,9 +39,13 @@ def apartment_detail(pnu: str):
             for row in summary_rows
         }
 
+        profile = get_region_profile(basic.get("sigungu_code"))
         facility_scores = {
             row["facility_subtype"]: facility_score(
-                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
+                row["nearest_distance_m"],
+                row["count_1km"],
+                row["facility_subtype"],
+                profile=profile,
             )
             for row in summary_rows
         }

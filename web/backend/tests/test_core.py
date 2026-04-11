@@ -698,6 +698,43 @@ if __name__ == "__main__":
     print("아파트 추천 서비스 통합 테스트")
     print("=" * 60)
 
+    # ---------- 지역 프로필 기반 시설 점수 테스트 ----------
+
+    @test("지역 프로필: 서울은 metro, 부산은 major_city, 제주는 provincial")
+    def test_region_profile():
+        from services.scoring import get_region_profile
+        assert get_region_profile("11215") == "metro"
+        assert get_region_profile("26110") == "major_city"
+        assert get_region_profile("50110") == "provincial"
+        assert get_region_profile(None) == "provincial"
+        assert get_region_profile("") == "provincial"
+
+    @test("지방 지하철 없는 아파트는 subway 중립점수 50점")
+    def test_subway_neutral_nonmetro():
+        from services.scoring import facility_score
+        score_prov = facility_score(None, 0, "subway", profile="provincial")
+        assert score_prov == 50.0, f"expected 50.0, got {score_prov}"
+        score_major = facility_score(None, 0, "subway", profile="major_city")
+        assert score_major == 50.0, f"expected 50.0, got {score_major}"
+        # metro에서는 중립 아님 (기존 동작 유지)
+        score_metro = facility_score(None, 0, "subway", profile="metro")
+        assert score_metro == 0.0, f"expected 0.0, got {score_metro}"
+
+    @test("동일 거리에서 provincial이 metro보다 높은 시설 점수")
+    def test_provincial_higher_score_same_distance():
+        from services.scoring import facility_score
+        metro = facility_score(2000, 1, "mart", profile="metro")
+        provincial = facility_score(2000, 1, "mart", profile="provincial")
+        assert provincial > metro, f"provincial({provincial}) should > metro({metro})"
+
+    @test("프로필 기본값: metro는 기존 동작과 동일")
+    def test_metro_backward_compatible():
+        from services.scoring import facility_score
+        # profile 미지정 시 metro 기본값
+        default_score = facility_score(500, 5, "mart")
+        metro_score = facility_score(500, 5, "mart", profile="metro")
+        assert default_score == metro_score, f"default({default_score}) != metro({metro_score})"
+
     # 모든 테스트 수집
     tests = [v for v in globals().values() if callable(v) and hasattr(v, '_test_name')]
 

@@ -5,6 +5,7 @@ import json
 from database import DictConnection
 from services.scoring import (
     get_nudge_weights,
+    get_region_profile,
     facility_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
@@ -367,14 +368,21 @@ async def search_apartments(
                 ).fetchall()
                 summary_rows.extend(rows)
 
-        # Build facility scores
+        # Build facility scores (프로필별 파라미터 적용)
+        pnu_profiles = {
+            pnu: get_region_profile(apt_map[pnu].get("sigungu_code"))
+            for pnu in pnu_list
+        }
         apt_facility_scores: dict[str, dict[str, float]] = {}
         for row in summary_rows:
             pnu = row["pnu"]
             if pnu not in apt_facility_scores:
                 apt_facility_scores[pnu] = {}
             apt_facility_scores[pnu][row["facility_subtype"]] = facility_score(
-                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
+                row["nearest_distance_m"],
+                row["count_1km"],
+                row["facility_subtype"],
+                profile=pnu_profiles.get(pnu, "metro"),
             )
 
         # Load price scores if needed
@@ -493,9 +501,13 @@ async def get_apartment_detail(query: str) -> str:
             for row in summary_rows
         }
 
+        detail_profile = get_region_profile(apt.get("sigungu_code"))
         facility_scores = {
             row["facility_subtype"]: facility_score(
-                row["nearest_distance_m"], row["count_1km"], row["facility_subtype"]
+                row["nearest_distance_m"],
+                row["count_1km"],
+                row["facility_subtype"],
+                profile=detail_profile,
             )
             for row in summary_rows
         }
