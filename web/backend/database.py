@@ -206,6 +206,9 @@ def create_tables(conn) -> None:
         CREATE TABLE IF NOT EXISTS apt_kapt_info (
             pnu TEXT PRIMARY KEY,
             kapt_code TEXT,
+            kapt_name TEXT,
+            sigungu_code TEXT,
+            -- 기본 정보
             sale_type TEXT,
             heat_type TEXT,
             builder TEXT,
@@ -214,15 +217,66 @@ def create_tables(conn) -> None:
             mgr_type TEXT,
             hall_type TEXT,
             structure TEXT,
+            -- 면적/규모
             total_area DOUBLE PRECISION,
             priv_area DOUBLE PRECISION,
+            mgmt_area DOUBLE PRECISION,
+            ho_cnt INTEGER,
+            dong_cnt INTEGER,
+            top_floor INTEGER,
+            top_floor_official INTEGER,
+            base_floor INTEGER,
+            use_date TEXT,
+            -- 세대 구성
+            sale_ho_cnt INTEGER,
+            rent_ho_cnt INTEGER,
+            rent_public_cnt INTEGER,
+            rent_private_cnt INTEGER,
+            -- 면적 구간별 세대수
+            area_under_60 INTEGER,
+            area_60_85 INTEGER,
+            area_85_135 INTEGER,
+            area_over_135 INTEGER,
+            -- 관리/경비
+            mgmt_company TEXT,
+            general_mgmt_type TEXT,
+            general_mgmt_staff INTEGER,
+            security_type TEXT,
+            security_staff INTEGER,
+            security_company TEXT,
+            -- 주차
             parking_cnt INTEGER,
+            parking_ground INTEGER,
+            parking_underground INTEGER,
+            -- 전기차
+            total_car_cnt INTEGER,
+            ev_car_cnt INTEGER,
+            ev_charger_cnt INTEGER,
+            ev_charger_ground INTEGER,
+            ev_charger_underground INTEGER,
+            ev_parking_ground INTEGER,
+            ev_parking_underground INTEGER,
+            -- 시설/설비
             cctv_cnt INTEGER,
             elevator_cnt INTEGER,
-            ev_charger_cnt INTEGER,
+            elevator_passenger INTEGER,
+            elevator_freight INTEGER,
+            elevator_mixed INTEGER,
+            elevator_disabled INTEGER,
+            elevator_emergency INTEGER,
+            home_network TEXT,
+            welfare TEXT,
+            convenience_facilities TEXT,
+            -- 주소/연락처
+            jibun_addr TEXT,
+            road_addr TEXT,
+            tel TEXT,
+            fax TEXT,
+            homepage TEXT,
+            zipcode TEXT,
+            -- API 보충 (Phase 2)
             subway_info TEXT,
             bus_time TEXT,
-            welfare TEXT,
             updated_at TIMESTAMPTZ DEFAULT NOW()
         );
 

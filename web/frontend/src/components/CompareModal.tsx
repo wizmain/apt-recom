@@ -4,11 +4,12 @@ import { API_BASE } from '../config';
 
 interface Props { pnu1: string; pnu2: string; onClose: () => void; triggerBtnId?: string }
 interface Apt {
-  basic: { pnu: string; bld_nm: string; total_hhld_cnt?: number; dong_count?: number; max_floor?: number; use_apr_day?: string; new_plat_plc?: string };
+  basic: { pnu: string; bld_nm: string; total_hhld_cnt?: number; dong_count?: number; max_floor?: number; use_apr_day?: string; new_plat_plc?: string; price_per_m2?: number };
   scores: Record<string, number>;
   facility_summary: Record<string, { nearest_distance_m: number; count_1km: number }>;
   school: { elementary_school_name?: string; middle_school_zone?: string; high_school_zone?: string } | null;
-  safety?: { safety_score?: number; cctv_count_500m?: number } | null;
+  kapt_info?: { parking_cnt?: number; ev_charger_cnt?: number; cctv_cnt?: number } | null;
+  mgmt_cost?: { months: { cost_per_unit?: number; year_month?: string }[]; region_avg_per_unit?: number } | null;
 }
 
 const NUDGES = [
@@ -152,6 +153,32 @@ export default function CompareModal({ pnu1, pnu2, onClose, triggerBtnId }: Prop
                 </div>
               </div>
 
+              {/* 생활 정보 */}
+              <div>
+                <STitle>생활 정보</STitle>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: '#64748b', fontWeight: 600, fontSize: 12 }}>항목</th>
+                        <th style={{ textAlign: 'center', padding: '6px 8px', color: '#2563eb', fontWeight: 700, fontSize: 12, width: 100 }}>A</th>
+                        <th style={{ textAlign: 'center', padding: '6px 8px', color: '#7c3aed', fontWeight: 700, fontSize: 12, width: 100 }}>B</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lifeRows(a, b).map(r => (
+                        <tr key={r.label} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '7px 8px', color: '#475569' }}>
+                            <div>{r.label}</div>
+                            {r.sub && <div style={{ fontSize: 10, color: '#94a3b8' }}>{r.sub}</div>}
+                          </td>
+                          <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: r.winA ? 700 : 400, color: r.winA ? '#2563eb' : '#94a3b8' }}>{r.va}</td>
+                          <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: r.winB ? 700 : 400, color: r.winB ? '#7c3aed' : '#94a3b8' }}>{r.vb}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+              </div>
+
               {/* 주변 시설 */}
               <div>
                 <STitle>주변 시설</STitle>
@@ -181,25 +208,12 @@ export default function CompareModal({ pnu1, pnu2, onClose, triggerBtnId }: Prop
                 </table>
               </div>
 
-              {/* 학군 + 안전 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* 학군 */}
-                <div>
-                  <STitle>학군</STitle>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12 }}>
-                    <SchBox school={a.school} />
-                    <SchBox school={b.school} />
-                  </div>
-                </div>
-                {/* 안전 */}
-                <div>
-                  <STitle>안전</STitle>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                    <SafeBox s={a.safety?.safety_score ?? 0} c={a.safety?.cctv_count_500m ?? 0}
-                      other={b.safety?.safety_score ?? 0} col="#2563eb" />
-                    <SafeBox s={b.safety?.safety_score ?? 0} c={b.safety?.cctv_count_500m ?? 0}
-                      other={a.safety?.safety_score ?? 0} col="#7c3aed" />
-                  </div>
+              {/* 학군 */}
+              <div>
+                <STitle>학군</STitle>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12 }}>
+                  <SchBox school={a.school} />
+                  <SchBox school={b.school} />
                 </div>
               </div>
 
@@ -238,32 +252,57 @@ function SchBox({ school }: { school: Apt['school'] }) {
   );
 }
 
-function SafeBox({ s, c, other, col }: { s: number; c: number; other: number; col: string }) {
-  const win = s > other;
-  const ring = win ? '#10b981' : col;
-  const r = 18, circ = 2 * Math.PI * r;
-  return (
-    <div style={{
-      background: win ? '#ecfdf5' : '#f8fafc', borderRadius: 8, padding: '10px 10px',
-      display: 'flex', alignItems: 'center', gap: 8,
-      border: win ? '1px solid #a7f3d0' : '1px solid transparent',
-    }}>
-      <svg width="44" height="44" viewBox="0 0 44 44">
-        <circle cx="22" cy="22" r={r} fill="none" stroke="#e2e8f0" strokeWidth="3" />
-        <circle cx="22" cy="22" r={r} fill="none" stroke={ring} strokeWidth="3"
-          strokeDasharray={`${(s / 100) * circ} ${circ}`}
-          strokeLinecap="round" transform="rotate(-90 22 22)" />
-        <text x="22" y="24" textAnchor="middle" fontSize="11" fontWeight="bold"
-          fill={win ? '#059669' : '#64748b'}>{s.toFixed(0)}</text>
-      </svg>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: win ? '#059669' : '#475569' }}>
-          {s.toFixed(1)}{win && ' ✓'}
-        </div>
-        <div style={{ fontSize: 11, color: '#94a3b8' }}>CCTV {c}대</div>
-      </div>
-    </div>
-  );
+function lifeRows(a: Apt, b: Apt) {
+  const costA = a.mgmt_cost?.months?.[0]?.cost_per_unit;
+  const costB = b.mgmt_cost?.months?.[0]?.cost_per_unit;
+  const regionA = a.mgmt_cost?.region_avg_per_unit;
+  const regionB = b.mgmt_cost?.region_avg_per_unit;
+
+  const hhldA = a.basic.total_hhld_cnt || 0;
+  const hhldB = b.basic.total_hhld_cnt || 0;
+  const parkA = a.kapt_info?.parking_cnt;
+  const parkB = b.kapt_info?.parking_cnt;
+  const ratioA = parkA && hhldA ? parkA / hhldA : null;
+  const ratioB = parkB && hhldB ? parkB / hhldB : null;
+
+  const evA = a.kapt_info?.ev_charger_cnt ?? null;
+  const evB = b.kapt_info?.ev_charger_cnt ?? null;
+
+  const priceA = a.basic.price_per_m2;
+  const priceB = b.basic.price_per_m2;
+
+  const fmt = (v: number | null | undefined, suffix: string) => v != null ? `${v.toLocaleString()}${suffix}` : '-';
+  const fmtR = (v: number | null) => v != null ? `${v.toFixed(2)}대` : '-';
+  const fmtP = (v: number | null | undefined) => v != null ? `${Math.round(v / 10000).toLocaleString()}만` : '-';
+
+  return [
+    {
+      label: '관리비',
+      sub: regionA != null || regionB != null
+        ? `지역 중앙값 ${regionA != null ? fmt(regionA, '원') : '-'} / ${regionB != null ? fmt(regionB, '원') : '-'}`
+        : undefined,
+      va: fmt(costA, '원'), vb: fmt(costB, '원'),
+      winA: costA != null && costB != null && costA < costB,
+      winB: costA != null && costB != null && costB < costA,
+    },
+    {
+      label: '주차', sub: '세대당',
+      va: fmtR(ratioA), vb: fmtR(ratioB),
+      winA: ratioA != null && ratioB != null && ratioA > ratioB,
+      winB: ratioA != null && ratioB != null && ratioB > ratioA,
+    },
+    {
+      label: '전기차 충전', sub: undefined,
+      va: evA != null ? `${evA}기` : '-', vb: evB != null ? `${evB}기` : '-',
+      winA: evA != null && evB != null && evA > evB,
+      winB: evA != null && evB != null && evB > evA,
+    },
+    {
+      label: '㎡당 가격', sub: undefined,
+      va: fmtP(priceA), vb: fmtP(priceB),
+      winA: false, winB: false,
+    },
+  ];
 }
 
 function fd(d?: number): string {

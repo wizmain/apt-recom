@@ -72,10 +72,11 @@ function App() {
   }, [selectedNudges]);
 
   const handleAddKeyword = useCallback((keyword: string, label?: string) => {
-    setSearchKeywords(prev => prev.includes(keyword) ? prev : [...prev, keyword]);
-    if (label) setKeywordLabels(prev => ({ ...prev, [keyword]: label }));
+    setSearchKeywords([keyword]);
+    setKeywordLabels(label ? { [keyword]: label } : {});
+    clearKeywords();
     addKeyword(keyword);
-  }, [addKeyword]);
+  }, [addKeyword, clearKeywords]);
 
   const handleRemoveKeyword = useCallback((keyword: string) => {
     setSearchKeywords(prev => {

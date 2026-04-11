@@ -1,7 +1,7 @@
 """가격 점수 재계산 + 신규 거래-아파트 매핑."""
 
 import re
-from batch.db import query_all, execute_values_chunked
+from batch.db import query_all, query_one, execute_values_chunked
 
 
 def _normalize_name(name):
@@ -20,16 +20,34 @@ def _core_name(name):
 
 
 def _update_mapping(conn, logger):
-    """신규 apt_seq에 대해 trade_apt_mapping 추가."""
-    # 미매핑 apt_seq 조회
+    """신규 apt_seq에 대해 trade_apt_mapping 추가.
+
+    매핑 순서: PNU 직접 조합(1순위) → 이름 매칭(2~4순위).
+    """
+    # 미매핑 apt_seq 조회 (주소 필드 포함, umd_cd 있는 건 우선)
     unmapped = query_all(conn, """
-        SELECT DISTINCT t.apt_seq, t.sgg_cd, t.apt_nm
-        FROM trade_history t
-        WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
-        UNION
-        SELECT DISTINCT r.apt_seq, r.sgg_cd, r.apt_nm
-        FROM rent_history r
-        WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
+        SELECT DISTINCT ON (sub.apt_seq)
+               sub.apt_seq, sub.sgg_cd, sub.apt_nm,
+               sub.umd_cd, sub.bonbun, sub.bubun, sub.land_cd
+        FROM (
+            SELECT t.apt_seq, t.sgg_cd, t.apt_nm,
+                   t.umd_cd, t.bonbun, t.bubun, t.land_cd
+            FROM trade_history t
+            WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
+              AND t.umd_cd IS NOT NULL
+            UNION ALL
+            SELECT t.apt_seq, t.sgg_cd, t.apt_nm,
+                   t.umd_cd, t.bonbun, t.bubun, t.land_cd
+            FROM trade_history t
+            WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
+              AND t.umd_cd IS NULL
+            UNION ALL
+            SELECT r.apt_seq, r.sgg_cd, r.apt_nm,
+                   NULL, NULL, NULL, NULL
+            FROM rent_history r
+            WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
+        ) sub
+        ORDER BY sub.apt_seq, sub.umd_cd NULLS LAST
     """)
 
     if not unmapped:
@@ -40,6 +58,7 @@ def _update_mapping(conn, logger):
 
     # 아파트 마스터
     apts = query_all(conn, "SELECT pnu, bld_nm, sigungu_code FROM apartments")
+    existing_pnu_set = set(a["pnu"] for a in apts)
     apt_by_sgg: dict[str, list] = {}
     for a in apts:
         sgg = (a["sigungu_code"] or "")[:5]
@@ -53,6 +72,7 @@ def _update_mapping(conn, logger):
         })
 
     new_mappings = []
+    pnu_direct_cnt = 0
     for row in unmapped:
         sgg = str(row["sgg_cd"])[:5]
         apt_nm = str(row["apt_nm"])
@@ -63,19 +83,33 @@ def _update_mapping(conn, logger):
         matched_pnu = None
         method = None
 
-        # 1. 정확 매칭
-        for c in candidates:
-            if c["norm"] and c["norm"] == norm:
-                matched_pnu, method = c["pnu"], "exact_name"
-                break
+        # 1. PNU 직접 조합 (주소 기반, 가장 정확)
+        # land_cd는 토지용도코드(1=대지)로, PNU의 plat_gb_cd(0=대지,1=산)와 다름.
+        # 아파트는 대부분 대지(0)이므로 "0" 고정.
+        umd_cd = row.get("umd_cd") or ""
+        bonbun = (row.get("bonbun") or "").strip()
+        bubun = (row.get("bubun") or "").strip()
 
-        # 2. 포함 매칭
+        if umd_cd and bonbun:
+            candidate_pnu = f"{sgg}{umd_cd}0{bonbun.zfill(4)}{(bubun or '0').zfill(4)}"
+            if len(candidate_pnu) == 19 and candidate_pnu in existing_pnu_set:
+                matched_pnu, method = candidate_pnu, "pnu_direct"
+                pnu_direct_cnt += 1
+
+        # 2. 정확 매칭
+        if not matched_pnu:
+            for c in candidates:
+                if c["norm"] and c["norm"] == norm:
+                    matched_pnu, method = c["pnu"], "exact_name"
+                    break
+
+        # 3. 포함 매칭
         if not matched_pnu and norm:
             found = [c for c in candidates if c["norm"] and len(min(norm, c["norm"], key=len)) >= 3 and (norm in c["norm"] or c["norm"] in norm)]
             if len(found) == 1:
                 matched_pnu, method = found[0]["pnu"], "contains"
 
-        # 3. 핵심명 매칭
+        # 4. 핵심명 매칭
         if not matched_pnu and core and len(core) >= 2:
             found = [c for c in candidates if c["core"] == core]
             if len(found) == 1:
@@ -88,7 +122,7 @@ def _update_mapping(conn, logger):
         execute_values_chunked(conn,
             "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) VALUES %s ON CONFLICT (apt_seq) DO NOTHING",
             new_mappings)
-        logger.info(f"  신규 매핑 {len(new_mappings):,}건 추가")
+        logger.info(f"  신규 매핑 {len(new_mappings):,}건 추가 (PNU직접={pnu_direct_cnt})")
 
 
 def recalc_price(conn, logger):
@@ -97,17 +131,33 @@ def recalc_price(conn, logger):
 
     cur = conn.cursor()
 
+    # 면적 범위 밖 거래 건수 로깅
+    filtered = query_one(conn, """
+        SELECT COUNT(*) as cnt
+        FROM trade_history t
+        JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
+        JOIN apt_area_info ai ON m.pnu = ai.pnu
+        WHERE t.deal_amount > 0 AND t.exclu_use_ar > 0
+          AND (t.exclu_use_ar < ai.min_area * 0.9
+               OR t.exclu_use_ar > ai.max_area * 1.1)
+    """)
+    logger.info(f"  면적 범위 밖 거래 제외: {filtered['cnt']:,}건")
+
     # 가격 점수 재계산
     cur.execute("DELETE FROM apt_price_score")
 
-    # 아파트별 ㎡당 평균 가격
+    # 아파트별 ㎡당 평균 가격 (면적 범위 검증 포함)
     rows = query_all(conn, """
         SELECT m.pnu, a.sigungu_code,
                AVG(t.deal_amount * 10000.0 / t.exclu_use_ar) as price_per_m2
         FROM trade_history t
         JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
         JOIN apartments a ON m.pnu = a.pnu
+        LEFT JOIN apt_area_info ai ON m.pnu = ai.pnu
         WHERE t.deal_amount > 0 AND t.exclu_use_ar > 0
+          AND (ai.pnu IS NULL
+               OR (t.exclu_use_ar >= ai.min_area * 0.9
+                   AND t.exclu_use_ar <= ai.max_area * 1.1))
         GROUP BY m.pnu, a.sigungu_code
     """)
 
@@ -125,14 +175,21 @@ def recalc_price(conn, logger):
         sgg_avg[sgg].append(r["price_per_m2"])
     sgg_avg = {k: sum(v) / len(v) for k, v in sgg_avg.items()}
 
-    # 전세가율
+    # 전세가율 (면적 범위 검증 포함)
     jeonse_map: dict[str, float] = {}
     jr = query_all(conn, """
         SELECT m.pnu, AVG(r.deposit) as avg_dep, AVG(t.deal_amount) as avg_deal
         FROM rent_history r
         JOIN trade_apt_mapping m ON r.apt_seq = m.apt_seq
         JOIN trade_history t ON t.apt_seq = m.apt_seq AND t.deal_amount > 0
+        LEFT JOIN apt_area_info ai ON m.pnu = ai.pnu
         WHERE r.monthly_rent = 0 AND r.deposit > 0
+          AND (ai.pnu IS NULL
+               OR (t.exclu_use_ar >= ai.min_area * 0.9
+                   AND t.exclu_use_ar <= ai.max_area * 1.1))
+          AND (ai.pnu IS NULL
+               OR (r.exclu_use_ar >= ai.min_area * 0.9
+                   AND r.exclu_use_ar <= ai.max_area * 1.1))
         GROUP BY m.pnu
     """)
     for r in jr:

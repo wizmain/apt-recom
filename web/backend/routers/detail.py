@@ -22,6 +22,16 @@ def apartment_detail(pnu: str):
             raise HTTPException(status_code=404, detail="Apartment not found")
         basic = dict(basic)
 
+        # Area info (전용면적 범위)
+        area_row = conn.execute(
+            "SELECT min_area, max_area, avg_area FROM apt_area_info WHERE pnu = %s",
+            [pnu],
+        ).fetchone()
+        if area_row:
+            basic["min_area"] = area_row["min_area"]
+            basic["max_area"] = area_row["max_area"]
+            basic["avg_area"] = area_row["avg_area"]
+
         # Facility summary
         summary_rows = conn.execute(
             "SELECT facility_subtype, nearest_distance_m, count_1km, count_3km, count_5km "
@@ -52,11 +62,12 @@ def apartment_detail(pnu: str):
 
         # Price/safety scores
         price_row = conn.execute(
-            "SELECT price_score, jeonse_ratio FROM apt_price_score WHERE pnu = %s", [pnu]
+            "SELECT price_score, jeonse_ratio, price_per_m2 FROM apt_price_score WHERE pnu = %s", [pnu]
         ).fetchone()
         if price_row:
             facility_scores["score_price"] = price_row["price_score"] or 50.0
             facility_scores["score_jeonse"] = price_row["jeonse_ratio"] or 50.0
+            basic["price_per_m2"] = price_row["price_per_m2"]
 
         safety_row = None
         try:
