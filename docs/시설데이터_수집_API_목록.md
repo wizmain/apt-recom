@@ -93,9 +93,17 @@
 - **필드 매핑**: `fcltyNm`→name, `latitude`→lat, `longitude`→lng, `rdnmadr`→address
 - **상태**: NO OPENAPI SERVICE ERROR (서비스 중단 또는 미등록)
 
-## 10. 도시공원
+### 10. 도시공원
 - **API**: data.go.kr 전국도시공원정보표준데이터
 - **주소**: https://api.data.go.kr/openapi/tn_pubr_public_cty_park_info_api
+
+### 11. 도서관
+- **API**: data.go.kr 전국도서관표준데이터
+- **주소**: https://api.data.go.kr/openapi/tn_pubr_public_lbrry_api
+
+### 12. 유치원
+- **API**: data.go.kr 전국유치원표준데이터
+- **주소**: https://e-childschoolinfo.moe.go.kr/api/notice/building.do
 
 ## CSV 일괄등록
 
@@ -120,7 +128,13 @@
 - **API**: data.go.kr 전국 반려동물 동반 가능 문화시설 위치 데이터
 - **주소**: https://www.bigdata-culture.kr/bigdata/user/data_market/detail.do?id=3c3d50c0-0337-11ee-a67e-69239d37dfae
 
+### 유치원
+- **API**: data.go.kr 전국유치원표준데이터
+- **주소**: http://e-childschoolinfo.moe.go.kr/openApi/openApiIntro.do?pageName=openApiIntro4
 
+### 전국도시철도역사정보
+- **API**: data.go.kr 전국도시철도역사정보표준데이터
+- **주소**: https://data.kric.go.kr/rips/M_01_01/detail.do?id=32
 
 ## 전국 확장 미완료 시설 (수도권만 존재)
 
