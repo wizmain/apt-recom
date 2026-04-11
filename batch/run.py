@@ -155,13 +155,31 @@ def run_mgmt_cost(args, logger, result):
         conn.close()
 
 
+def run_backfill(args, logger, result):
+    from batch.trade.backfill_trades import backfill_trades
+
+    conn = get_connection()
+    try:
+        t0 = time.time()
+        max_calls = getattr(args, "max_calls", 900)
+        updated = backfill_trades(conn, logger, max_calls=max_calls, dry_run=args.dry_run)
+        result.record("거래 백필", "success", rows=updated, duration=time.time() - t0)
+    except Exception as e:
+        logger.error(f"백필 배치 실패: {e}")
+        result.record("백필 배치", "critical", error=str(e))
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="집토리 배치 데이터 수집/갱신")
-    parser.add_argument("--type", choices=["trade", "quarterly", "annual", "mgmt_cost"], required=True,
-                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비)")
+    parser.add_argument("--type", choices=["trade", "quarterly", "annual", "mgmt_cost", "backfill"], required=True,
+                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비), backfill(거래 백필)")
     parser.add_argument("--dry-run", action="store_true", help="수집만 하고 DB 적재 생략")
     parser.add_argument("--region", default="metro",
                         help="시설 수집 지역 (metro/all/시도명). quarterly 전용")
+    parser.add_argument("--max-calls", type=int, default=900,
+                        help="백필 최대 API 호출 수. backfill 전용")
     args = parser.parse_args()
 
     logger = setup_logger()
@@ -177,6 +195,8 @@ def main():
         run_annual(args, logger, result)
     elif args.type == "mgmt_cost":
         run_mgmt_cost(args, logger, result)
+    elif args.type == "backfill":
+        run_backfill(args, logger, result)
 
     result.summary(logger)
     sys.exit(result.exit_code())
