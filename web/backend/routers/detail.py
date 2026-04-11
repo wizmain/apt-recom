@@ -188,8 +188,11 @@ def apartment_detail(pnu: str):
             regional_grades = None
             if sigungu:
                 si_row = conn.execute(
-                    "SELECT traffic_grade, fire_grade, crime_grade, living_safety_grade "
-                    "FROM sigungu_safety_index WHERE sigungu_code = %s", [sigungu]
+                    "SELECT s.traffic_grade, s.fire_grade, s.crime_grade, s.living_safety_grade, "
+                    "c.extra || ' ' || c.name AS region_name "
+                    "FROM sigungu_safety_index s "
+                    "LEFT JOIN common_code c ON c.group_id = 'sigungu' AND c.code = %s "
+                    "WHERE s.sigungu_code = %s", [sigungu, sigungu]
                 ).fetchone()
                 if si_row:
                     regional_grades = {
@@ -197,6 +200,7 @@ def apartment_detail(pnu: str):
                         "fire": si_row["fire_grade"],
                         "crime": si_row["crime_grade"],
                         "living_safety": si_row["living_safety_grade"],
+                        "region_name": si_row["region_name"],
                     }
 
             # K-APT 단지 보안 현황

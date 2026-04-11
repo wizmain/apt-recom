@@ -91,9 +91,10 @@ def _split_compound(conn, tokens: list[str]) -> tuple[list[str], str, str, str |
             "AND (name LIKE %s OR extra || name LIKE %s OR extra || name LIKE %s)",
             [rp, rp, rp_norm],
         ).fetchall()
-        if rows and len(rows) <= 5:  # 매칭이 너무 많으면(시도명 단독) 건너뜀
+        name_part = " ".join(tokens[split_at:]) or None
+        max_matches = 30 if name_part else 5
+        if rows and len(rows) <= max_matches:
             label = f"{rows[0]['extra']} {rows[0]['name']}"
-            name_part = " ".join(tokens[split_at:]) or None
             return [r["code"] for r in rows], "sigungu", label, name_part
 
     return [], "", "", None
@@ -157,6 +158,21 @@ def _fetch_region(conn, codes: list[str], region_type: str, label: str) -> list[
                  "region_label": emd_labels.get(r.get("bjd_code", ""), label)} for r in rows]
 
     return []
+
+
+def _fetch_region_with_name(conn, codes: list[str], region_type: str, label: str, keyword: str) -> list[dict]:
+    """지역 코드 + 단지명으로 아파트 조회."""
+    ph = ",".join(["%s"] * len(codes))
+    norm = re.sub(r"[\s()\-·]", "", keyword)
+    code_col = "sigungu_code" if region_type == "sigungu" else "bjd_code"
+
+    rows = conn.execute(f"""
+        SELECT {APT_COLS} FROM apartments
+        WHERE {APT_BASE_FILTER} AND {code_col} IN ({ph})
+          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s)
+        LIMIT 100
+    """, [*codes, f"%{keyword}%", f"%{norm}%"]).fetchall()
+    return [{**dict(r), "match_type": "name", "region_label": label} for r in rows]
 
 
 def _fetch_name(conn, keyword: str) -> list[dict]:
@@ -225,20 +241,13 @@ def search(conn, query: str) -> dict:
     results: list[dict] = []
     region_pnus: set[str] = set()
 
-    # 지역 매칭 결과
-    if codes:
+    # 지역+단지명 동시 존재 → SQL에서 함께 필터
+    if codes and name_kw:
+        results = _fetch_region_with_name(conn, codes, rtype, label, name_kw)
+    elif codes:
         results = _fetch_region(conn, codes, rtype, label)
-        region_pnus = {r["pnu"] for r in results}
-
-    # 단지명 필터 또는 단독 검색
-    if name_kw:
-        if region_pnus:
-            results = [r for r in results if name_kw in (r.get("bld_nm") or "")]
-        else:
-            name_results = _fetch_name(conn, name_kw)
-            for r in name_results:
-                if r["pnu"] not in region_pnus:
-                    results.append(r)
+    elif name_kw:
+        results = _fetch_name(conn, name_kw)
 
     # fallback (지역도 단지명도 매칭 안 된 경우)
     if not results and not name_kw:
