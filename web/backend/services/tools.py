@@ -150,7 +150,12 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     Tool(
         name="search_commute",
-        description="아파트에서 목적지까지 대중교통 출퇴근 시간을 조회합니다. ODSay API를 사용하여 지하철/버스 경로, 소요시간, 환승횟수, 요금을 반환합니다.",
+        description=(
+            "아파트에서 목적지까지 대중교통 출퇴근 시간을 조회합니다. "
+            "ODSay API를 사용하여 지하철/버스 경로, 소요시간, 환승횟수, 요금을 반환합니다. "
+            "선행 조건: `pnu`는 `get_apartment_detail` 결과의 `basic.pnu`에서 가져옵니다. "
+            "사용자가 아파트 이름만 제공한 경우 이 도구를 호출하기 전에 먼저 `get_apartment_detail`을 호출해 PNU를 얻으세요."
+        ),
         parameters={
             "type": "object",
             "properties": {
@@ -470,12 +475,15 @@ async def get_apartment_detail(query: str) -> str:
         # Try PNU first
         apt = conn.execute("SELECT * FROM apartments WHERE pnu = %s", [query]).fetchone()
         if not apt:
-            # Search by name (original + normalized)
+            # Search by name (원본 + 공백/특수문자 제거 + 접미사 제거 3가지로 매칭)
             import re as _re2
+            from services.search_engine import normalize_apt_name
             norm_q = _re2.sub(r'[\s()\-·]', '', query)
+            norm_stripped = normalize_apt_name(query)
             rows = conn.execute(
-                "SELECT * FROM apartments WHERE pnu NOT LIKE 'TRADE_%%' AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 5",
-                [f"%{query}%", f"%{norm_q}%"],
+                "SELECT * FROM apartments WHERE pnu NOT LIKE 'TRADE_%%' "
+                "AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 5",
+                [f"%{query}%", f"%{norm_q}%", f"%{norm_stripped}%"],
             ).fetchall()
             if not rows:
                 return json.dumps(

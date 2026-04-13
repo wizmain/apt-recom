@@ -10,6 +10,19 @@ APT_COLS = "pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc"
 APT_BASE_FILTER = "pnu NOT LIKE 'TRADE_%%' AND lat IS NOT NULL AND total_hhld_cnt > 0 AND use_apr_day IS NOT NULL AND use_apr_day != ''"
 _STRIP_SIDO = re.compile(r"(특별자치도|광역시|특별시|특별자치시)")
 _STRIP_SUFFIX = re.compile(r"[시도구군읍면동 ]")
+# 단지명 검색 시 사용자가 붙이는 접미사 — 정규화 대상
+_NAME_TRAILING_SUFFIX = re.compile(r"(아파트|단지)$")
+
+
+def normalize_apt_name(name: str) -> str:
+    """단지명 정규화: 공백/특수문자 제거 + 끝의 '아파트'/'단지' 접미사 제거.
+
+    - DB의 bld_nm_norm 은 접미사가 제거된 경우와 포함된 경우가 혼재함
+    - 사용자 입력은 "대원캐슬빌 아파트"처럼 접미사를 붙이는 경향이 있어
+      양쪽 모두 매칭되도록 접미사 제거 버전도 별도로 생성해 함께 검색해야 함.
+    """
+    norm = re.sub(r"[\s()\-·]", "", name)
+    return _NAME_TRAILING_SUFFIX.sub("", norm)
 
 
 # ── 매칭 함수 ──
@@ -172,26 +185,28 @@ def _fetch_region_with_name(conn, codes: list[str], region_type: str, label: str
     """지역 코드 + 단지명으로 아파트 조회."""
     ph = ",".join(["%s"] * len(codes))
     norm = re.sub(r"[\s()\-·]", "", keyword)
+    norm_stripped = normalize_apt_name(keyword)
     code_col = "sigungu_code" if region_type == "sigungu" else "bjd_code"
 
     rows = conn.execute(f"""
         SELECT {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER} AND {code_col} IN ({ph})
-          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s)
+          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
         LIMIT 100
-    """, [*codes, f"%{keyword}%", f"%{norm}%"]).fetchall()
+    """, [*codes, f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
     return [{**dict(r), "match_type": "name", "region_label": label} for r in rows]
 
 
 def _fetch_name(conn, keyword: str) -> list[dict]:
     """단지명으로 아파트 조회."""
     norm = re.sub(r"[\s()\-·]", "", keyword)
+    norm_stripped = normalize_apt_name(keyword)
     rows = conn.execute(f"""
         SELECT {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER}
-          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s)
+          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
         LIMIT 100
-    """, [f"%{keyword}%", f"%{norm}%"]).fetchall()
+    """, [f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
     return [{**dict(r), "match_type": "name"} for r in rows]
 
 
@@ -199,12 +214,14 @@ def _fetch_fallback(conn, query: str) -> list[dict]:
     """주소/단지명 통합 fallback 검색."""
     pattern = f"%{query}%"
     norm = re.sub(r"[\s()\-·]", "", query)
+    norm_stripped = normalize_apt_name(query)
     rows = conn.execute(f"""
         SELECT {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER}
-          AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s)
+          AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s
+               OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
         LIMIT 100
-    """, [pattern, pattern, pattern, f"%{norm}%"]).fetchall()
+    """, [pattern, pattern, pattern, f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
     results = []
     for r in rows:
         addr = r.get("new_plat_plc") or r.get("plat_plc") or ""

@@ -16,6 +16,47 @@ from services.tools import TOOL_DEFINITIONS, TOOL_EXECUTORS
 
 logger = logging.getLogger(__name__)
 
+# 복합 질의(예: "A에서 B까지 출근시간")에서 tool을 최대 몇 번 연쇄 호출할지 제한.
+# 루프 폭주(동일 tool 반복 호출)는 중복 시그니처 탐지로 별도로 차단함.
+MAX_TOOL_ITERATIONS = 5
+
+
+def _build_map_action(tool_name: str, result: str) -> dict | None:
+    """search_apartments 결과에서 지도 하이라이트 액션을 생성."""
+    if tool_name != "search_apartments":
+        return None
+    try:
+        parsed = json.loads(result)
+    except json.JSONDecodeError:
+        return None
+    results = parsed.get("results") or []
+    if not results:
+        return None
+    return {
+        "type": "highlight",
+        "pnus": [r["pnu"] for r in results],
+        "apartments": [
+            {"pnu": r["pnu"], "bld_nm": r["bld_nm"],
+             "lat": r["lat"], "lng": r["lng"], "score": r["score"]}
+            for r in results
+        ],
+    }
+
+
+def _tool_preview(tool_name: str, result: str) -> str:
+    """Tool 결과의 간략 프리뷰(스트리밍 SSE에 노출)."""
+    try:
+        parsed = json.loads(result)
+    except json.JSONDecodeError:
+        return ""
+    if tool_name == "get_apartment_detail" and "basic" in parsed:
+        return parsed["basic"].get("bld_nm") or parsed["basic"].get("name") or ""
+    if tool_name == "search_apartments" and "results" in parsed:
+        return f"{len(parsed['results'])}건 검색됨"
+    if tool_name == "search_commute" and "routes" in parsed:
+        return f"{len(parsed['routes'])}개 경로 조회"
+    return ""
+
 SYSTEM_PROMPT = """\
 당신은 서울/수도권 아파트 추천 전문 컨설턴트입니다.
 
@@ -43,7 +84,10 @@ SYSTEM_PROMPT = """\
 3. 점수, 주소, 주요 특징을 포함하여 답변하세요.
 4. 추가 질문이나 비교가 필요한지 안내하세요.
 5. 한국어로 답변하세요.
-6. 출퇴근 시간 조회 시 search_commute 도구를 사용하세요. PNU가 컨텍스트에 있으면 그것을 사용하고, 없으면 먼저 get_apartment_detail로 PNU를 확인하세요.
+6. 출퇴근 시간 조회 시 **반드시 순차적으로** 도구를 호출하세요:
+   ① 컨텍스트에 PNU가 없으면 `get_apartment_detail`로 아파트 정보를 조회해 PNU를 얻으세요.
+   ② PNU를 확보하면 **같은 응답 내에서 곧바로** `search_commute`를 `pnu`와 `destination`을 인자로 호출하세요.
+   ③ "조회해보겠습니다" 같은 대기성 응답을 먼저 보내지 말고 도구 호출을 연쇄 실행하세요. 모든 도구 결과가 나온 뒤에 한 번에 답변하세요.
 7. 출퇴근 결과는 경로별 소요시간, 환승횟수, 요금을 표 형태로 정리하세요.
 8. 사용자가 면적, 가격, 층수, 준공연도 등 조건을 언급하면 search_apartments의 필터 파라미터를 사용하세요. 예: "60~85㎡" → min_area=60, max_area=85, "10억 이하" → max_price=100000, "신축" → built_after=2020
 
@@ -144,28 +188,40 @@ async def process_chat(
 
     messages.append({"role": "user", "content": message})
 
-    # Step 1: Call LLM with tools
-    try:
-        response: LLMResponse = await provider.chat_with_tools(
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            temperature=0.7,
-        )
-    except Exception as e:
-        logger.error(f"LLM call failed: {e}")
-        return {
-            "content": f"AI 서비스 호출 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요. ({type(e).__name__})",
-            "tool_calls": [],
-            "map_actions": [],
-        }
+    executed_tools: list[dict] = []
+    map_actions: list[dict] = []
+    seen_calls: set[tuple[str, str]] = set()
+    final_content: str | None = None
 
-    tool_results = []
-    map_actions = []
-    executed_tools = []
+    # Multi-turn tool loop: 같은 응답 내에서 여러 tool을 연쇄 호출할 수 있도록 반복
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        try:
+            response: LLMResponse = await provider.chat_with_tools(
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                temperature=0.7,
+            )
+        except Exception as e:
+            logger.error(f"LLM call failed (iteration {iteration}): {e}")
+            return {
+                "content": f"AI 서비스 호출 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요. ({type(e).__name__})",
+                "tool_calls": executed_tools,
+                "map_actions": map_actions,
+            }
 
-    # Step 2: Execute tool calls if any
-    if response.tool_calls:
+        if not response.tool_calls:
+            final_content = response.content or "답변을 생성할 수 없습니다."
+            break
+
+        # 이번 턴에 실행할 tool 결과 수집
+        tool_results_turn: list[dict] = []
         for tc in response.tool_calls:
+            sig = (tc.name, json.dumps(tc.arguments, sort_keys=True, ensure_ascii=False))
+            if sig in seen_calls:
+                logger.warning(f"중복 tool 호출 감지 — skip: {sig}")
+                continue
+            seen_calls.add(sig)
+
             executor = TOOL_EXECUTORS.get(tc.name)
             if not executor:
                 logger.warning(f"Unknown tool: {tc.name}")
@@ -173,94 +229,37 @@ async def process_chat(
 
             try:
                 result = await executor(**tc.arguments)
-                tool_results.append(
-                    {
-                        "tool_call_id": tc.id,
-                        "name": tc.name,
-                        "result": result,
-                    }
-                )
-                executed_tools.append(
-                    {
-                        "name": tc.name,
-                        "arguments": tc.arguments,
-                    }
-                )
-
-                # Build map actions from search results
-                if tc.name == "search_apartments":
-                    try:
-                        parsed = json.loads(result)
-                        if parsed.get("results"):
-                            pnus = [r["pnu"] for r in parsed["results"]]
-                            map_actions.append(
-                                {
-                                    "type": "highlight",
-                                    "pnus": pnus,
-                                    "apartments": [
-                                        {
-                                            "pnu": r["pnu"],
-                                            "bld_nm": r["bld_nm"],
-                                            "lat": r["lat"],
-                                            "lng": r["lng"],
-                                            "score": r["score"],
-                                        }
-                                        for r in parsed["results"]
-                                    ],
-                                }
-                            )
-                    except json.JSONDecodeError:
-                        pass
-
             except Exception as e:
                 logger.error(f"Tool execution failed for {tc.name}: {e}")
-                tool_results.append(
-                    {
-                        "tool_call_id": tc.id,
-                        "name": tc.name,
-                        "result": json.dumps(
-                            {"error": f"도구 실행 중 오류: {str(e)}"},
-                            ensure_ascii=False,
-                        ),
-                    }
-                )
+                result = json.dumps({"error": f"도구 실행 중 오류: {e}"}, ensure_ascii=False)
 
-    # Step 3: If tools were called, send results back to LLM for final answer
-    if tool_results:
-        # Add assistant message with tool calls
-        if response.content:
-            messages.append({"role": "assistant", "content": response.content})
-        else:
-            # For OpenAI format, we need to indicate the assistant wanted to call tools
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": f"[도구 호출 완료: {', '.join(t['name'] for t in executed_tools)}]",
-                }
-            )
+            tool_results_turn.append({"name": tc.name, "result": result})
+            executed_tools.append({"name": tc.name, "arguments": tc.arguments})
+            ma = _build_map_action(tc.name, result)
+            if ma:
+                map_actions.append(ma)
 
-        # Add tool results as user context
-        tool_context = "다음은 도구 실행 결과입니다. 이 결과를 바탕으로 사용자에게 답변해주세요:\n\n"
-        for tr in tool_results:
+        if not tool_results_turn:
+            # 모든 호출이 중복·미지원이라 실행된 게 없으면 루프 종료
+            final_content = response.content or "도구 호출이 반복되어 추가 진행을 중단했습니다."
+            break
+
+        # 다음 iteration을 위해 message 히스토리에 추가
+        assistant_note = response.content or f"[도구 호출: {', '.join(t['name'] for t in tool_results_turn)}]"
+        messages.append({"role": "assistant", "content": assistant_note})
+        tool_context = "다음은 도구 실행 결과입니다. 추가 도구 호출이 필요하면 호출하고, 충분하면 사용자에게 답변하세요.\n\n"
+        for tr in tool_results_turn:
             tool_context += f"### {tr['name']} 결과:\n{tr['result']}\n\n"
-
         messages.append({"role": "user", "content": tool_context})
 
-        # Get final response
+    # 루프가 MAX_ITERATIONS에 도달한 경우: 마지막 tool 결과 기반으로 한 번 더 요약 요청
+    if final_content is None:
         try:
-            final_response = await provider.chat(
-                messages=messages,
-                temperature=0.7,
-            )
-            final_content = final_response.content or "답변을 생성할 수 없습니다."
+            final_response = await provider.chat(messages=messages, temperature=0.7)
+            final_content = final_response.content or "도구 호출이 반복되어 답변을 완성하지 못했습니다."
         except Exception as e:
-            logger.error(f"Final LLM call failed: {e}")
-            # Fallback: provide raw tool results
-            final_content = "도구 실행 결과를 요약하는 중 오류가 발생했습니다. 원본 결과를 제공합니다:\n\n"
-            for tr in tool_results:
-                final_content += f"**{tr['name']}**:\n{tr['result']}\n\n"
-    else:
-        final_content = response.content or "답변을 생성할 수 없습니다."
+            logger.error(f"Final summary call failed: {e}")
+            final_content = "도구 실행은 완료됐으나 요약 생성에 실패했습니다."
 
     return {
         "content": final_content,
@@ -317,92 +316,81 @@ async def process_chat_stream(
 
     messages.append({"role": "user", "content": message})
 
-    # Step 1: LLM with tools (non-streaming — need to see tool calls)
-    try:
-        response: LLMResponse = await provider.chat_with_tools(
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            temperature=0.7,
-        )
-    except Exception as e:
-        yield {"event": "delta", "data": {"content": f"AI 서비스 오류: {type(e).__name__}"}}
-        yield {"event": "done", "data": {"tool_calls": []}}
-        return
+    executed_tools: list[dict] = []
+    map_actions: list[dict] = []
+    seen_calls: set[tuple[str, str]] = set()
+    any_tool_called = False
 
-    tool_results = []
-    map_actions = []
-    executed_tools = []
+    # Multi-turn tool loop: 같은 응답 내에서 여러 tool 연쇄 호출 허용
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        try:
+            response: LLMResponse = await provider.chat_with_tools(
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                temperature=0.7,
+            )
+        except Exception as e:
+            yield {"event": "delta", "data": {"content": f"AI 서비스 오류: {type(e).__name__}"}}
+            yield {"event": "done", "data": {"tool_calls": executed_tools, "map_actions": map_actions}}
+            return
 
-    # Step 2: Execute tools
-    if response.tool_calls:
+        if not response.tool_calls:
+            # 최종 답변: 이미 받은 content를 단일 delta로 전송
+            if response.content:
+                yield {"event": "delta", "data": {"content": response.content}}
+            yield {"event": "done", "data": {"tool_calls": executed_tools, "map_actions": map_actions}}
+            return
+
+        # 이번 턴에 실행될 tool 처리
+        tool_results_turn: list[dict] = []
         for tc in response.tool_calls:
+            sig = (tc.name, json.dumps(tc.arguments, sort_keys=True, ensure_ascii=False))
+            if sig in seen_calls:
+                logger.warning(f"중복 tool 호출 감지 — skip: {sig}")
+                continue
+            seen_calls.add(sig)
+
             executor = TOOL_EXECUTORS.get(tc.name)
             if not executor:
                 continue
 
             yield {"event": "tool_start", "data": {"name": tc.name}}
-
             try:
                 result = await executor(**tc.arguments)
-                tool_results.append({"tool_call_id": tc.id, "name": tc.name, "result": result})
-                executed_tools.append({"name": tc.name, "arguments": tc.arguments})
-
-                # Preview for client
-                try:
-                    parsed = json.loads(result)
-                    preview = ""
-                    if tc.name == "get_apartment_detail" and "basic" in parsed:
-                        preview = parsed["basic"].get("name", "")
-                    elif tc.name == "search_apartments" and "results" in parsed:
-                        preview = f"{len(parsed['results'])}건 검색됨"
-                    yield {"event": "tool_done", "data": {"name": tc.name, "result_preview": preview}}
-                except Exception:
-                    yield {"event": "tool_done", "data": {"name": tc.name, "result_preview": ""}}
-
-                # Map actions
-                if tc.name == "search_apartments":
-                    try:
-                        parsed = json.loads(result)
-                        if parsed.get("results"):
-                            ma = {
-                                "type": "highlight",
-                                "pnus": [r["pnu"] for r in parsed["results"]],
-                                "apartments": [
-                                    {"pnu": r["pnu"], "bld_nm": r["bld_nm"],
-                                     "lat": r["lat"], "lng": r["lng"], "score": r["score"]}
-                                    for r in parsed["results"]
-                                ],
-                            }
-                            map_actions.append(ma)
-                            yield {"event": "map_action", "data": ma}
-                    except json.JSONDecodeError:
-                        pass
-
             except Exception as e:
                 logger.error(f"Tool error {tc.name}: {e}")
-                tool_results.append({
-                    "tool_call_id": tc.id, "name": tc.name,
-                    "result": json.dumps({"error": str(e)}, ensure_ascii=False),
-                })
+                result = json.dumps({"error": str(e)}, ensure_ascii=False)
                 yield {"event": "tool_done", "data": {"name": tc.name, "result_preview": f"오류: {e}"}}
+            else:
+                preview = _tool_preview(tc.name, result)
+                yield {"event": "tool_done", "data": {"name": tc.name, "result_preview": preview}}
 
-    # Step 3: Stream final response
-    if tool_results:
-        if response.content:
-            messages.append({"role": "assistant", "content": response.content})
-        else:
-            messages.append({
-                "role": "assistant",
-                "content": f"[도구 호출 완료: {', '.join(t['name'] for t in executed_tools)}]",
-            })
+            tool_results_turn.append({"name": tc.name, "result": result})
+            executed_tools.append({"name": tc.name, "arguments": tc.arguments})
+            any_tool_called = True
 
-        tool_context = "다음은 도구 실행 결과입니다. 이 결과를 바탕으로 사용자에게 답변해주세요:\n\n"
-        for tr in tool_results:
+            ma = _build_map_action(tc.name, result)
+            if ma:
+                map_actions.append(ma)
+                yield {"event": "map_action", "data": ma}
+
+        if not tool_results_turn:
+            # 실행된 게 없음(중복/미지원) — 루프 종료
+            if response.content:
+                yield {"event": "delta", "data": {"content": response.content}}
+            yield {"event": "done", "data": {"tool_calls": executed_tools, "map_actions": map_actions}}
+            return
+
+        # 다음 iteration을 위한 히스토리 추가
+        assistant_note = response.content or f"[도구 호출: {', '.join(t['name'] for t in tool_results_turn)}]"
+        messages.append({"role": "assistant", "content": assistant_note})
+        tool_context = "다음은 도구 실행 결과입니다. 추가 도구 호출이 필요하면 호출하고, 충분하면 사용자에게 답변하세요.\n\n"
+        for tr in tool_results_turn:
             tool_context += f"### {tr['name']} 결과:\n{tr['result']}\n\n"
         messages.append({"role": "user", "content": tool_context})
 
-    # Stream the final response
-    if tool_results:
+    # MAX_TOOL_ITERATIONS 도달 — 최종 스트리밍 요약
+    if any_tool_called:
         yield {"event": "generating", "data": {"message": "답변 생성 중..."}}
     try:
         async for chunk in provider.stream_chat(messages=messages, temperature=0.7):
