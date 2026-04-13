@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import axios from 'axios';
-import type { ScoredApartment, MapBounds } from '../types/apartment';
+import type { ScoredApartment, MapBounds, SelectedRegion } from '../types/apartment';
 import type { ApartmentFilters } from './useApartments';
 import { API_BASE } from '../config';
 
@@ -28,6 +28,7 @@ export function useNudge() {
       bounds?: MapBounds,
       keywords?: string[],
       filters?: ApartmentFilters,
+      region?: SelectedRegion | null,
     ) => {
       if (nudges.length === 0) {
         setResults([]);
@@ -40,7 +41,11 @@ export function useNudge() {
           weights,
           top_n: topN,
         };
-        if (bounds) {
+        // 지역 필터가 있으면 bounds 생략 (서버 정책과 동일)
+        if (region) {
+          if (region.type === 'emd') body.bjd_code = region.code;
+          else body.sigungu_code = region.code;
+        } else if (bounds) {
           body.sw_lat = bounds.sw.lat;
           body.sw_lng = bounds.sw.lng;
           body.ne_lat = bounds.ne.lat;

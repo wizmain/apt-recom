@@ -349,3 +349,52 @@ def calculate_multi_nudge_score(
         for nid in nudge_ids
     ]
     return round(sum(scores) / len(scores), 2)
+
+
+def get_top_contributors(
+    facility_scores: dict[str, float],
+    nudge_ids: list[str],
+    custom_weights_map: dict[str, dict[str, float]] | None = None,
+    top_n: int = 3,
+) -> list[dict]:
+    """선택된 넛지들의 상위 기여 시설 subtype을 contribution 내림차순으로 반환.
+
+    contribution = facility_score × weight (넛지별 정규화 가중치 × 점수).
+    여러 넛지를 동시에 선택하면 subtype별로 weight/contribution을 누적 후 랭킹.
+
+    반환 포맷:
+        [{"subtype": "subway", "score": 86.0, "weight_sum": 0.3, "contribution": 25.8}, ...]
+    """
+    if not nudge_ids:
+        return []
+
+    default_weights = _load_nudge_weights()
+    agg: dict[str, dict[str, float]] = {}
+
+    for nid in nudge_ids:
+        custom = (custom_weights_map or {}).get(nid)
+        weights = custom if custom else default_weights.get(nid, {})
+        if not weights:
+            continue
+        total_w = sum(weights.values()) or 1.0
+        for subtype, w in weights.items():
+            norm_w = w / total_w  # 넛지 내부 정규화 (calculate_nudge_score 와 동일 규칙)
+            score = float(facility_scores.get(subtype, 0.0))
+            bucket = agg.setdefault(
+                subtype, {"score": score, "weight_sum": 0.0, "contribution": 0.0}
+            )
+            bucket["weight_sum"] += norm_w
+            bucket["contribution"] += score * norm_w
+
+    items = [
+        {
+            "subtype": subtype,
+            "score": round(v["score"], 2),
+            "weight_sum": round(v["weight_sum"], 4),
+            "contribution": round(v["contribution"], 2),
+        }
+        for subtype, v in agg.items()
+        if v["score"] > 0  # 점수 0이면 기여 요소로 부적합
+    ]
+    items.sort(key=lambda x: x["contribution"], reverse=True)
+    return items[:top_n]

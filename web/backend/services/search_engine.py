@@ -208,28 +208,44 @@ def _fetch_fallback(conn, query: str) -> list[dict]:
 # ── 다중 지역 후보 감지 ──
 
 def _detect_candidates(results: list[dict]) -> list[dict]:
-    """region 결과가 2개 이상 시군구에 분산되면 후보 목록 반환."""
+    """region 결과가 2개 이상 지역(시군구 또는 법정동)에 분산되면 후보 목록 반환.
+
+    반환 항목: {type, code, sigungu_code, bjd_code, label, count}
+    - bjd_code 있는 결과(emd 매칭) → bjd_code 단위 그룹핑
+    - 없으면(sigungu 매칭) → sigungu_code 단위 그룹핑
+    """
     region_items = [r for r in results if r.get("match_type") == "region"]
     if not region_items:
         return []
 
-    from collections import Counter
-    sgg_counts: Counter[str] = Counter()
-    sgg_labels: dict[str, str] = {}
+    # 그룹 키: bjd_code가 있으면 ('emd', bjd_code), 없으면 ('sigungu', sigungu_code)
+    groups: dict[tuple[str, str], dict] = {}
     for r in region_items:
+        bjd = r.get("bjd_code")
         sgg = (r.get("sigungu_code") or "")[:5]
-        if sgg:
-            sgg_counts[sgg] += 1
-            if sgg not in sgg_labels:
-                sgg_labels[sgg] = r.get("region_label", "")
+        if bjd:
+            key = ("emd", bjd)
+            code = bjd
+        elif sgg:
+            key = ("sigungu", sgg)
+            code = sgg
+        else:
+            continue
+        if key not in groups:
+            groups[key] = {
+                "type": key[0],
+                "code": code,
+                "sigungu_code": sgg,
+                "bjd_code": bjd,
+                "label": r.get("region_label", ""),
+                "count": 0,
+            }
+        groups[key]["count"] += 1
 
-    if len(sgg_counts) < 2:
+    if len(groups) < 2:
         return []
 
-    return [
-        {"sigungu_code": sgg, "label": sgg_labels.get(sgg, sgg), "count": cnt}
-        for sgg, cnt in sgg_counts.most_common()
-    ]
+    return sorted(groups.values(), key=lambda g: -g["count"])
 
 
 # ── 메인 검색 ──

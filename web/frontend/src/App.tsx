@@ -4,7 +4,7 @@ import NudgeBar from './components/NudgeBar';
 import Dashboard from './components/Dashboard';
 import WeightDrawer from './components/WeightDrawer';
 import ResultCards from './components/ResultCards';
-import DetailModal from './components/DetailModal';
+import DetailModal, { type RankContext } from './components/DetailModal';
 import CompareModal from './components/CompareModal';
 import ChatButton from './components/ChatButton';
 import ChatModal from './components/ChatModal';
@@ -16,7 +16,12 @@ import type { MapBounds } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
 
 function App() {
-  const { apartments, filters, applyFilters, clearFilters, onBoundsChange, addKeyword, removeKeyword, clearKeywords } = useApartments();
+  const {
+    apartments, filters, selectedRegion, regionFitNonce,
+    applyFilters, clearFilters, onBoundsChange,
+    selectRegion, clearRegion,
+    addKeyword, removeKeyword, clearKeywords,
+  } = useApartments();
   const { results, loading, defaultWeights, scoreApartments, fetchWeights } = useNudge();
 
   const [selectedNudges, setSelectedNudges] = useState<string[]>([]);
@@ -34,6 +39,7 @@ function App() {
   const [compareList, setCompareList] = useState<{ pnu: string; name: string }[]>([]);
   const [chatFocusApts, setChatFocusApts] = useState<{ lat: number; lng: number }[]>([]);
   const [focusPnu, setFocusPnu] = useState<{ pnu: string; lat: number; lng: number; name: string } | null>(null);
+  const [rankContext, setRankContext] = useState<RankContext | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'dashboard'>('map');
 
   // Fetch default weights on mount
@@ -41,14 +47,41 @@ function App() {
     fetchWeights();
   }, [fetchWeights]);
 
-  // Re-score when nudges, keywords, or filters change
+  // DetailModal이 열릴 때(선택된 pnu가 순위 목록에 있으면) 배너 컨텍스트 자동 설정
+  useEffect(() => {
+    if (!selectedPnu) {
+      setRankContext(null);
+      return;
+    }
+    const idx = results.findIndex(r => r.pnu === selectedPnu);
+    if (idx < 0 || selectedNudges.length === 0) {
+      setRankContext(null);
+      return;
+    }
+    const apt = results[idx];
+    setRankContext({
+      rank: idx + 1,
+      selectedNudges,
+      topContributors: apt.top_contributors ?? [],
+    });
+  }, [selectedPnu, results, selectedNudges]);
+
+  // Re-score when nudges, keywords, region, or filters change
   useEffect(() => {
     if (selectedNudges.length > 0) {
-      scoreApartments(selectedNudges, customWeights, 10, undefined, searchKeywords.length > 0 ? searchKeywords : undefined, filters);
+      scoreApartments(
+        selectedNudges,
+        customWeights,
+        10,
+        undefined,
+        searchKeywords.length > 0 ? searchKeywords : undefined,
+        filters,
+        selectedRegion,
+      );
     } else {
       scoreApartments([], null, 0);
     }
-  }, [selectedNudges, customWeights, searchKeywords, filters, scoreApartments]);
+  }, [selectedNudges, customWeights, searchKeywords, selectedRegion, filters, scoreApartments]);
 
   const handleToggleNudge = useCallback((nudgeId: string) => {
     setSelectedNudges((prev) =>
@@ -81,11 +114,12 @@ function App() {
   const handleRemoveKeyword = useCallback((keyword: string) => {
     setSearchKeywords(prev => {
       const next = prev.filter(k => k !== keyword);
-      if (next.length === 0) setSelectedNudges([]);
+      // 지역 필터도 키워드도 없을 때만 넛지 초기화
+      if (next.length === 0 && !selectedRegion) setSelectedNudges([]);
       return next;
     });
     removeKeyword(keyword);
-  }, [removeKeyword]);
+  }, [removeKeyword, selectedRegion]);
 
   const handleClearAllKeywords = useCallback(() => {
     setSearchKeywords([]);
@@ -133,9 +167,10 @@ function App() {
   }, []);
 
   // NudgeBar 높이 — 대시보드 모드에서는 탭만 표시되므로 높이 축소
+  const hasTags = searchKeywords.length > 0 || selectedRegion !== null;
   const barHeight = viewMode === 'dashboard'
     ? 'pt-12 sm:pt-14'
-    : searchKeywords.length > 0 ? 'pt-28 sm:pt-[4.5rem]' : 'pt-24 sm:pt-14';
+    : hasTags ? 'pt-28 sm:pt-[4.5rem]' : 'pt-24 sm:pt-14';
 
   return (
     <div className="relative w-full h-dvh overflow-hidden">
@@ -148,9 +183,15 @@ function App() {
         filterCount={countActiveFilters(filters)}
         searchKeywords={searchKeywords}
         keywordLabels={keywordLabels}
+        selectedRegion={selectedRegion}
         onAddKeyword={handleAddKeyword}
         onRemoveKeyword={handleRemoveKeyword}
         onClearAll={handleClearAllKeywords}
+        onSelectRegion={selectRegion}
+        onClearRegion={() => {
+          clearRegion();
+          if (searchKeywords.length === 0) setSelectedNudges([]);
+        }}
         viewMode={viewMode}
         onViewChange={setViewMode}
         onSelectApartment={(pnu, lat, lng, name) => {
@@ -176,6 +217,8 @@ function App() {
               focusPnu={focusPnu}
               onFocusPnuHandled={() => setFocusPnu(null)}
               searchKeywords={searchKeywords}
+              selectedRegion={selectedRegion}
+              regionFitNonce={regionFitNonce}
             />
           </div>
 
@@ -193,6 +236,7 @@ function App() {
             // 검색 조건 초기화 (fetch 없이 state만)
             setSearchKeywords([]);
             clearKeywords();
+            clearRegion();
             setSelectedNudges([]);
             setSelectedPnu(null);
             setChatHighlightApts([]);
@@ -215,7 +259,11 @@ function App() {
 
       {/* Detail modal */}
       {selectedPnu && (
-        <DetailModal pnu={selectedPnu} onClose={() => setSelectedPnu(null)} />
+        <DetailModal
+          pnu={selectedPnu}
+          rankContext={rankContext}
+          onClose={() => { setSelectedPnu(null); setRankContext(null); }}
+        />
       )}
 
       {/* Chat button & modal */}

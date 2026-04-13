@@ -9,6 +9,7 @@ from services.scoring import (
     facility_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
+    get_top_contributors,
 )
 
 router = APIRouter()
@@ -24,6 +25,8 @@ class NudgeScoreRequest(BaseModel):
     ne_lng: float | None = None
     keyword: str | None = None
     keywords: list[str] | None = None
+    sigungu_code: str | None = None
+    bjd_code: str | None = None
     # Filters
     min_area: float | None = None
     max_area: float | None = None
@@ -62,7 +65,15 @@ def nudge_score(req: NudgeScoreRequest):
         elif req.keyword and req.keyword.strip():
             kw_list = [req.keyword.strip()]
 
-        if kw_list:
+        # 지역 필터 (동일명 지역 구분용 — 텍스트 매칭보다 우선 적용)
+        if req.bjd_code:
+            conditions.append("a.bjd_code = %s")
+            params.append(req.bjd_code)
+        elif req.sigungu_code:
+            conditions.append("a.sigungu_code = %s")
+            params.append(req.sigungu_code)
+
+        if kw_list and not (req.bjd_code or req.sigungu_code):
             # 시군구명→코드 매칭 (주소 없는 비수도권 아파트 지원)
             sgg_code_list: list[str] = []
             for kw in kw_list:
@@ -85,7 +96,10 @@ def nudge_score(req: NudgeScoreRequest):
                 params.extend(sgg_code_list)
             conditions.append(f"({' OR '.join(or_clauses)})")
 
-        if all(v is not None for v in [req.sw_lat, req.sw_lng, req.ne_lat, req.ne_lng]):
+        # 지역 필터가 설정되면 bounds 무시 (지도 이동해도 결과 고정)
+        if not (req.bjd_code or req.sigungu_code) and all(
+            v is not None for v in [req.sw_lat, req.sw_lng, req.ne_lat, req.ne_lng]
+        ):
             conditions.append("a.lat BETWEEN %s AND %s AND a.lng BETWEEN %s AND %s")
             params.extend([req.sw_lat, req.ne_lat, req.sw_lng, req.ne_lng])
 
@@ -237,9 +251,13 @@ def nudge_score(req: NudgeScoreRequest):
                     cw = (req.weights or {}).get(nid) if req.weights else None
                     breakdown[nid] = calculate_nudge_score(fscores, nid, cw)
                 score = calculate_multi_nudge_score(fscores, req.nudges, req.weights)
+                top_contributors = get_top_contributors(
+                    fscores, req.nudges, req.weights, top_n=3
+                )
             else:
                 score = 0.0
                 breakdown = {}
+                top_contributors = []
 
             apt = apt_map[pnu]
             results.append(
@@ -251,6 +269,7 @@ def nudge_score(req: NudgeScoreRequest):
                     "total_hhld_cnt": apt["total_hhld_cnt"],
                     "score": score,
                     "score_breakdown": breakdown,
+                    "top_contributors": top_contributors,
                 }
             )
 

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
 import { useCodes } from '../hooks/useCodes';
+import type { TopContributor } from '../types/apartment';
+import { buildRankReason, rankEmoji } from '../utils/scoreReason';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   LineChart, Line, BarChart, Bar, Legend,
@@ -125,12 +127,19 @@ const BLUE = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'];
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
+export interface RankContext {
+  rank: number;
+  selectedNudges: string[];
+  topContributors: TopContributor[];
+}
+
 interface DetailModalProps {
   pnu: string;
   onClose: () => void;
+  rankContext?: RankContext | null;
 }
 
-export default function DetailModal({ pnu, onClose }: DetailModalProps) {
+export default function DetailModal({ pnu, onClose, rankContext }: DetailModalProps) {
   const [activeTab, setActiveTab] = useState<TabName>('기본정보');
   const [detail, setDetail] = useState<ApartmentDetail | null>(null);
   const [tradesData, setTradesData] = useState<TradesResponse>({ trades: [], rents: [] });
@@ -225,7 +234,7 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
             </div>
           ) : (
             <>
-              {activeTab === '기본정보' && <TabBasicInfo detail={detail} />}
+              {activeTab === '기본정보' && <TabBasicInfo detail={detail} rankContext={rankContext ?? null} />}
               {activeTab === '가격분석' && <TabPriceAnalysis trades={tradesData.trades} rents={tradesData.rents} />}
               {activeTab === '관리비' && <TabMgmtCost mgmtCost={detail?.mgmt_cost ?? undefined} />}
               {activeTab === '주변시설' && <TabFacilities detail={detail} />}
@@ -244,8 +253,9 @@ export default function DetailModal({ pnu, onClose }: DetailModalProps) {
 /*  Tab 1 – 기본정보                                                    */
 /* ================================================================== */
 
-function TabBasicInfo({ detail }: { detail: ApartmentDetail | null }) {
+function TabBasicInfo({ detail, rankContext }: { detail: ApartmentDetail | null; rankContext: RankContext | null }) {
   const { codeMap: nudgeLabels } = useCodes('nudge');
+  const { codeMap: facilityLabels } = useCodes('facility_label');
   if (!detail) return <EmptyState text="기본 정보를 불러올 수 없습니다." />;
 
   const b = detail.basic;
@@ -280,6 +290,15 @@ function TabBasicInfo({ detail }: { detail: ApartmentDetail | null }) {
 
   return (
     <div className="space-y-6">
+      {/* 순위·기여 요소 요약 배너 (ResultCards에서 열었을 때만) */}
+      {rankContext && (
+        <RankReasonBanner
+          rankContext={rankContext}
+          nudgeLabels={nudgeLabels}
+          facilityLabels={facilityLabels}
+        />
+      )}
+
       {/* Info cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {infoItems.map((item) => (
@@ -322,6 +341,36 @@ function TabBasicInfo({ detail }: { detail: ApartmentDetail | null }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function RankReasonBanner({
+  rankContext,
+  nudgeLabels,
+  facilityLabels,
+}: {
+  rankContext: RankContext;
+  nudgeLabels: Record<string, string>;
+  facilityLabels: Record<string, string>;
+}) {
+  const { rank, selectedNudges, topContributors } = rankContext;
+  const sentence = buildRankReason({
+    rank,
+    selectedNudges,
+    contributors: topContributors,
+    nudgeLabels,
+    facilityLabels,
+  });
+  return (
+    <div className="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 p-3 sm:p-4 flex items-start gap-3">
+      <span className="text-2xl flex-shrink-0 leading-none" aria-hidden>
+        {rankEmoji(rank)}
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-amber-700 mb-0.5">{rank}위 선정 이유</p>
+        <p className="text-sm text-gray-800 leading-relaxed">{sentence}</p>
+      </div>
     </div>
   );
 }
