@@ -139,7 +139,15 @@ def _fetch_region(conn, codes: list[str], region_type: str, label: str) -> list[
             WHERE {APT_BASE_FILTER} AND sigungu_code IN ({ph})
             LIMIT 100
         """, codes).fetchall()
-        return [{**dict(r), "match_type": "region", "region_label": label} for r in rows]
+        # 시군구별 라벨 매핑 (동일 검색어가 여러 시군구에 매칭될 때 각 시군구별 정확한 라벨 부여)
+        sgg_labels: dict[str, str] = {}
+        for r in conn.execute(
+            f"SELECT code, name, extra FROM common_code WHERE group_id = 'sigungu' AND code IN ({ph})",
+            codes,
+        ).fetchall():
+            sgg_labels[r["code"]] = f"{r['extra']} {r['name']}"
+        return [{**dict(r), "match_type": "region",
+                 "region_label": sgg_labels.get((r.get("sigungu_code") or "")[:5], label)} for r in rows]
 
     elif region_type == "emd":
         rows = conn.execute(f"""

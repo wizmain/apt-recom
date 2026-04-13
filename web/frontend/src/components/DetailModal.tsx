@@ -523,6 +523,14 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
 
   return (
     <div className="space-y-8">
+      {/* 데이터 출처 안내 */}
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 leading-relaxed flex items-start gap-2">
+        <span aria-hidden className="flex-shrink-0">ⓘ</span>
+        <span>
+          국토교통부 실거래가 신고 자료 원본입니다. 일부 거래는 가족간 직거래·1층 할인·신고 입력 오류 등으로 시세와 다를 수 있습니다.
+        </span>
+      </div>
+
       {/* Price trend by area */}
       {trendData.length > 0 && (
         <div>
