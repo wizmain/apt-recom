@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { Apartment, ScoredApartment, MapBounds } from '../types/apartment';
+import type { Apartment, ScoredApartment, MapBounds, SelectedRegion } from '../types/apartment';
 import { API_BASE } from '../config';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Kakao Maps SDK has no TypeScript types */
@@ -27,9 +27,11 @@ interface MapProps {
   focusPnu?: { pnu: string; lat: number; lng: number; name: string } | null;
   onFocusPnuHandled?: () => void;
   searchKeywords?: string[];
+  selectedRegion?: SelectedRegion | null;
+  regionFitNonce?: number;
 }
 
-export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightApts, chatFocusApts, focusPnu, onFocusPnuHandled, searchKeywords }: MapProps) {
+export default function Map({ apartments, scoredResults, onBoundsChange, onMarkerClick, onAnalyzeApartment, onDetailClick, onCompareToggle, compareSelected = [], highlightApts, chatFocusApts, focusPnu, onFocusPnuHandled, searchKeywords, selectedRegion, regionFitNonce }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
@@ -62,18 +64,18 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     const escapedName = displayName.replace(/'/g, "\\'").replace(/\d+위\s*/, '');
     const isCompared = compareSelectedRef.current.includes(pnu);
     const compareFull = compareSelectedRef.current.length >= 2 && !isCompared;
-    const btnStyle = 'padding:5px 10px;font-size:11px;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;';
+    const btnStyle = 'padding:4px 8px;font-size:11px;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;';
     return `
-      <div style="padding:10px 14px;font-size:13px;min-width:280px;max-width:calc(100vw - 40px);position:relative;">
+      <div style="padding:8px 15px 8px 10px;font-size:13px;max-width:calc(100vw - 40px);position:relative;">
         <button onclick="window.__closeInfoWindow()"
-          style="position:absolute;top:4px;right:6px;background:none;border:none;cursor:pointer;font-size:16px;color:#999;line-height:1;"
+          style="position:absolute;top:2px;right:4px;background:none;border:none;cursor:pointer;font-size:16px;color:#999;line-height:1;"
           title="닫기">&times;</button>
-        <strong style="display:block;margin-right:18px;">${displayName}</strong>
+        <strong style="display:block;margin-right:16px;">${displayName}</strong>
         ${hhldCnt != null ? `<span style="color:#666;font-size:12px;">${hhldCnt}세대</span><br/>` : ''}
         ${score != null ? `<span style="color:#2563eb;font-weight:bold;font-size:12px;">${score.toFixed(1)}점</span><br/>` : ''}
-        <div style="display:flex;gap:5px;margin-top:8px;">
+        <div style="display:flex;gap:4px;margin-top:6px;">
           <button onclick="window.__detailClick('${pnu}')"
-            style="${btnStyle}background:#f3f4f6;color:#374151;">
+            style="${btnStyle}background:#059669;color:#fff;">
             📋 상세보기
           </button>
           <button onclick="window.__chatAnalyze('${escapedName}', '${pnu}')"
@@ -189,6 +191,12 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
   useEffect(() => {
     if (!mapRef.current || !clustererRef.current) return;
 
+    // 마커 재생성 전에 열려있던 팝업 닫기 (기존 마커가 제거되면 팝업 앵커가 사라지므로)
+    if (openMarkerRef.current) {
+      infoWindowRef.current?.close();
+      openMarkerRef.current = null;
+    }
+
     clustererRef.current.clear();
 
     const markers = apartments
@@ -220,7 +228,11 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
   useEffect(() => {
     if (!mapRef.current) return;
 
-    // 기존 하이라이트 제거
+    // 기존 하이라이트 제거 전에 해당 마커의 팝업이 열려있다면 닫기
+    if (openMarkerRef.current && highlightMarkersRef.current.includes(openMarkerRef.current)) {
+      infoWindowRef.current?.close();
+      openMarkerRef.current = null;
+    }
     highlightMarkersRef.current.forEach(m => m.setMap(null));
     highlightMarkersRef.current = [];
 
@@ -281,6 +293,24 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     }
   }, [scoredResults]);
 
+  // 지역 필터가 새로 선택되면 해당 지역 아파트 전체로 fitBounds (nonce 증가 시 1회)
+  useEffect(() => {
+    if (!regionFitNonce || !selectedRegion) return;
+    if (!mapRef.current || !window.kakao?.maps) return;
+    if (apartments.length === 0) return;
+
+    const bounds = new window.kakao.maps.LatLngBounds();
+    let count = 0;
+    for (const apt of apartments) {
+      if (apt.lat != null && apt.lng != null) {
+        bounds.extend(new window.kakao.maps.LatLng(apt.lat, apt.lng));
+        count++;
+      }
+    }
+    if (count > 0) mapRef.current.setBounds(bounds, 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apartments는 nonce와 함께 갱신되므로 최신값 사용. 의존성에 포함하면 필터 변경 시에도 fit 발생.
+  }, [regionFitNonce]);
+
   // 검색어 변경 시 해당 지역 아파트로 fitBounds (모든 키워드 합산)
   const prevSearchRef = useRef<string>('');
   useEffect(() => {
@@ -294,6 +324,8 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
       keywords.map(kw =>
         fetch(`${API_BASE}/api/apartments/search?q=${encodeURIComponent(kw)}`)
           .then(res => res.json())
+          .then((d): Array<{ lat: number; lng: number; match_type?: string; sigungu_code?: string }> =>
+            Array.isArray(d) ? d : (d?.results ?? []))
           .catch(() => [])
       )
     ).then((results: Array<Array<{ lat: number; lng: number; match_type?: string; sigungu_code?: string }>>) => {

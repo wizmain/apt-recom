@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
 import { useCodes } from '../hooks/useCodes';
+import type { RegionCandidate, SelectedRegion } from '../types/apartment';
 
 interface NudgeBarProps {
   selectedNudges: string[];
@@ -11,9 +12,12 @@ interface NudgeBarProps {
   filterCount: number;
   searchKeywords: string[];
   keywordLabels?: Record<string, string>;
+  selectedRegion: SelectedRegion | null;
   onAddKeyword: (keyword: string, label?: string) => void;
   onRemoveKeyword: (keyword: string) => void;
   onClearAll?: () => void;
+  onSelectRegion: (region: SelectedRegion) => void;
+  onClearRegion: () => void;
   viewMode: 'map' | 'dashboard';
   onViewChange: (mode: 'map' | 'dashboard') => void;
   onSelectApartment?: (pnu: string, lat: number, lng: number, name: string) => void;
@@ -27,14 +31,18 @@ export default function NudgeBar({
   filterCount,
   searchKeywords,
   keywordLabels,
+  selectedRegion,
   onAddKeyword,
   onRemoveKeyword,
   onClearAll,
+  onSelectRegion,
+  onClearRegion,
   viewMode,
   onViewChange,
   onSelectApartment,
 }: NudgeBarProps) {
   const isMapMode = viewMode === 'map';
+  const hasAnyKeyword = searchKeywords.length > 0 || selectedRegion !== null;
 
   return (
     <div className="fixed top-0 left-0 right-0 z-10 bg-white/95 backdrop-blur-sm shadow-sm">
@@ -50,26 +58,29 @@ export default function NudgeBar({
             onOpenSettings={onOpenSettings}
             onOpenFilter={onOpenFilter}
             filterCount={filterCount}
-            searchKeywords={searchKeywords}
+            hasAnyKeyword={hasAnyKeyword}
             onAddKeyword={onAddKeyword}
+            onSelectRegion={onSelectRegion}
             onSelectApartment={onSelectApartment}
           />
         )}
       </div>
 
-      {/* 지도 모드 전용: 모바일 넛지 칩 + 키워드 태그 */}
+      {/* 지도 모드 전용: 모바일 넛지 칩 + 키워드/지역 태그 */}
       {isMapMode && (
         <>
           <MobileNudgeChips
             selectedNudges={selectedNudges}
             onToggleNudge={onToggleNudge}
-            searchKeywords={searchKeywords}
+            hasAnyKeyword={hasAnyKeyword}
           />
           <KeywordTags
             searchKeywords={searchKeywords}
             keywordLabels={keywordLabels}
+            selectedRegion={selectedRegion}
             onRemoveKeyword={onRemoveKeyword}
             onClearAll={onClearAll}
+            onClearRegion={onClearRegion}
           />
         </>
       )}
@@ -104,59 +115,84 @@ interface SearchResult {
   new_plat_plc: string | null;
   match_type: 'region' | 'name' | 'region_empty';
   region_label?: string;
+  sigungu_code?: string;
+  bjd_code?: string;
 }
 
+interface SearchResponse {
+  results: SearchResult[];
+  region_candidates?: RegionCandidate[];
+}
+
+type DropdownMode = 'apt' | 'region' | 'empty';
+
 function MapControls({
-  selectedNudges, onToggleNudge, onOpenSettings, onOpenFilter, filterCount, searchKeywords, onAddKeyword, onSelectApartment,
+  selectedNudges, onToggleNudge, onOpenSettings, onOpenFilter, filterCount,
+  hasAnyKeyword, onAddKeyword, onSelectRegion, onSelectApartment,
 }: {
   selectedNudges: string[]; onToggleNudge: (id: string) => void;
   onOpenSettings: () => void; onOpenFilter: () => void; filterCount: number;
-  searchKeywords: string[]; onAddKeyword: (kw: string, label?: string) => void;
+  hasAnyKeyword: boolean;
+  onAddKeyword: (kw: string, label?: string) => void;
+  onSelectRegion: (region: SelectedRegion) => void;
   onSelectApartment?: (pnu: string, lat: number, lng: number, name: string) => void;
 }) {
   const { codes: nudgeCodes } = useCodes('nudge');
   const nudges = nudgeCodes.map(c => ({ id: c.code, label: c.name }));
   const [inputValue, setInputValue] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [regionCandidates, setRegionCandidates] = useState<RegionCandidate[]>([]);
+  const [dropdownMode, setDropdownMode] = useState<DropdownMode | null>(null);
   const [highlightIdx, setHighlightIdx] = useState(-1);
   const [noResultsMsg, setNoResultsMsg] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const showDropdown = dropdownMode !== null;
+  const itemCount = dropdownMode === 'apt' ? searchResults.length
+    : dropdownMode === 'region' ? regionCandidates.length : 0;
+
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
+        setDropdownMode(null);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const resetDropdown = useCallback(() => {
+    setDropdownMode(null);
+    setHighlightIdx(-1);
+    setNoResultsMsg('');
+  }, []);
+
   const handleSelectApt = useCallback((apt: SearchResult) => {
     if (apt.lat && apt.lng) {
       onSelectApartment?.(apt.pnu, apt.lat, apt.lng, apt.bld_nm);
-      const addr = apt.new_plat_plc || '';
-      const match = addr.match(/^[가-힣]+\s[가-힣]+[시군구]/);
-      const regionKw = match ? match[0] : apt.bld_nm;
-      if (!searchKeywords.includes(regionKw)) onAddKeyword(regionKw);
+      onAddKeyword(apt.bld_nm);
     }
     setInputValue('');
-    setShowDropdown(false);
-    setHighlightIdx(-1);
-  }, [onSelectApartment, onAddKeyword, searchKeywords]);
+    resetDropdown();
+  }, [onSelectApartment, onAddKeyword, resetDropdown]);
+
+  const handleSelectRegionCandidate = useCallback((cand: RegionCandidate) => {
+    onSelectRegion({ type: cand.type, code: cand.code, label: cand.label });
+    setInputValue('');
+    resetDropdown();
+  }, [onSelectRegion, resetDropdown]);
 
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
 
     // 드롭다운 열려있을 때 화살표/Enter 처리
-    if (showDropdown && searchResults.length > 0) {
+    if (showDropdown && itemCount > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setHighlightIdx(prev => {
-          const next = prev < searchResults.length - 1 ? prev + 1 : 0;
+          const next = prev < itemCount - 1 ? prev + 1 : 0;
           listRef.current?.children[next + 1]?.scrollIntoView({ block: 'nearest' });
           return next;
         });
@@ -165,7 +201,7 @@ function MapControls({
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         setHighlightIdx(prev => {
-          const next = prev > 0 ? prev - 1 : searchResults.length - 1;
+          const next = prev > 0 ? prev - 1 : itemCount - 1;
           listRef.current?.children[next + 1]?.scrollIntoView({ block: 'nearest' });
           return next;
         });
@@ -173,55 +209,86 @@ function MapControls({
       }
       if (e.key === 'Enter' && highlightIdx >= 0) {
         e.preventDefault();
-        handleSelectApt(searchResults[highlightIdx]);
+        if (dropdownMode === 'apt') handleSelectApt(searchResults[highlightIdx]);
+        else if (dropdownMode === 'region') handleSelectRegionCandidate(regionCandidates[highlightIdx]);
         return;
       }
     }
 
     if (e.key === 'Enter' && inputValue.trim()) {
       const kw = inputValue.trim();
-      if (searchKeywords.includes(kw)) { setInputValue(''); return; }
 
-      // API 호출하여 region/name 구분
       try {
-        const res = await axios.get<SearchResult[]>(`${API_BASE}/api/apartments/search`, { params: { q: kw } });
+        const res = await axios.get<SearchResponse>(
+          `${API_BASE}/api/apartments/search`, { params: { q: kw } },
+        );
         const data = res.data;
-        const regionEmpty = data.find(d => d.match_type === 'region_empty');
-        const hasRegion = data.some(d => d.match_type === 'region');
+        const results = data.results || [];
+        const candidates = data.region_candidates || [];
+        const regionEmpty = results.find(d => d.match_type === 'region_empty');
+        const regionItems = results.filter(d => d.match_type === 'region');
+        const nameItems = results.filter(d => d.match_type === 'name' && d.lat != null);
 
+        // 1. 지역 매칭됐으나 아파트 없음
         if (regionEmpty) {
-          // 지역 매칭됐지만 아파트 없음
           setSearchResults([]);
+          setRegionCandidates([]);
           setNoResultsMsg(`${regionEmpty.region_label || kw} 지역에 등록된 아파트가 없습니다`);
-          setShowDropdown(true);
-        } else if (hasRegion) {
-          const regionItem = data.find(d => d.match_type === 'region' && d.region_label);
-          const label = regionItem?.region_label || undefined;
-          onAddKeyword(kw, label);
-          setInputValue('');
-          setShowDropdown(false);
-          setNoResultsMsg('');
-        } else if (data.length > 0) {
-          const filtered = data.filter(d => d.lat != null);
-          setSearchResults(filtered);
-          setHighlightIdx(-1);
-          setShowDropdown(true);
-          setNoResultsMsg('');
-        } else {
-          setSearchResults([]);
-          setNoResultsMsg('검색 결과가 없습니다');
-          setShowDropdown(true);
+          setDropdownMode('empty');
+          return;
         }
+
+        // 2. 동일명 지역이 여러 곳 → 후보 드롭다운 표시
+        if (candidates.length >= 2) {
+          setRegionCandidates(candidates);
+          setSearchResults([]);
+          setHighlightIdx(-1);
+          setDropdownMode('region');
+          setNoResultsMsg('');
+          return;
+        }
+
+        // 3. 단일 지역 매칭 → 즉시 선택
+        if (regionItems.length > 0) {
+          const first = regionItems[0];
+          const regionType: 'sigungu' | 'emd' = first.bjd_code ? 'emd' : 'sigungu';
+          const code = first.bjd_code || (first.sigungu_code || '').slice(0, 5);
+          if (code) {
+            onSelectRegion({ type: regionType, code, label: first.region_label || kw });
+            setInputValue('');
+            resetDropdown();
+            return;
+          }
+        }
+
+        // 4. 단지명 매칭 → 기존 방식 드롭다운
+        if (nameItems.length > 0) {
+          setSearchResults(nameItems);
+          setRegionCandidates([]);
+          setHighlightIdx(-1);
+          setDropdownMode('apt');
+          setNoResultsMsg('');
+          return;
+        }
+
+        // 5. 결과 없음
+        setSearchResults([]);
+        setRegionCandidates([]);
+        setNoResultsMsg('검색 결과가 없습니다');
+        setDropdownMode('empty');
       } catch {
         onAddKeyword(kw);
         setInputValue('');
       }
     }
     if (e.key === 'Escape') {
-      setShowDropdown(false);
-      setHighlightIdx(-1);
+      resetDropdown();
     }
-  }, [inputValue, searchKeywords, onAddKeyword, showDropdown, searchResults, highlightIdx, handleSelectApt]);
+  }, [
+    inputValue, onAddKeyword, onSelectRegion, showDropdown, itemCount, highlightIdx,
+    dropdownMode, searchResults, regionCandidates, handleSelectApt, handleSelectRegionCandidate,
+    resetDropdown,
+  ]);
 
   return (
     <>
@@ -230,7 +297,7 @@ function MapControls({
         <input
           type="text"
           value={inputValue}
-          onChange={(e) => { setInputValue(e.target.value); setShowDropdown(false); setNoResultsMsg(''); }}
+          onChange={(e) => { setInputValue(e.target.value); resetDropdown(); }}
           onKeyDown={handleKeyDown}
           placeholder="지역명·단지명 (Enter)"
           className="w-full sm:w-48 px-3 py-1.5 pr-7 text-sm border border-gray-300 rounded-full
@@ -239,14 +306,35 @@ function MapControls({
         />
         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
 
-        {/* 단지명 검색 결과 드롭다운 */}
-        {showDropdown && (noResultsMsg ? (
+        {/* 검색 결과 드롭다운 */}
+        {dropdownMode === 'empty' && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-            <div className="px-3 py-3 text-sm text-gray-500 text-center">
-              {noResultsMsg}
-            </div>
+            <div className="px-3 py-3 text-sm text-gray-500 text-center">{noResultsMsg}</div>
           </div>
-        ) : searchResults.length > 0 && (
+        )}
+
+        {dropdownMode === 'region' && regionCandidates.length > 0 && (
+          <div ref={listRef} className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg
+                          max-h-64 overflow-y-auto z-50">
+            <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
+              동일 명칭의 지역이 여러 곳입니다 — 원하는 지역을 선택하세요
+            </div>
+            {regionCandidates.map((cand, idx) => (
+              <button
+                key={`${cand.type}-${cand.code}`}
+                onClick={() => handleSelectRegionCandidate(cand)}
+                onMouseEnter={() => setHighlightIdx(idx)}
+                className={`w-full text-left px-3 py-2 transition-colors border-b border-gray-50 last:border-b-0
+                  ${idx === highlightIdx ? 'bg-blue-50 text-blue-800' : 'hover:bg-gray-50'}`}
+              >
+                <div className="text-sm font-medium truncate">📍 {cand.label}</div>
+                <div className="text-xs text-gray-500">아파트 {cand.count}개</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {dropdownMode === 'apt' && searchResults.length > 0 && (
           <div ref={listRef} className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg
                           max-h-64 overflow-y-auto z-50">
             <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
@@ -267,7 +355,7 @@ function MapControls({
               </button>
             ))}
           </div>
-        ))}
+        )}
       </div>
 
       {/* 넛지 칩 (데스크톱) */}
@@ -277,7 +365,7 @@ function MapControls({
             key={nudge.id}
             nudge={nudge}
             isSelected={selectedNudges.includes(nudge.id)}
-            disabled={searchKeywords.length === 0}
+            disabled={!hasAnyKeyword}
             onToggle={onToggleNudge}
             size="desktop"
           />
@@ -311,9 +399,9 @@ function MapControls({
 }
 
 function MobileNudgeChips({
-  selectedNudges, onToggleNudge, searchKeywords,
+  selectedNudges, onToggleNudge, hasAnyKeyword,
 }: {
-  selectedNudges: string[]; onToggleNudge: (id: string) => void; searchKeywords: string[];
+  selectedNudges: string[]; onToggleNudge: (id: string) => void; hasAnyKeyword: boolean;
 }) {
   const { codes: nudgeCodes } = useCodes('nudge');
   const nudges = nudgeCodes.map(c => ({ id: c.code, label: c.name }));
@@ -325,7 +413,7 @@ function MobileNudgeChips({
           key={nudge.id}
           nudge={nudge}
           isSelected={selectedNudges.includes(nudge.id)}
-          disabled={searchKeywords.length === 0}
+          disabled={!hasAnyKeyword}
           onToggle={onToggleNudge}
           size="mobile"
         />
@@ -361,17 +449,28 @@ function NudgeChip({
 }
 
 function KeywordTags({
-  searchKeywords, keywordLabels, onRemoveKeyword, onClearAll,
+  searchKeywords, keywordLabels, selectedRegion, onRemoveKeyword, onClearAll, onClearRegion,
 }: {
-  searchKeywords: string[]; keywordLabels?: Record<string, string>; onRemoveKeyword: (kw: string) => void; onClearAll?: () => void;
+  searchKeywords: string[];
+  keywordLabels?: Record<string, string>;
+  selectedRegion: SelectedRegion | null;
+  onRemoveKeyword: (kw: string) => void;
+  onClearAll?: () => void;
+  onClearRegion: () => void;
 }) {
-  if (searchKeywords.length === 0) return null;
+  if (searchKeywords.length === 0 && !selectedRegion) return null;
 
   return (
     <div className="flex items-center gap-1.5 px-3 sm:px-4 pb-2 -mt-1 overflow-x-auto scrollbar-hide">
+      {selectedRegion && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs rounded-full whitespace-nowrap">
+          📍 {selectedRegion.label}
+          <button onClick={onClearRegion} className="hover:text-emerald-900 ml-0.5" aria-label="지역 필터 해제">✕</button>
+        </span>
+      )}
       {searchKeywords.map(kw => (
         <span key={kw} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full whitespace-nowrap">
-          📍 {keywordLabels?.[kw] || kw}
+          🏢 {keywordLabels?.[kw] || kw}
           <button onClick={() => onRemoveKeyword(kw)} className="hover:text-blue-900 ml-0.5">✕</button>
         </span>
       ))}

@@ -21,6 +21,8 @@ def list_apartments(
     max_hhld: int | None = Query(None, description="최대 세대수"),
     built_after: int | None = Query(None, description="준공연도 이후 (예: 2015)"),
     built_before: int | None = Query(None, description="준공연도 이전 (예: 2025)"),
+    sigungu_code: str | None = Query(None, description="시군구 코드 (5자리)"),
+    bjd_code: str | None = Query(None, description="법정동 코드 (10자리, 시군구보다 우선 적용)"),
 ):
     """Return apartments with optional filters."""
     conn = DictConnection()
@@ -43,8 +45,16 @@ def list_apartments(
         ]
         params: list = []
 
-        # Map bounds
-        if all(v is not None for v in [sw_lat, sw_lng, ne_lat, ne_lng]):
+        # Region filter (bjd_code 우선 — 동일명 지역 구분)
+        if bjd_code:
+            conditions.append("a.bjd_code = %s")
+            params.append(bjd_code)
+        elif sigungu_code:
+            conditions.append("a.sigungu_code = %s")
+            params.append(sigungu_code)
+
+        # Map bounds (지역 필터가 설정되면 bounds는 무시 — 사용자가 지도를 이동해도 지역 결과 고정)
+        elif all(v is not None for v in [sw_lat, sw_lng, ne_lat, ne_lng]):
             conditions.append("a.lat BETWEEN %s AND %s AND a.lng BETWEEN %s AND %s")
             params.extend([sw_lat, ne_lat, sw_lng, ne_lng])
 
@@ -96,11 +106,16 @@ def list_apartments(
 
 @router.get("/apartments/search")
 def search_apartments(q: str = Query(..., min_length=1)):
-    """검색어를 분석하여 지역/단지명을 자동 분류 후 아파트 검색."""
+    """검색어를 분석하여 지역/단지명을 자동 분류 후 아파트 검색.
+
+    반환: {"results": [...], "region_candidates": [...]?}
+    - results: 개별 아파트 목록 (최대 100건)
+    - region_candidates: 동일 명칭의 지역이 2곳 이상 매칭된 경우 후보 목록 (선택적)
+    """
     from services.search_engine import search
 
     conn = DictConnection()
     try:
-        return search(conn, q)["results"]
+        return search(conn, q)
     finally:
         conn.close()
