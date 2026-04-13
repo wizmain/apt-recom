@@ -192,7 +192,8 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     if (!mapRef.current || !clustererRef.current) return;
 
     // 마커 재생성 전에 열려있던 팝업 닫기 (기존 마커가 제거되면 팝업 앵커가 사라지므로)
-    if (openMarkerRef.current) {
+    // 단, focusPnu로 연 tempMarker 팝업(__isFocusPopup=true)은 별도 앵커이므로 보존한다.
+    if (openMarkerRef.current && !openMarkerRef.current.__isFocusPopup) {
       infoWindowRef.current?.close();
       openMarkerRef.current = null;
     }
@@ -429,8 +430,9 @@ export default function Map({ apartments, scoredResults, onBoundsChange, onMarke
     setTimeout(() => {
       const content = buildPopupHtml(focusPnu.name, focusPnu.pnu);
       infoWindowRef.current?.setContent(content);
-      // 임시 마커에 팝업 열기
+      // 임시 마커에 팝업 열기. apartments 재렌더 시 팝업이 닫히지 않도록 플래그 부여.
       const tempMarker = new window.kakao.maps.Marker({ position: pos });
+      tempMarker.__isFocusPopup = true;
       infoWindowRef.current?.open(mapRef.current, tempMarker);
       openMarkerRef.current = tempMarker;
       onFocusPnuHandled?.();
