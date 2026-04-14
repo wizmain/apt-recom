@@ -100,7 +100,7 @@ function ViewTabs({ viewMode, onViewChange }: { viewMode: string; onViewChange: 
           className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors
             ${viewMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
         >
-          {mode === 'map' ? '지도' : '대시보드'}
+          {mode === 'map' ? '지도' : '실거래대시보드'}
         </button>
       ))}
     </div>
@@ -300,11 +300,12 @@ function MapControls({
           onChange={(e) => { setInputValue(e.target.value); resetDropdown(); }}
           onKeyDown={handleKeyDown}
           placeholder="지역명·단지명 (Enter)"
-          className="w-full sm:w-48 px-3 py-1.5 pr-7 text-sm border border-gray-300 rounded-full
-                     focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500
-                     placeholder-gray-400"
+          className="w-full sm:w-48 px-3 py-1.5 pr-7 text-sm bg-blue-50/70 border-2 border-blue-300 rounded-full
+                     hover:border-blue-400 hover:bg-blue-50
+                     focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-200
+                     placeholder-blue-400/70 transition-colors"
         />
-        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
+        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-blue-500 text-xs pointer-events-none">🔍</span>
 
         {/* 검색 결과 드롭다운 */}
         {dropdownMode === 'empty' && (
