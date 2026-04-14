@@ -27,21 +27,28 @@ def list_apartments(
     """Return apartments with optional filters."""
     conn = DictConnection()
     try:
-        # Base query with LEFT JOIN for area/price info
+        # Base query with LEFT JOIN for area/price/K-APT info
+        # 세대수/최고층/사용승인일은 K-APT가 있으면 K-APT 값 우선 (건축물대장은 여러 건물을
+        # 합산해 과대 집계되는 문제가 있음)
         sql = """
-            SELECT a.pnu, a.bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.sigungu_code,
-                   a.max_floor, a.use_apr_day,
+            SELECT a.pnu, a.bld_nm, a.lat, a.lng,
+                   COALESCE(k.ho_cnt, a.total_hhld_cnt) AS total_hhld_cnt,
+                   a.sigungu_code,
+                   COALESCE(k.top_floor, a.max_floor) AS max_floor,
+                   COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) AS use_apr_day,
                    ai.min_area as area_min, ai.max_area as area_max, ai.avg_area,
                    ps.price_per_m2, ps.jeonse_ratio
             FROM apartments a
             LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu
+            LEFT JOIN apt_kapt_info k ON a.pnu = k.pnu
         """
         conditions: list[str] = [
             "a.pnu NOT LIKE 'TRADE_%%'",
             "a.lat IS NOT NULL",
-            "a.total_hhld_cnt > 0",
-            "a.use_apr_day IS NOT NULL AND a.use_apr_day != ''",
+            "COALESCE(k.ho_cnt, a.total_hhld_cnt) > 0",
+            "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) IS NOT NULL",
+            "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) != ''",
         ]
         params: list = []
 
@@ -76,23 +83,24 @@ def list_apartments(
 
         # Floor filter
         if min_floor is not None:
-            conditions.append("a.max_floor >= %s")
+            conditions.append("COALESCE(k.top_floor, a.max_floor) >= %s")
             params.append(min_floor)
 
         # Household count
         if min_hhld is not None:
-            conditions.append("a.total_hhld_cnt >= %s")
+            conditions.append("COALESCE(k.ho_cnt, a.total_hhld_cnt) >= %s")
             params.append(min_hhld)
         if max_hhld is not None:
-            conditions.append("a.total_hhld_cnt <= %s")
+            conditions.append("COALESCE(k.ho_cnt, a.total_hhld_cnt) <= %s")
             params.append(max_hhld)
 
-        # Built year
+        # Built year — K-APT use_date 우선, 없으면 건축물대장 use_apr_day
+        built_date_expr = "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day)"
         if built_after is not None:
-            conditions.append("a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int >= %s")
+            conditions.append(f"{built_date_expr} ~ '^[0-9]{{4}}' AND LEFT({built_date_expr}, 4)::int >= %s")
             params.append(built_after)
         if built_before is not None:
-            conditions.append("a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int <= %s")
+            conditions.append(f"{built_date_expr} ~ '^[0-9]{{4}}' AND LEFT({built_date_expr}, 4)::int <= %s")
             params.append(built_before)
 
         if conditions:
