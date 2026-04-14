@@ -64,6 +64,8 @@ export default function NudgeBar({
             onSelectApartment={onSelectApartment}
           />
         )}
+
+        <SiteInfo />
       </div>
 
       {/* 지도 모드 전용: 모바일 넛지 칩 + 키워드/지역 태그 */}
@@ -446,6 +448,28 @@ function NudgeChip({
     >
       {nudge.label}
     </button>
+  );
+}
+
+function SiteInfo() {
+  // 상단바 우측 끝: 도메인 + 운영자 이메일 (데스크톱 전용 — 모바일은 공간 부족)
+  return (
+    <div className="hidden lg:flex flex-col items-end leading-tight ml-auto text-[11px] text-gray-500 whitespace-nowrap flex-shrink-0">
+      <a
+        href="https://www.apt-recom.kr"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
+      >
+        www.apt-recom.kr
+      </a>
+      <a
+        href="mailto:kindofme46@gmail.com"
+        className="text-gray-500 hover:text-gray-700 hover:underline"
+      >
+        kindofme46@gmail.com
+      </a>
+    </div>
   );
 }
 
