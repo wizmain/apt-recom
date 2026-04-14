@@ -309,6 +309,17 @@ def apartment_detail(pnu: str):
         if kapt_row:
             kapt_info = dict(kapt_row)
             kapt_info.pop("updated_at", None)
+            # K-APT 값이 있으면 기본정보를 K-APT로 override
+            # (건축물대장은 주차/부속동까지 세어 dong_count 부풀려지는 등 정확도 낮음)
+            kapt_overrides = {
+                "total_hhld_cnt": kapt_info.get("ho_cnt"),
+                "dong_count": kapt_info.get("dong_cnt"),
+                "max_floor": kapt_info.get("top_floor"),
+                "use_apr_day": kapt_info.get("use_date"),
+            }
+            for k, v in kapt_overrides.items():
+                if v is not None:
+                    basic[k] = v
 
         # 관리비 (최근 3개월 + 지역 평균)
         mgmt_cost = None

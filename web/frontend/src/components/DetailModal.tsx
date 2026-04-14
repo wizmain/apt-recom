@@ -4,6 +4,7 @@ import { API_BASE } from '../config';
 import { useCodes } from '../hooks/useCodes';
 import type { TopContributor } from '../types/apartment';
 import { buildRankReason, rankEmoji } from '../utils/scoreReason';
+import ChartFrame from './ChartFrame';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   LineChart, Line, BarChart, Bar, Legend,
@@ -27,6 +28,9 @@ interface BasicInfo {
   sigungu_code?: string;
   lat?: number;
   lng?: number;
+  min_area?: number;
+  max_area?: number;
+  avg_area?: number;
 }
 
 interface KaptInfo {
@@ -259,10 +263,18 @@ function TabBasicInfo({ detail, rankContext }: { detail: ApartmentDetail | null;
   if (!detail) return <EmptyState text="기본 정보를 불러올 수 없습니다." />;
 
   const b = detail.basic;
+  const areaLabel = (() => {
+    const lo = b.min_area != null ? Math.round(b.min_area) : null;
+    const hi = b.max_area != null ? Math.round(b.max_area) : null;
+    if (lo == null && hi == null) return '-';
+    if (lo != null && hi != null) return lo === hi ? `${lo}㎡` : `${lo}~${hi}㎡`;
+    return `${lo ?? hi}㎡`;
+  })();
   const infoItems = [
     { label: '세대수', value: b.total_hhld_cnt != null ? `${b.total_hhld_cnt}세대` : '-' },
     { label: '동수', value: b.dong_count != null ? `${b.dong_count}동` : '-' },
     { label: '최고층', value: b.max_floor != null ? `${b.max_floor}층` : '-' },
+    { label: '전용면적', value: areaLabel },
     { label: '사용승인일', value: b.use_apr_day ?? '-' },
   ];
 
@@ -300,7 +312,7 @@ function TabBasicInfo({ detail, rankContext }: { detail: ApartmentDetail | null;
       )}
 
       {/* Info cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {infoItems.map((item) => (
           <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
             <p className="text-xs text-gray-500">{item.label}</p>
@@ -328,7 +340,7 @@ function TabBasicInfo({ detail, rankContext }: { detail: ApartmentDetail | null;
       {radarData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">라이프 점수</h3>
-          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+          <ChartFrame className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="75%">
                 <PolarGrid stroke="#e5e7eb" />
@@ -338,7 +350,7 @@ function TabBasicInfo({ detail, rankContext }: { detail: ApartmentDetail | null;
                 <Tooltip />
               </RadarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartFrame>
         </div>
       )}
     </div>
@@ -535,7 +547,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
       {trendData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">월별 매매가 추이 (면적별)</h3>
-          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+          <ChartFrame className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -568,7 +580,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
                 ))}
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </ChartFrame>
         </div>
       )}
 
@@ -576,7 +588,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
       {areaData.some((d) => d.count > 0) && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">면적별 평균가</h3>
-          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+          <ChartFrame className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={areaData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -586,7 +598,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
                 <Bar dataKey="avg" fill={BLUE[1]} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartFrame>
         </div>
       )}
 
@@ -594,7 +606,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
       {jeonseData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">전세가율 추이 (면적별)</h3>
-          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+          <ChartFrame className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={jeonseData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -627,7 +639,7 @@ function TabPriceAnalysis({ trades, rents }: { trades: TradeRecord[]; rents: Ren
                 ))}
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </ChartFrame>
         </div>
       )}
 
@@ -710,7 +722,7 @@ function TabFacilities({ detail }: { detail: ApartmentDetail | null }) {
       {barData.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">1km 내 시설 수</h3>
-          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
+          <ChartFrame className="bg-gray-50 rounded-lg p-3 sm:p-4 h-56 sm:h-80">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={barData} layout="vertical" margin={{ left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -720,7 +732,7 @@ function TabFacilities({ detail }: { detail: ApartmentDetail | null }) {
                 <Bar dataKey="count" fill={BLUE[1]} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartFrame>
         </div>
       )}
 
