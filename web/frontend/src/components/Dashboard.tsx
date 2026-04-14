@@ -212,7 +212,7 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
   if (loading && !summary) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-400 text-sm">대시보드 로딩 중...</div>
+        <div className="text-gray-400 text-sm">실거래대시보드 로딩 중...</div>
       </div>
     );
   }
