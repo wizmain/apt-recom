@@ -37,19 +37,76 @@ MAX_RETRIES = 2
 RETRY_BACKOFFS = [1, 2]
 
 
-def _names_overlap(trade_nm: str, bld_nm: str) -> bool:
-    """거래명과 아파트명에 2글자 이상 공통 부분 문자열이 있는지 확인."""
-    a = re.sub(r"[\s\-·()（）,.\d]", "", trade_nm or "").lower()
-    b = re.sub(r"[\s\-·()（）,.\d]", "", bld_nm or "").lower()
-    if not a or not b:
-        return True  # 판단 불가 → 정상 취급
-    if a in b or b in a:
+# 2000년대 이후 런칭된 주요 브랜드 — 1995년 이전 준공 건물에 이 이름이 붙으면
+# 매핑 오류(다른 건물에 유명 단지 이름이 덧씌워짐)로 본다.
+_MODERN_BRANDS = (
+    "자이", "래미안", "푸르지오", "블루밍", "힐스테이트", "e편한세상", "이편한세상",
+    "아이파크", "롯데캐슬", "SK뷰", "SK뷰", "더샵", "꿈에그린", "데시앙",
+    "스위첸", "해모로", "리슈빌", "한라비발디", "서희스타힐스", "호반베르디움",
+    "금호어울림", "현대홈타운", "하이페리온", "에듀포레", "오투그란데",
+    "센트라우스", "센트럴파크", "S-클래스", "센텀", "에코포레",
+)
+
+_MODERN_BRAND_CUTOFF = "19950101"
+
+
+def _normalize_name(name: str) -> str:
+    """이름 정규화 — 공백/특수문자 제거 후 소문자.
+
+    주의: 숫자는 유지한다. `1단지`/`6단지` 같은 단지 번호가 구분 키이기 때문.
+    """
+    if not name:
+        return ""
+    return re.sub(r"[\s\-·()（）,.]", "", name).lower()
+
+
+def _has_modern_brand(apt_nm: str) -> bool:
+    if not apt_nm:
+        return False
+    compact = _normalize_name(apt_nm)
+    return any(b.lower() in compact for b in _MODERN_BRANDS)
+
+
+def _brand_year_consistent(apt_nm: str, use_apr_day: str | None) -> bool:
+    """브랜드명-준공연도 일관성 체크.
+
+    2000년대 브랜드 이름인데 건축물대장 준공일이 1995년 이전이면 불일치로 판정.
+    use_apr_day가 없거나 포맷이 비정상이면 판단 불가(True 반환 — 기존 경로 유지).
+    """
+    if not _has_modern_brand(apt_nm):
         return True
+    if not use_apr_day or not re.match(r"^[12][0-9]{7}$", use_apr_day):
+        return True
+    return use_apr_day >= _MODERN_BRAND_CUTOFF
+
+
+def _name_similarity_ratio(trade_nm: str, bld_nm: str) -> float:
+    """최장 공통 부분문자열 길이를 짧은 쪽 이름 길이로 나눈 비율 (0.0 ~ 1.0)."""
+    a = _normalize_name(trade_nm)
+    b = _normalize_name(bld_nm)
+    if not a or not b:
+        return 1.0  # 판단 불가 → 정상 취급
+    if a == b:
+        return 1.0
+    # 최장 공통 부분문자열 탐색
+    longest = 0
     for i in range(len(a)):
-        for length in range(2, len(a) - i + 1):
-            if a[i:i + length] in b:
-                return True
-    return False
+        for j in range(i + 1, len(a) + 1):
+            if a[i:j] in b and (j - i) > longest:
+                longest = j - i
+    return longest / min(len(a), len(b))
+
+
+# 이름 일치 허용 임계값 — 아래면 다른 단지로 판정
+_NAME_SIM_THRESHOLD = 0.4
+
+
+def _names_overlap(trade_nm: str, bld_nm: str) -> bool:
+    """거래명과 아파트명이 같은 단지로 볼 만큼 유사한지.
+
+    짧은 이름 기준 공통 부분문자열 비율이 임계값 이상이어야 통과.
+    """
+    return _name_similarity_ratio(trade_nm, bld_nm) >= _NAME_SIM_THRESHOLD
 
 
 # ── Rate Limiter ──
@@ -559,9 +616,20 @@ def enrich_new_apartments(conn, logger):
     logger.info(f"  미매핑 apt_seq {len(unmapped)}건 처리 시작 (workers={ENRICH_WORKERS})")
 
     # 기존 PNU + 이름 사전 로드 (Phase 1에서 read-only, Phase 2에서 이름 유사도 검증)
-    apt_rows = query_all(conn, "SELECT pnu, bld_nm FROM apartments")
+    apt_rows = query_all(conn, "SELECT pnu, bld_nm, sigungu_code FROM apartments")
     existing_pnus = set(r["pnu"] for r in apt_rows)
     existing_names = {r["pnu"]: r["bld_nm"] or "" for r in apt_rows}
+
+    # K-APT 연동된 "진본" 아파트 (sigungu_code, normalized_name) → pnu 인덱스
+    # 동일 시군구·동일 이름의 Kakao 오매칭을 사전에 진본으로 리다이렉트한다.
+    kapt_rows = query_all(conn,
+        "SELECT a.pnu, a.bld_nm, a.sigungu_code FROM apartments a "
+        "JOIN apt_kapt_info k ON a.pnu = k.pnu "
+        "WHERE a.bld_nm IS NOT NULL AND a.bld_nm != '' AND a.sigungu_code IS NOT NULL")
+    kapt_name_index: dict[tuple[str, str], str] = {}
+    for r in kapt_rows:
+        key = (str(r["sigungu_code"])[:5], _normalize_name(r["bld_nm"]))
+        kapt_name_index.setdefault(key, r["pnu"])
 
     # ── Phase 0: PNU 직접 조합으로 신규 아파트 후보 식별 ──
     # _update_mapping에서 기존 PNU 매핑은 이미 처리됨.
@@ -648,6 +716,20 @@ def enrich_new_apartments(conn, logger):
         apt_nm = r["apt_nm"]
         real_pnu = r["pnu"]
 
+        # [3] K-APT 진본 우선 바인딩 — 같은 시군구에 K-APT 연동 + 이름 일치 단지가
+        # 이미 존재하면 Kakao 결과보다 우선 사용 (오매칭으로 유령 생성 방지)
+        canonical_pnu = kapt_name_index.get((sgg_cd, _normalize_name(apt_nm)))
+        if canonical_pnu:
+            pnu = canonical_pnu
+            method = "kapt_canonical"
+            matched += 1
+            cur.execute(
+                "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
+                [apt_seq, pnu, apt_nm, sgg_cd, method],
+            )
+            continue
+
         if real_pnu:
             # PNU 앞 5자리(sigungu_code)와 거래 sgg_cd 일치 확인
             pnu_sgg = real_pnu[:5]
@@ -679,34 +761,47 @@ def enrich_new_apartments(conn, logger):
                     method = "kakao_pnu_existing"
                     matched += 1
             else:
-                # 신규 등록
-                pnu = real_pnu
-                method = "kakao_pnu_new"
-                cur.execute(
-                    "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, bjd_code, lat, lng, new_plat_plc, plat_plc) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
-                    [pnu, apt_nm, sgg_cd, pnu, r["bjd_code"], r["lat"], r["lng"], r["new_plat"], r["plat"]],
-                )
+                # 신규 등록 후보 — 브랜드-연도 게이트 선행 검증
+                bld_info = r.get("bld_info") or {}
+                bld_use_apr = bld_info.get("use_apr_day") if bld_info else None
+                if not _brand_year_consistent(apt_nm, bld_use_apr):
+                    # 2000년대 브랜드 이름인데 건축물대장 준공일이 1995년 이전
+                    # → Kakao 오매칭으로 판단, TRADE_ fallback 으로 회피
+                    pnu = f"TRADE_{sgg_cd}_{apt_nm}"
+                    method = "trade_fallback_brand_year"
+                    cur.execute(
+                        "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                        [pnu, apt_nm, sgg_cd, pnu, r["lat"], r["lng"], r["new_plat"], r["plat"]],
+                    )
+                    fallback += 1
+                else:
+                    pnu = real_pnu
+                    method = "kakao_pnu_new"
+                    cur.execute(
+                        "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, bjd_code, lat, lng, new_plat_plc, plat_plc) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                        [pnu, apt_nm, sgg_cd, pnu, r["bjd_code"], r["lat"], r["lng"], r["new_plat"], r["plat"]],
+                    )
 
-                # 건축물대장 정보 업데이트
-                bld_info = r.get("bld_info")
-                if bld_info:
-                    updates = []
-                    params = []
-                    for col in ("total_hhld_cnt", "dong_count", "max_floor"):
-                        if bld_info.get(col):
-                            updates.append(f"{col} = %s")
-                            params.append(bld_info[col])
-                    if bld_info.get("use_apr_day"):
-                        updates.append("use_apr_day = COALESCE(NULLIF(use_apr_day, ''), %s)")
-                        params.append(bld_info["use_apr_day"])
-                    if updates:
-                        params.append(pnu)
-                        cur.execute(f"UPDATE apartments SET {', '.join(updates)} WHERE pnu = %s", params)
+                    # 건축물대장 정보 업데이트
+                    if bld_info:
+                        updates = []
+                        params = []
+                        for col in ("total_hhld_cnt", "dong_count", "max_floor"):
+                            if bld_info.get(col):
+                                updates.append(f"{col} = %s")
+                                params.append(bld_info[col])
+                        if bld_info.get("use_apr_day"):
+                            updates.append("use_apr_day = COALESCE(NULLIF(use_apr_day, ''), %s)")
+                            params.append(bld_info["use_apr_day"])
+                        if updates:
+                            params.append(pnu)
+                            cur.execute(f"UPDATE apartments SET {', '.join(updates)} WHERE pnu = %s", params)
 
-                created += 1
-                new_pnus.append(pnu)
-                created_pnus.add(pnu)
+                    created += 1
+                    new_pnus.append(pnu)
+                    created_pnus.add(pnu)
         else:
             # Kakao 검색 실패 → TRADE_ fallback
             pnu = f"TRADE_{sgg_cd}_{apt_nm}"
