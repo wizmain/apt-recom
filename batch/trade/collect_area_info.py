@@ -25,6 +25,7 @@ import requests
 from batch.config import (
     DATA_GO_KR_API_KEY,
     DATA_GO_KR_API_SECONDARY_KEY,
+    DATA_GO_KR_API_THIRD_KEY,
     DATA_GO_KR_RATE,
 )
 
@@ -38,15 +39,15 @@ class KeysExhausted(Exception):
 
 
 class _KeyRotator:
-    """data.go.kr API 키 로테이터 — 429 발생 시 secondary 로 전환.
+    """data.go.kr API 키 로테이터 — 429 발생 시 다음 키로 순차 전환.
 
-    - primary(기본) → secondary → exhausted(소진)
-    - 순차적으로 상태 전이만 허용 (다시 primary로 되돌아가지 않음)
+    - key1 → key2 → key3 → … → exhausted(소진)
+    - 순차적으로 상태 전이만 허용 (되돌아가지 않음)
     - 프로세스 수명 동안 상태 유지
     """
 
-    def __init__(self, primary: str, secondary: str = ""):
-        self._keys = [k for k in (primary, secondary) if k]
+    def __init__(self, *keys: str):
+        self._keys = [k for k in keys if k]
         self._index = 0
         self._exhausted = False
 
@@ -67,7 +68,11 @@ class _KeyRotator:
         return self._exhausted
 
 
-_rotator = _KeyRotator(DATA_GO_KR_API_KEY, DATA_GO_KR_API_SECONDARY_KEY)
+_rotator = _KeyRotator(
+    DATA_GO_KR_API_KEY,
+    DATA_GO_KR_API_SECONDARY_KEY,
+    DATA_GO_KR_API_THIRD_KEY,
+)
 
 
 def is_exhausted() -> bool:
@@ -127,7 +132,7 @@ def _request_with_rotation(params: dict, timeout: int) -> requests.Response | No
     모든 키가 소진되면 KeysExhausted 를 전파한다.
     기타 비정상 응답은 None 반환.
     """
-    for _ in range(2):  # primary + secondary
+    for _ in range(3):  # primary + secondary + third
         key = _rotator.current()  # raises KeysExhausted if none left
         resp = requests.get(BLD_EXPOS_URL,
                             params={**params, "serviceKey": key},
