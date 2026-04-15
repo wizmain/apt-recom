@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import Map from './components/Map';
+import RecentTradesBanner from './components/RecentTradesBanner';
 import NudgeBar from './components/NudgeBar';
 import Dashboard from './components/Dashboard';
 import WeightDrawer from './components/WeightDrawer';
@@ -229,6 +230,13 @@ function App() {
               setFocusPnu({ pnu, lat: apt.lat, lng: apt.lng, name: apt.bld_nm });
             }
           }} />
+
+          {/* Recent trades floating banner (좌측 하단) */}
+          <RecentTradesBanner
+            onSelect={(pnu) => setSelectedPnu(pnu)}
+            onGoToDashboard={() => setViewMode('dashboard')}
+            hasResults={results.length > 0 || loading}
+          />
         </>
       ) : (
         <div className={`absolute inset-0 ${barHeight} overflow-y-auto`}>
