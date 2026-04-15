@@ -30,7 +30,9 @@ import time
 from batch.config import DATA_GO_KR_RATE
 from batch.db import get_connection, get_dict_cursor, query_all, query_one
 from batch.logger import setup_logger
-from batch.trade.collect_area_info import fetch_area_info, upsert_area_info
+from batch.trade.collect_area_info import (
+    fetch_area_info, upsert_area_info, KeysExhausted,
+)
 
 CHECKPOINT_GROUP = "rebuild_area_checkpoint"
 
@@ -91,13 +93,18 @@ def _select_targets(conn, last_pnu: str | None) -> list[str]:
 
 
 def process_one(conn, pnu: str, logger) -> str:
-    """단일 PNU 재구축. 결과: 'ok' | 'nodata' | 'skip' | 'error'."""
+    """단일 PNU 재구축. 결과: 'ok' | 'nodata' | 'skip' | 'error'.
+
+    KeysExhausted는 상위로 전파되어 배치 종료를 유도한다.
+    """
     bp = _parse_pnu(pnu)
     if not bp:
         return "skip"
     try:
         info = fetch_area_info(bp["sigungu_cd"], bp["bjdong_cd"],
                                bp["plat_gb_cd"], bp["bun"], bp["ji"])
+    except KeysExhausted:
+        raise
     except Exception as e:
         logger.warning(f"  {pnu} 호출 실패: {e}")
         return "error"
@@ -145,12 +152,19 @@ def main() -> int:
     logger.info(f"남은 대상: {len(targets)}건, 최대 {args.max_calls}콜 처리")
 
     stats = {"ok": 0, "nodata": 0, "skip": 0, "error": 0}
+    pnu = None
+    exhausted = False
     for i, pnu in enumerate(targets):
         if stats["ok"] + stats["nodata"] + stats["error"] >= args.max_calls:
             logger.info(f"한도 도달 ({args.max_calls}콜). 다음 실행에서 이어서.")
             break
 
-        result = process_one(conn, pnu, logger)
+        try:
+            result = process_one(conn, pnu, logger)
+        except KeysExhausted:
+            logger.warning("모든 DATA_GO_KR API 키 소진 — 배치 중단 (내일 재개)")
+            exhausted = True
+            break
         stats[result] += 1
         time.sleep(DATA_GO_KR_RATE)
 
@@ -159,8 +173,10 @@ def main() -> int:
             logger.info(f"  진행: {i + 1}건 — {stats}")
 
     # 최종 체크포인트
-    if targets:
+    if pnu:
         _save_checkpoint(conn, pnu, stats)
+    if exhausted:
+        logger.info("※ 소진된 키는 한국시간 00:00 리셋 예정")
 
     logger.info(f"완료: {stats}")
     # 전체 진행률
