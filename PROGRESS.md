@@ -1,6 +1,6 @@
 # 아파트 추천 서비스 프로젝트 진행 현황
 
-> 최종 업데이트: 2026-04-02
+> 최종 업데이트: 2026-04-15
 
 ---
 
@@ -299,6 +299,81 @@
 - [x] Git pre-commit hook — TypeScript 체크
 - [x] 통합 테스트 29개 (`web/backend/tests/test_core.py`)
 - [x] DB 설계 원칙 + 테이블 생성 체크리스트 (CLAUDE.md)
+
+---
+
+## Phase 11: 데이터 품질 개선 & 전국 확장 (2026-04-14 ~ 04-15)
+
+### 11.1 KOSIS 인구통계 전국 확장 (2026-04-14, PR #38)
+- [x] `population_by_district` 수도권 3개 시도 → **전국 17개 시도** 확장 (2,068→6,028 rows)
+- [x] KOSIS API 파라미터 오류 수정 — `itmId` T20+T21+T22 → **T2+T3+T4** (총/남/여)
+- [x] 강원 42→**51**, 전북 45→**52** 특별자치도 신규 코드 반영
+- [x] 경기도 40,000셀 초과 → `getMeta` 정규식 파싱 + 시군구 청크 재요청 자동화
+- [x] 연령대 포맷 정규화 `"0 - 4세"` → `"0-4"` (프론트 호환)
+
+### 11.2 아파트 상세 K-APT 우선 반영 (2026-04-14, PR #38, #40)
+- [x] `routers/detail.py` K-APT override — 세대수/동수/최고층/사용승인일을 K-APT 값 우선
+- [x] `routers/apartments.py` 동일 override — 지도 마커 팝업 세대수 정확화
+  (관악산휴먼시아3단지 5,714→512, 신당남산타운 5,422→2,034 등 1,203건 정정)
+- [x] 전용면적 min~max 카드 상세 모달 기본정보에 추가
+
+### 11.3 유령 레코드 탐지 & 정리 (2026-04-14 ~ 15)
+- [x] `scripts/find_ghost_apartments.py` — 5 카테고리 탐지 스크립트
+  - [1] 브랜드명 + 1995 이전 준공 + K-APT/거래 없음 → 432건 삭제
+  - [2] 브랜드명 + 세대수 < 50 → 1,033건 CSV 보관
+  - [3] 전반 유령 (K-APT·area·거래 모두 없음) → 5,806건 CSV
+  - [4] 시군구+단지명 중복 1,882 그룹
+  - [5] 사용승인일 포맷 이상 3,294건
+- [x] 광주 '벽산블루밍메가씨티3단지' 등 개별 케이스 삭제 (FK 포함)
+- [x] 세대수<30 + 1990 이전 보수 기준으로 6건 추가 정리
+- [x] **3,272건** TRADE_ prefix 유령 (K-APT 진본과 주소 공유) 일괄 삭제
+
+### 11.4 신규 아파트 등록 파이프라인 방어 강화 (2026-04-14 ~ 15, PR #39, #43)
+- [x] 브랜드-연도 게이트 — 2000년대 브랜드 + 1995 이전 준공 매칭 거부
+- [x] 이름 유사도 엄격화 — 공통 2글자 → 최장 공통부분 비율 ≥ 0.4
+- [x] K-APT canonical 우선 바인딩 — 같은 시군구·동명 K-APT 진본 있으면 즉시 매핑
+- [x] **L2 주소 공유 게이트** — Kakao 반환 주소에 K-APT 진본 있으면 TRADE_ 생성 차단
+- [x] **L1.5 타임라인 정합성** — 거래일 < 매칭 apt 준공일 또는 build_year 불일치 → 오매칭 거부
+
+### 11.5 좌표 이상치 수정 (2026-04-15)
+- [x] 전국 시도별 bbox 검사 → 32건 수정 (로컬+Railway)
+  - 대전 → 서울/대구로 잘못 매핑된 8건
+  - 광주·부산·인천 정규 PNU 7건
+  - TRADE_ prefix 주소 기반 재지오코딩 17건
+
+### 11.6 apt_area_info 전유부 기반 재구축 (2026-04-15, PR #43)
+- [x] 건축물대장 전유부(`getBrExposPubuseAreaInfo`) 호출 — 호별 ground truth
+- [x] 전용면적 + **공급면적**(전용 + 주거공용) 분리 저장
+  - 힐스테이트신촌 예: 전용 37.969~119.958㎡ / 공급 58.38~151.95㎡
+- [x] `batch/trade/collect_area_info.py` 신규 + `enrich_apartments.py` 자동 호출
+- [x] `scripts/rebuild_area_info.py` 전체 재구축 스크립트 (체크포인트 기반)
+- [x] DATA_GO_KR API **3키 로테이션** 구현 (일일 한도 3배 확장, PR #43·#44)
+- [x] `scripts/sync_area_kapt_to_railway.py` 로컬→Railway 동기화 도구
+- [x] 재구축 진행: 7,634 / 30,345 (25%, 1일차)
+
+### 11.7 공공데이터 파이프라인 통합 (2026-04-15, PR #43)
+- [x] `initial_collect.py`에 `enrich_new_apartments` 호출 추가 — 비수도권 초기 수집 시도 신규 아파트 등록까지 자동
+- [x] `ensure_schema(conn)` 멱등 마이그레이션 — 배치 시작 시 자동 컬럼 추가
+- [x] `main.py` @app.on_event('startup')에서 `create_tables` 호출 (PR #45)
+  — Railway 재배포 시 스키마 자동 동기화, 컬럼 불일치 500 재발 방지
+
+### 11.8 Claude Code 운영 자동화 (2026-04-14)
+- [x] `.claude/hooks/check-staged-imports.py` — 커밋 전 상대 import 대상 파일 존재 검증 (PR #42)
+- [x] `.github/workflows/ci-frontend.yml` — 프론트 PR에 tsc + vite build 게이트 (PR #42)
+- [x] 프론트 `ChartFrame.tsx` 누락 재발 방지
+
+### 11.9 신개금LG 1·2차 표기 (2026-04-15)
+- [x] K-APT 통합 관리되는 2개 필지 단지를 `신개금LG 1·2차`로 이름 개선 (사용자 혼란 해소)
+
+### 관련 PR
+- #38 KOSIS + K-APT 상세 + 유령 탐지
+- #39 enrich 방어 (브랜드·이름·canonical)
+- #40 map popup K-APT override
+- #41 ChartFrame 누락 hotfix
+- #42 pre-commit hook + CI
+- #43 apt_area_info 전유부 재구축 + L2/L1.5 + 공급면적
+- #44 3차 API 키 지원
+- #45 startup 스키마 마이그레이션
 
 ---
 
