@@ -240,11 +240,13 @@ def fetch_area_info(sigungu_cd: str, bjdong_cd: str, plat_gb: str,
     # 전용 면적 > 0 인 호만 유효 — 주거 호수
     exclu_vals: list[float] = []
     supply_vals: list[float] = []
+    pub_main_total = 0.0
     for rec in per_ho.values():
         if rec["exclu"] <= 0:
             continue
         exclu_vals.append(rec["exclu"])
         supply_vals.append(rec["exclu"] + rec["pub_main"])
+        pub_main_total += rec["pub_main"]
 
     if not exclu_vals:
         return None
@@ -252,13 +254,24 @@ def fetch_area_info(sigungu_cd: str, bjdong_cd: str, plat_gb: str,
     area_types = len({round(a, 2) for a in exclu_vals})
     buckets = _bucket_counts(exclu_vals)
 
+    # 주거공용(공용+주건축물) 데이터가 전혀 없으면 공급면적은 "전용과 동일"이 아니라 "미집계"로 취급
+    # (건축물대장 전유부 API가 해당 단지의 공용 행을 반환하지 않는 케이스 — 별도 보충 수집 필요)
+    if pub_main_total <= 0:
+        min_supply = None
+        max_supply = None
+        avg_supply = None
+    else:
+        min_supply = min(supply_vals)
+        max_supply = max(supply_vals)
+        avg_supply = round(sum(supply_vals) / len(supply_vals), 1)
+
     result = {
         "min_area": min(exclu_vals),
         "max_area": max(exclu_vals),
         "avg_area": round(sum(exclu_vals) / len(exclu_vals), 1),
-        "min_supply_area": min(supply_vals),
-        "max_supply_area": max(supply_vals),
-        "avg_supply_area": round(sum(supply_vals) / len(supply_vals), 1),
+        "min_supply_area": min_supply,
+        "max_supply_area": max_supply,
+        "avg_supply_area": avg_supply,
         "unit_count": len(exclu_vals),
         "area_types": area_types,
         **buckets,
