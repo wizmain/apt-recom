@@ -120,6 +120,17 @@ def main():
     logger.info(f"이번 실행 완료: {pair_count}쌍, {call_count}콜")
     logger.info(f"전체 진행: {len(completed)}/{total_pairs}쌍 ({len(completed) * 100 // total_pairs}%)")
 
+    # ── 신규 아파트 등록 + 건축물대장/전유부(공급면적)/K-APT 보충 ──
+    # 거래만 적재하면 apt_seq 미매핑 상태로 남으므로 동일 실행에서 enrich 실행.
+    # enrich_new_apartments 내부에서 스키마 마이그레이션 + area_info 호출까지 수행.
+    try:
+        from batch.trade.enrich_apartments import enrich_new_apartments
+        logger.info("신규 아파트 보충 시작...")
+        enriched, new_pnus = enrich_new_apartments(conn, logger)
+        logger.info(f"신규 아파트 등록: {enriched}건 (신규 PNU {len(new_pnus)})")
+    except Exception as e:
+        logger.error(f"신규 아파트 보충 실패: {e}")
+
     conn.close()
 
 

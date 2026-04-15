@@ -27,7 +27,7 @@ from batch.config import (
     DATA_GO_KR_RATE,
 )
 from batch.db import query_all, query_one
-from batch.trade.collect_area_info import fetch_area_info, upsert_area_info
+from batch.trade.collect_area_info import fetch_area_info, upsert_area_info, ensure_schema as ensure_area_schema
 
 BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
@@ -580,6 +580,12 @@ def enrich_new_apartments(conn, logger):
     if not KAKAO_API_KEY or not DATA_GO_KR_API_KEY:
         logger.warning("  KAKAO_API_KEY 또는 DATA_GO_KR_API_KEY 미설정, 보충 생략")
         return 0, []
+
+    # apt_area_info 스키마 보장 — 신규 컬럼 누락 방지 (Railway 최초 실행 시)
+    try:
+        ensure_area_schema(conn)
+    except Exception as e:
+        logger.warning(f"  apt_area_info 스키마 체크 실패: {e}")
 
     headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
 

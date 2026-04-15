@@ -28,6 +28,31 @@ BLD_EXPOS_URL = (
     "http://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 )
 
+
+def ensure_schema(conn) -> None:
+    """apt_area_info 테이블과 신규 컬럼 보장 — 배치 시작 시 1회 호출.
+
+    로컬·Railway 어디서 실행되더라도 누락 컬럼이 있으면 즉시 추가한다.
+    """
+    ddls = [
+        """CREATE TABLE IF NOT EXISTS apt_area_info (
+               pnu TEXT PRIMARY KEY,
+               min_area DOUBLE PRECISION, max_area DOUBLE PRECISION, avg_area DOUBLE PRECISION,
+               unit_count INTEGER, area_types INTEGER,
+               cnt_under_40 INTEGER, cnt_40_60 INTEGER, cnt_60_85 INTEGER,
+               cnt_85_115 INTEGER, cnt_115_135 INTEGER, cnt_over_135 INTEGER
+           )""",
+        "ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS source TEXT",
+        "ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS last_refreshed TIMESTAMPTZ",
+        "ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS min_supply_area DOUBLE PRECISION",
+        "ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS max_supply_area DOUBLE PRECISION",
+        "ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS avg_supply_area DOUBLE PRECISION",
+    ]
+    cur = conn.cursor()
+    for ddl in ddls:
+        cur.execute(ddl)
+    conn.commit()
+
 ROWS_PER_PAGE = 500  # 호당 10 row 평균 → 50세대/page
 
 # 면적 버킷 (전용면적 기준)
