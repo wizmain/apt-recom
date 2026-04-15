@@ -27,6 +27,7 @@ from batch.config import (
     DATA_GO_KR_RATE,
 )
 from batch.db import query_all, query_one
+from batch.trade.collect_area_info import fetch_area_info, upsert_area_info, ensure_schema as ensure_area_schema
 
 BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
@@ -107,6 +108,32 @@ def _names_overlap(trade_nm: str, bld_nm: str) -> bool:
     짧은 이름 기준 공통 부분문자열 비율이 임계값 이상이어야 통과.
     """
     return _name_similarity_ratio(trade_nm, bld_nm) >= _NAME_SIM_THRESHOLD
+
+
+_BUILD_YEAR_TOLERANCE = 3  # 거래 기재 건축연도와 준공연도 허용 오차
+
+
+def _timeline_consistent(use_apr_day: str | None,
+                         min_deal_year: int | None,
+                         median_build_year: int | None) -> bool:
+    """apt_seq의 거래·건축 연도와 매칭 대상 아파트 준공일 정합성 검증.
+
+    규칙:
+      1) 거래일 < 준공일 → 물리적 불가능 → 오매칭
+      2) 거래서 기재 건축연도 vs 준공연도 차이 > 3년 → 오매칭
+    판단 불가(값 누락)면 True.
+    """
+    if not use_apr_day or len(use_apr_day) < 4 or not use_apr_day[:4].isdigit():
+        return True
+    apt_year = int(use_apr_day[:4])
+
+    # [강] 시간역전
+    if min_deal_year is not None and min_deal_year < apt_year:
+        return False
+    # [중] 거래서 build_year 불일치
+    if median_build_year is not None and abs(median_build_year - apt_year) > _BUILD_YEAR_TOLERANCE:
+        return False
+    return True
 
 
 # ── Rate Limiter ──
@@ -580,6 +607,12 @@ def enrich_new_apartments(conn, logger):
         logger.warning("  KAKAO_API_KEY 또는 DATA_GO_KR_API_KEY 미설정, 보충 생략")
         return 0, []
 
+    # apt_area_info 스키마 보장 — 신규 컬럼 누락 방지 (Railway 최초 실행 시)
+    try:
+        ensure_area_schema(conn)
+    except Exception as e:
+        logger.warning(f"  apt_area_info 스키마 체크 실패: {e}")
+
     headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
 
     # 시군구 코드→이름 매핑
@@ -615,21 +648,58 @@ def enrich_new_apartments(conn, logger):
 
     logger.info(f"  미매핑 apt_seq {len(unmapped)}건 처리 시작 (workers={ENRICH_WORKERS})")
 
-    # 기존 PNU + 이름 사전 로드 (Phase 1에서 read-only, Phase 2에서 이름 유사도 검증)
-    apt_rows = query_all(conn, "SELECT pnu, bld_nm, sigungu_code FROM apartments")
+    # 기존 PNU + 이름 + 준공일 사전 로드 (Phase 2에서 이름 유사도·타임라인 검증)
+    apt_rows = query_all(conn, "SELECT pnu, bld_nm, sigungu_code, use_apr_day FROM apartments")
     existing_pnus = set(r["pnu"] for r in apt_rows)
     existing_names = {r["pnu"]: r["bld_nm"] or "" for r in apt_rows}
+    existing_use_apr_index = {r["pnu"]: r["use_apr_day"] for r in apt_rows if r.get("use_apr_day")}
 
     # K-APT 연동된 "진본" 아파트 (sigungu_code, normalized_name) → pnu 인덱스
     # 동일 시군구·동일 이름의 Kakao 오매칭을 사전에 진본으로 리다이렉트한다.
     kapt_rows = query_all(conn,
-        "SELECT a.pnu, a.bld_nm, a.sigungu_code FROM apartments a "
-        "JOIN apt_kapt_info k ON a.pnu = k.pnu "
+        "SELECT a.pnu, a.bld_nm, a.sigungu_code, a.use_apr_day "
+        "FROM apartments a JOIN apt_kapt_info k ON a.pnu = k.pnu "
         "WHERE a.bld_nm IS NOT NULL AND a.bld_nm != '' AND a.sigungu_code IS NOT NULL")
     kapt_name_index: dict[tuple[str, str], str] = {}
     for r in kapt_rows:
         key = (str(r["sigungu_code"])[:5], _normalize_name(r["bld_nm"]))
         kapt_name_index.setdefault(key, r["pnu"])
+
+    # [L2] K-APT 연동된 진본 아파트의 주소 인덱스 — 같은 주소의 진본이 이미
+    #      있으면 TRADE_ fallback 생성 대신 진본 PNU에 매핑
+    kapt_addr_rows = query_all(conn,
+        "SELECT a.pnu, a.plat_plc, a.new_plat_plc, a.sigungu_code "
+        "FROM apartments a JOIN apt_kapt_info k ON a.pnu = k.pnu "
+        "WHERE (a.plat_plc IS NOT NULL OR a.new_plat_plc IS NOT NULL)")
+
+    def _addr_key(sgg_cd: str, addr: str) -> str:
+        if not addr:
+            return ""
+        return f"{sgg_cd}|{re.sub(r'[\\s,]+', ' ', addr).strip().lower()}"
+
+    kapt_addr_index: dict[str, str] = {}
+    for ar in kapt_addr_rows:
+        sgg5 = str(ar["sigungu_code"])[:5] if ar["sigungu_code"] else ""
+        for addr_col in ("plat_plc", "new_plat_plc"):
+            k = _addr_key(sgg5, ar[addr_col] or "")
+            if k:
+                kapt_addr_index.setdefault(k, ar["pnu"])
+
+    # [L1.5] apt_seq 단위 거래·준공연도 집계 — Kakao 매칭 수락 전 정합성 검증에 사용
+    #   min_deal_year: 거래 최소 연도 (준공 이전이면 오매칭)
+    #   median_build_year: 거래서 기재된 건축연도 (건축물대장 use_apr_day 와 비교)
+    ts_rows = query_all(conn, """
+        SELECT apt_seq,
+               MIN(deal_year) AS min_deal_year,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY build_year) AS median_build_year
+        FROM trade_history
+        WHERE deal_year IS NOT NULL
+        GROUP BY apt_seq
+    """)
+    apt_seq_timeline: dict[str, tuple[int | None, int | None]] = {}
+    for r in ts_rows:
+        mby = int(r["median_build_year"]) if r.get("median_build_year") else None
+        apt_seq_timeline[r["apt_seq"]] = (r.get("min_deal_year"), mby)
 
     # ── Phase 0: PNU 직접 조합으로 신규 아파트 후보 식별 ──
     # _update_mapping에서 기존 PNU 매핑은 이미 처리됨.
@@ -716,6 +786,30 @@ def enrich_new_apartments(conn, logger):
         apt_nm = r["apt_nm"]
         real_pnu = r["pnu"]
 
+        # apt_seq 거래 타임라인 조회 (L1.5 build-year / deal-year 검증에 사용)
+        min_dy, med_by = apt_seq_timeline.get(apt_seq, (None, None))
+
+        # [L2] 주소 공유 진본이 있는지 사전 조회 (Kakao 반환 주소 기준)
+        addr_canonical_pnu = None
+        for addr in (r.get("plat") or "", r.get("new_plat") or ""):
+            k = _addr_key(sgg_cd, addr)
+            if k and k in kapt_addr_index:
+                addr_canonical_pnu = kapt_addr_index[k]
+                break
+
+        # [L2-우선] 주소 공유 K-APT 진본이 있으면 그쪽으로 먼저 매핑
+        # (같은 주소에 진본 존재 → TRADE_ 생성 자체를 차단)
+        if addr_canonical_pnu:
+            pnu = addr_canonical_pnu
+            method = "kapt_address_canonical"
+            matched += 1
+            cur.execute(
+                "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
+                [apt_seq, pnu, apt_nm, sgg_cd, method],
+            )
+            continue
+
         # [3] K-APT 진본 우선 바인딩 — 같은 시군구에 K-APT 연동 + 이름 일치 단지가
         # 이미 존재하면 Kakao 결과보다 우선 사용 (오매칭으로 유령 생성 방지)
         canonical_pnu = kapt_name_index.get((sgg_cd, _normalize_name(apt_nm)))
@@ -744,12 +838,23 @@ def enrich_new_apartments(conn, logger):
                 )
                 fallback += 1
             elif real_pnu in existing_pnus or real_pnu in created_pnus:
-                # 기존 아파트 + 시군구 일치 → 이름 유사도 검증
+                # 기존 아파트 + 시군구 일치 → 이름 유사도 + 타임라인 검증
                 existing_name = existing_names.get(real_pnu, "")
+                existing_use_apr = existing_use_apr_index.get(real_pnu)
                 if existing_name and not _names_overlap(apt_nm, existing_name):
                     # 이름 불일치 → Kakao가 인근 다른 아파트를 반환
                     pnu = f"TRADE_{sgg_cd}_{apt_nm}"
                     method = "trade_fallback_name_mismatch"
+                    cur.execute(
+                        "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                        [pnu, apt_nm, sgg_cd, pnu, r["lat"], r["lng"], r["new_plat"], r["plat"]],
+                    )
+                    fallback += 1
+                elif not _timeline_consistent(existing_use_apr, min_dy, med_by):
+                    # 거래 연도 < 준공일 또는 build_year 불일치 → 다른 단지
+                    pnu = f"TRADE_{sgg_cd}_{apt_nm}"
+                    method = "trade_fallback_timeline"
                     cur.execute(
                         "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
@@ -761,7 +866,7 @@ def enrich_new_apartments(conn, logger):
                     method = "kakao_pnu_existing"
                     matched += 1
             else:
-                # 신규 등록 후보 — 브랜드-연도 게이트 선행 검증
+                # 신규 등록 후보 — 브랜드-연도 + 거래 타임라인 게이트 선행 검증
                 bld_info = r.get("bld_info") or {}
                 bld_use_apr = bld_info.get("use_apr_day") if bld_info else None
                 if not _brand_year_consistent(apt_nm, bld_use_apr):
@@ -769,6 +874,16 @@ def enrich_new_apartments(conn, logger):
                     # → Kakao 오매칭으로 판단, TRADE_ fallback 으로 회피
                     pnu = f"TRADE_{sgg_cd}_{apt_nm}"
                     method = "trade_fallback_brand_year"
+                    cur.execute(
+                        "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+                        [pnu, apt_nm, sgg_cd, pnu, r["lat"], r["lng"], r["new_plat"], r["plat"]],
+                    )
+                    fallback += 1
+                elif not _timeline_consistent(bld_use_apr, min_dy, med_by):
+                    # 거래일이 건축물대장 준공일보다 이전이거나 build_year 큰 차이
+                    pnu = f"TRADE_{sgg_cd}_{apt_nm}"
+                    method = "trade_fallback_timeline"
                     cur.execute(
                         "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, lat, lng, new_plat_plc, plat_plc) "
                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
@@ -798,6 +913,22 @@ def enrich_new_apartments(conn, logger):
                         if updates:
                             params.append(pnu)
                             cur.execute(f"UPDATE apartments SET {', '.join(updates)} WHERE pnu = %s", params)
+
+                    # 건축물대장 전유부 → apt_area_info 적재 (호별 전용면적 ground truth)
+                    bld_params = r.get("bld_params")
+                    if bld_params:
+                        try:
+                            area_info = fetch_area_info(
+                                bld_params["sigungu_cd"],
+                                bld_params["bjdong_cd"],
+                                bld_params.get("plat_gb_cd", "0"),
+                                bld_params["bun"],
+                                bld_params["ji"],
+                            )
+                            if area_info:
+                                upsert_area_info(conn, pnu, area_info)
+                        except Exception as e:
+                            logger.warning(f"  area_info 실패 ({pnu}): {e}")
 
                     created += 1
                     new_pnus.append(pnu)
