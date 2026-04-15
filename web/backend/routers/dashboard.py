@@ -40,15 +40,21 @@ def dashboard_regions(q: str = Query("", description="검색어")):
 def dashboard_summary(
     sigungu: str = Query("", description="시군구 코드 필터"),
 ):
-    """최근 30일 + 이전 30일 비교 요약 통계 + 갱신 정보."""
+    """최근 30일 + 전년 동기 30일 비교 요약 통계 + 갱신 정보.
+
+    이전 30일 비교는 국토부 실거래가 신고 지연(최대 60일 이상)으로 인해
+    최근 구간이 과소 집계되는 구조적 편향이 있어, 계절성과 신고 지연을 함께
+    상쇄하는 전년 동기(YoY) 비교로 변경한다.
+    """
     conn = DictConnection()
     from datetime import timedelta
     now = datetime.now()
 
-    # 최근 30일 / 이전 30일
+    # 최근 30일 / 전년 동기 30일 (YoY)
     cur_start = now - timedelta(days=29)
-    prev_start = now - timedelta(days=59)
-    prev_end = now - timedelta(days=30)
+    # 1년 전 동기간: (cur_start, now)에서 365일 뺀 구간
+    prev_start = cur_start - timedelta(days=365)
+    prev_end = now - timedelta(days=365)
 
     sgg_filter = ""
     sgg_params: list = []
@@ -127,7 +133,10 @@ def dashboard_summary(
 
     return {
         "current_period": f"{cur_start.month}/{cur_start.day}~{now.month}/{now.day}",
-        "prev_period": f"{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}",
+        "prev_period": f"{prev_start.year}.{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}",
+        "prev_label": "전년 동기",
+        "comparison_mode": "yoy",
+        "data_lag_notice": "국토부 실거래가는 계약 후 최대 60일 내 신고 의무이므로 최근 30일 데이터는 과소 집계될 수 있습니다. 비교는 계절성과 신고 지연을 함께 상쇄하는 전년 동기 기준입니다.",
         "last_updated": last_updated,
         "new_today": (new_today["cnt"] or 0) if new_today else 0,
         "trade": {
