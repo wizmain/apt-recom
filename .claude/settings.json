@@ -66,6 +66,12 @@
         "matcher": "Bash",
         "hooks": [
           {
+            "type": "command",
+            "command": ".claude/hooks/check-staged-imports.py",
+            "if": "Bash(*git commit*)",
+            "statusMessage": "스테이징된 import 유효성 검사..."
+          },
+          {
             "type": "agent",
             "prompt": "커밋 전 코드 리뷰를 수행합니다. git diff --cached로 스테이징된 변경사항을 확인하고, 다음 기준으로 리뷰하세요:\n1. 버그 또는 로직 오류\n2. 보안 취약점 (SQL injection, 하드코딩된 비밀값 등)\n3. 프로젝트 규칙 위반 (CLAUDE.md 참조)\n\nhigh-priority 이슈가 있으면 JSON으로 차단하세요: {\"decision\": \"block\", \"reason\": \"이슈 설명\"}\n이슈가 없으면 통과시키세요.",
             "if": "Bash(*git commit*)",
