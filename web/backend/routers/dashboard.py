@@ -40,21 +40,22 @@ def dashboard_regions(q: str = Query("", description="검색어")):
 def dashboard_summary(
     sigungu: str = Query("", description="시군구 코드 필터"),
 ):
-    """최근 30일 + 전년 동기 30일 비교 요약 통계 + 갱신 정보.
+    """신고 완료 30일 vs 직전 30일 비교 요약 통계 + 갱신 정보.
 
-    이전 30일 비교는 국토부 실거래가 신고 지연(최대 60일 이상)으로 인해
-    최근 구간이 과소 집계되는 구조적 편향이 있어, 계절성과 신고 지연을 함께
-    상쇄하는 전년 동기(YoY) 비교로 변경한다.
+    국토부 실거래가는 계약 후 최대 60일 내 신고 의무라 최근 30일 구간은
+    신고 지연으로 과소 집계된다. 따라서 최근 30일은 비교 대상에서 제외하고,
+    신고가 거의 완료된 구간(T-59 ~ T-30)을 기준으로, 직전 30일(T-89 ~ T-60)과
+    비교한다. (전년 동기 비교는 전국 데이터 수집이 완료되면 검토)
     """
     conn = DictConnection()
     from datetime import timedelta
     now = datetime.now()
 
-    # 최근 30일 / 전년 동기 30일 (YoY)
-    cur_start = now - timedelta(days=29)
-    # 1년 전 동기간: (cur_start, now)에서 365일 뺀 구간
-    prev_start = cur_start - timedelta(days=365)
-    prev_end = now - timedelta(days=365)
+    # 신고 완료 30일 (기준) / 직전 30일 (비교)
+    cur_start = now - timedelta(days=59)
+    cur_end = now - timedelta(days=30)
+    prev_start = now - timedelta(days=89)
+    prev_end = now - timedelta(days=60)
 
     sgg_filter = ""
     sgg_params: list = []
@@ -76,9 +77,9 @@ def dashboard_summary(
         return [start.year, start.year, start.month, start.year, start.month, start.day,
                 end.year, end.year, end.month, end.year, end.month, end.day]
 
-    cur_range = _date_range_sql(cur_start, now)
+    cur_range = _date_range_sql(cur_start, cur_end)
     prev_range = _date_range_sql(prev_start, prev_end)
-    cur_params = _date_params(cur_start, now)
+    cur_params = _date_params(cur_start, cur_end)
     prev_params = _date_params(prev_start, prev_end)
 
     # 매매 — 최근 30일 + 이전 30일을 1쿼리로
@@ -132,11 +133,11 @@ def dashboard_summary(
     conn.close()
 
     return {
-        "current_period": f"{cur_start.month}/{cur_start.day}~{now.month}/{now.day}",
-        "prev_period": f"{prev_start.year}.{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}",
-        "prev_label": "전년 동기",
-        "comparison_mode": "yoy",
-        "data_lag_notice": "국토부 실거래가는 계약 후 최대 60일 내 신고 의무이므로 최근 30일 데이터는 과소 집계될 수 있습니다. 비교는 계절성과 신고 지연을 함께 상쇄하는 전년 동기 기준입니다.",
+        "current_period": f"{cur_start.month}/{cur_start.day}~{cur_end.month}/{cur_end.day}",
+        "prev_period": f"{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}",
+        "prev_label": "직전 30일",
+        "comparison_mode": "offset",
+        "data_lag_notice": "국토부 실거래가는 계약 후 최대 60일 내 신고 의무이므로 최근 30일은 과소 집계됩니다. 신고가 거의 완료된 구간(30~59일 전)을 기준 30일로 두고 직전 30일(60~89일 전)과 비교합니다.",
         "last_updated": last_updated,
         "new_today": (new_today["cnt"] or 0) if new_today else 0,
         "trade": {
