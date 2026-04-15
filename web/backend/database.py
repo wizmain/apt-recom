@@ -280,6 +280,27 @@ def create_tables(conn) -> None:
             updated_at TIMESTAMPTZ DEFAULT NOW()
         );
 
+        -- 전용면적 정보 (호별 전유부 집계)
+        CREATE TABLE IF NOT EXISTS apt_area_info (
+            pnu TEXT PRIMARY KEY,
+            min_area DOUBLE PRECISION,
+            max_area DOUBLE PRECISION,
+            avg_area DOUBLE PRECISION,
+            unit_count INTEGER,
+            area_types INTEGER,
+            cnt_under_40 INTEGER,
+            cnt_40_60 INTEGER,
+            cnt_60_85 INTEGER,
+            cnt_85_115 INTEGER,
+            cnt_115_135 INTEGER,
+            cnt_over_135 INTEGER,
+            source TEXT,               -- bld_expos / kapt_bucket / trade_fallback
+            last_refreshed TIMESTAMPTZ
+        );
+        -- 기존 레거시 테이블에 source/last_refreshed 컬럼이 없으면 추가
+        ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS source TEXT;
+        ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS last_refreshed TIMESTAMPTZ;
+
         CREATE TABLE IF NOT EXISTS apt_mgmt_cost (
             pnu TEXT,
             year_month TEXT,

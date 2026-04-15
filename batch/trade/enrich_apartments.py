@@ -27,6 +27,7 @@ from batch.config import (
     DATA_GO_KR_RATE,
 )
 from batch.db import query_all, query_one
+from batch.trade.collect_area_info import fetch_area_info, upsert_area_info
 
 BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
@@ -798,6 +799,22 @@ def enrich_new_apartments(conn, logger):
                         if updates:
                             params.append(pnu)
                             cur.execute(f"UPDATE apartments SET {', '.join(updates)} WHERE pnu = %s", params)
+
+                    # 건축물대장 전유부 → apt_area_info 적재 (호별 전용면적 ground truth)
+                    bld_params = r.get("bld_params")
+                    if bld_params:
+                        try:
+                            area_info = fetch_area_info(
+                                bld_params["sigungu_cd"],
+                                bld_params["bjdong_cd"],
+                                bld_params.get("plat_gb_cd", "0"),
+                                bld_params["bun"],
+                                bld_params["ji"],
+                            )
+                            if area_info:
+                                upsert_area_info(conn, pnu, area_info)
+                        except Exception as e:
+                            logger.warning(f"  area_info 실패 ({pnu}): {e}")
 
                     created += 1
                     new_pnus.append(pnu)
