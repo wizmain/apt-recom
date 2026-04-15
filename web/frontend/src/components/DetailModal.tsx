@@ -31,6 +31,9 @@ interface BasicInfo {
   min_area?: number;
   max_area?: number;
   avg_area?: number;
+  min_supply_area?: number;
+  max_supply_area?: number;
+  avg_supply_area?: number;
 }
 
 interface KaptInfo {
@@ -263,18 +266,21 @@ function TabBasicInfo({ detail, rankContext }: { detail: ApartmentDetail | null;
   if (!detail) return <EmptyState text="기본 정보를 불러올 수 없습니다." />;
 
   const b = detail.basic;
-  const areaLabel = (() => {
-    const lo = b.min_area != null ? Math.round(b.min_area) : null;
-    const hi = b.max_area != null ? Math.round(b.max_area) : null;
-    if (lo == null && hi == null) return '-';
-    if (lo != null && hi != null) return lo === hi ? `${lo}㎡` : `${lo}~${hi}㎡`;
-    return `${lo ?? hi}㎡`;
-  })();
+  const fmtRange = (lo?: number, hi?: number) => {
+    const l = lo != null ? Math.round(lo) : null;
+    const h = hi != null ? Math.round(hi) : null;
+    if (l == null && h == null) return '-';
+    if (l != null && h != null) return l === h ? `${l}㎡` : `${l}~${h}㎡`;
+    return `${l ?? h}㎡`;
+  };
+  const exclusiveLabel = fmtRange(b.min_area, b.max_area);
+  const supplyLabel = fmtRange(b.min_supply_area, b.max_supply_area);
   const infoItems = [
     { label: '세대수', value: b.total_hhld_cnt != null ? `${b.total_hhld_cnt}세대` : '-' },
     { label: '동수', value: b.dong_count != null ? `${b.dong_count}동` : '-' },
     { label: '최고층', value: b.max_floor != null ? `${b.max_floor}층` : '-' },
-    { label: '전용면적', value: areaLabel },
+    { label: '전용면적', value: exclusiveLabel },
+    { label: '공급면적', value: supplyLabel },
     { label: '사용승인일', value: b.use_apr_day ?? '-' },
   ];
 
@@ -312,7 +318,7 @@ function TabBasicInfo({ detail, rankContext }: { detail: ApartmentDetail | null;
       )}
 
       {/* Info cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {infoItems.map((item) => (
           <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
             <p className="text-xs text-gray-500">{item.label}</p>

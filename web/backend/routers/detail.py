@@ -22,15 +22,17 @@ def apartment_detail(pnu: str):
             raise HTTPException(status_code=404, detail="Apartment not found")
         basic = dict(basic)
 
-        # Area info (전용면적 범위)
+        # Area info (전용/공급 면적 범위)
         area_row = conn.execute(
-            "SELECT min_area, max_area, avg_area FROM apt_area_info WHERE pnu = %s",
+            "SELECT min_area, max_area, avg_area, "
+            "min_supply_area, max_supply_area, avg_supply_area "
+            "FROM apt_area_info WHERE pnu = %s",
             [pnu],
         ).fetchone()
         if area_row:
-            basic["min_area"] = area_row["min_area"]
-            basic["max_area"] = area_row["max_area"]
-            basic["avg_area"] = area_row["avg_area"]
+            for col in ("min_area", "max_area", "avg_area",
+                         "min_supply_area", "max_supply_area", "avg_supply_area"):
+                basic[col] = area_row[col]
 
         # Facility summary
         summary_rows = conn.execute(
