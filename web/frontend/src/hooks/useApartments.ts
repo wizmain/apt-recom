@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
-import axios from 'axios';
 import type { Apartment, MapBounds, SelectedRegion } from '../types/apartment';
-import { API_BASE } from '../config';
+import { api } from '../lib/api';
 
 export interface ApartmentFilters {
   minArea?: number;
@@ -70,8 +69,8 @@ export function useApartments() {
     const pnuSet = new Set<string>();
     for (const kw of keywords) {
       try {
-        const res = await axios.get<{ results: Apartment[] } | Apartment[]>(
-          `${API_BASE}/api/apartments/search`,
+        const res = await api.get<{ results: Apartment[] } | Apartment[]>(
+          `/api/apartments/search`,
           { params: { q: kw } },
         );
         const list = Array.isArray(res.data) ? res.data : res.data.results || [];
@@ -106,8 +105,8 @@ export function useApartments() {
       params.ne_lng = String(bounds.ne.lng);
     }
     const query = new URLSearchParams(params).toString();
-    const res = await axios.get<Apartment[]>(
-      `${API_BASE}/api/apartments${query ? `?${query}` : ''}`,
+    const res = await api.get<Apartment[]>(
+      `/api/apartments${query ? `?${query}` : ''}`,
     );
     return res.data;
   }, []);

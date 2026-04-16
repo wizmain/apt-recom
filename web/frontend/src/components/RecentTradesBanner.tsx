@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config';
+import { api } from '../lib/api';
 
 interface RecentTrade {
   apt_nm: string;
@@ -42,7 +41,7 @@ export default function RecentTradesBanner({ onSelect, onGoToDashboard, hasResul
     let cancelled = false;
     const fetchRecent = async () => {
       try {
-        const res = await axios.get<RecentTrade[]>(`${API_BASE}/api/dashboard/recent`, {
+        const res = await api.get<RecentTrade[]>(`/api/dashboard/recent`, {
           params: { type: 'trade', limit: 20 },
         });
         if (!cancelled) {

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config';
+import { api } from '../lib/api';
 import TradeHistoryPanel from './TradeHistoryPanel';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -125,7 +124,7 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
     }
     const timer = setTimeout(async () => {
       try {
-        const res = await axios.get<RegionOption[]>(`${API_BASE}/api/dashboard/regions`, { params: { q: regionQuery } });
+        const res = await api.get<RegionOption[]>(`/api/dashboard/regions`, { params: { q: regionQuery } });
         setRegionResults(res.data);
         setHighlightIndex(0);
       } catch { /* ignore */ }
@@ -184,8 +183,8 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
     try {
       // 요약 카드 + 최근 거래를 먼저 로드 (가장 빠름)
       const [summaryRes, recentRes] = await Promise.all([
-        axios.get<Summary>(`${API_BASE}/api/dashboard/summary`, { params: { sigungu: sggFilter } }),
-        axios.get<RecentTrade[]>(`${API_BASE}/api/dashboard/recent`, { params: { type: recentType, limit: 20, sigungu: sggFilter } }),
+        api.get<Summary>(`/api/dashboard/summary`, { params: { sigungu: sggFilter } }),
+        api.get<RecentTrade[]>(`/api/dashboard/recent`, { params: { type: recentType, limit: 20, sigungu: sggFilter } }),
       ]);
       setSummary(summaryRes.data);
       setRecent(recentRes.data);
@@ -193,8 +192,8 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
 
       // 차트 + 랭킹은 백그라운드 로드 (이전 데이터 유지하며 업데이트)
       const [trendRes, rankingRes] = await Promise.all([
-        axios.get<TrendItem[]>(`${API_BASE}/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter } }),
-        axios.get<RankingItem[]>(`${API_BASE}/api/dashboard/ranking`, { params: { type: rankingType } }),
+        api.get<TrendItem[]>(`/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter } }),
+        api.get<RankingItem[]>(`/api/dashboard/ranking`, { params: { type: rankingType } }),
       ]);
       setTrend(trendRes.data);
       setRanking(rankingRes.data);

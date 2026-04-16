@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config';
+import { api } from '../lib/api';
 import { useCodes } from '../hooks/useCodes';
 import type { RegionCandidate, SelectedRegion } from '../types/apartment';
 
@@ -221,8 +220,8 @@ function MapControls({
       const kw = inputValue.trim();
 
       try {
-        const res = await axios.get<SearchResponse>(
-          `${API_BASE}/api/apartments/search`, { params: { q: kw } },
+        const res = await api.get<SearchResponse>(
+          `/api/apartments/search`, { params: { q: kw } },
         );
         const data = res.data;
         const results = data.results || [];

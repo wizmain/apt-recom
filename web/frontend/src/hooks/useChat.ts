@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { API_BASE } from '../config';
+import { getDeviceId } from '../lib/device';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -64,9 +65,13 @@ export function useChat() {
     let toolStatuses: { name: string; status: 'running' | 'done'; preview?: string }[] = [];
 
     try {
+      const deviceId = getDeviceId();
       const response = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(deviceId ? { 'X-Device-Id': deviceId } : {}),
+        },
         body: JSON.stringify({ message, conversation, context: context || {} }),
         signal: controller.signal,
       });
@@ -224,9 +229,13 @@ export function useChat() {
     }
 
     try {
+      const deviceId = getDeviceId();
       const res = await fetch(`${API_BASE}/api/chat/feedback`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(deviceId ? { 'X-Device-Id': deviceId } : {}),
+        },
         body: JSON.stringify({
           user_message: userContent,
           assistant_message: assistantMsg.content,

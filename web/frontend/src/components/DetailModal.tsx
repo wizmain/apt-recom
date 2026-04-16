@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config';
+import { api } from '../lib/api';
 import { useCodes } from '../hooks/useCodes';
 import type { TopContributor } from '../types/apartment';
 import { buildRankReason, rankEmoji } from '../utils/scoreReason';
@@ -158,8 +157,8 @@ export default function DetailModal({ pnu, onClose, rankContext }: DetailModalPr
     setLoading(true);
 
     Promise.all([
-      axios.get<ApartmentDetail>(`${API_BASE}/api/apartment/${pnu}`),
-      axios.get<TradesResponse>(`${API_BASE}/api/apartment/${pnu}/trades`),
+      api.get<ApartmentDetail>(`/api/apartment/${pnu}`),
+      api.get<TradesResponse>(`/api/apartment/${pnu}/trades`),
     ])
       .then(([detailRes, tradesRes]) => {
         if (cancelled) return;

@@ -5,6 +5,7 @@ import ChatInput from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
 import ChatMessage, { LoadingIndicator } from './ChatMessage';
 import FeedbackStats from './FeedbackStats';
+import TrackingToggle from './TrackingToggle';
 
 interface ChatModalProps {
   onClose: () => void;
@@ -117,6 +118,11 @@ export default function ChatModal({ onClose, onMapAction, onApartmentClick, init
 
           {/* Input */}
           <ChatInput ref={chatInputRef} onSend={handleSend} disabled={loading} />
+
+          {/* 익명 사용 패턴 수집 opt-out */}
+          <div className="px-4 py-2 border-t border-gray-100">
+            <TrackingToggle />
+          </div>
         </>
       )}
     </div>

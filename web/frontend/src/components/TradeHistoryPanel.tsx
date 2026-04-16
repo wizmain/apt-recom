@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config';
+import { api } from '../lib/api';
 
 interface TradeRecord {
   date: string;
@@ -55,7 +54,7 @@ export default function TradeHistoryPanel({ aptName, sggCd, area, pnu, onClose, 
     setLoading(true);
     const params: Record<string, string | number> = { apt_nm: aptName, sgg_cd: sggCd };
     if (area != null) params.area = Math.round(area);
-    axios.get<TradesResponse>(`${API_BASE}/api/dashboard/trades`, { params })
+    api.get<TradesResponse>(`/api/dashboard/trades`, { params })
       .then(res => setData(res.data))
       .finally(() => setLoading(false));
   }, [aptName, sggCd, area]);
