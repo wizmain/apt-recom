@@ -11,6 +11,7 @@ const MENU_ITEMS: MenuItem[] = [
   { path: "/admin/data", icon: "🗄", label: "데이터" },
   { path: "/admin/batch", icon: "⚙", label: "배치" },
   { path: "/admin/feedback", icon: "💬", label: "피드백" },
+  { path: "/admin/logs", icon: "📈", label: "로그 분석" },
   { path: "/admin/scoring", icon: "🎯", label: "스코어링" },
   { path: "/admin/knowledge", icon: "📚", label: "지식베이스" },
   { path: "/admin/codes", icon: "🏷", label: "공통코드" },
