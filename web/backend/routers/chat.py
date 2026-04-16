@@ -3,7 +3,7 @@
 import json
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -26,18 +26,20 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, request: Request):
     """Process a chat message and return AI response with optional tool results."""
+    device_id = request.headers.get("x-device-id")
     result = await process_chat(
         message=req.message,
         conversation=req.conversation,
         context=req.context,
+        device_id=device_id,
     )
     return ChatResponse(**result)
 
 
 @router.post("/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, request: Request):
     """SSE streaming chat endpoint.
 
     Events:
@@ -47,6 +49,7 @@ async def chat_stream(req: ChatRequest):
       - event: delta        data: {"content": "chunk of text"}
       - event: done         data: {"tool_calls": [...]}
     """
+    device_id = request.headers.get("x-device-id")
 
     async def event_stream():
         try:
@@ -54,6 +57,7 @@ async def chat_stream(req: ChatRequest):
                 message=req.message,
                 conversation=req.conversation,
                 context=req.context,
+                device_id=device_id,
             ):
                 event_type = event.get("event", "delta")
                 data = json.dumps(event.get("data", {}), ensure_ascii=False)
