@@ -1,0 +1,38 @@
+name: Purge Old User Logs (90-day retention)
+
+on:
+  schedule:
+    # 매주 토요일 18:00 UTC = 일요일 03:00 KST — 트래픽이 가장 적은 시간대
+    - cron: '0 18 * * 6'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "실행 없이 삭제 대상 건수만 확인"
+        type: boolean
+        default: false
+      days:
+        description: "보관 기간(일). 기본 90"
+        type: string
+        default: "90"
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install psycopg2-binary python-dotenv
+      - name: Purge expired user_event and chat_log rows
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          ARGS="--days ${{ github.event.inputs.days || '90' }}"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          echo "Running: python -m batch.purge_old_logs $ARGS"
+          python -m batch.purge_old_logs $ARGS
