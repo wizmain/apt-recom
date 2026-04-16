@@ -371,9 +371,52 @@ def create_tables(conn) -> None:
             session_id TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW()
         );
+
+        -- 사용자 행동 로그 (익명 device_id 기반, 90일 보관)
+        CREATE TABLE IF NOT EXISTS user_event (
+            id BIGSERIAL PRIMARY KEY,
+            device_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            event_name TEXT,
+            payload JSONB,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        -- 챗봇 대화 로그 (평가 여부 무관, 90일 보관)
+        CREATE TABLE IF NOT EXISTS chat_log (
+            id BIGSERIAL PRIMARY KEY,
+            device_id TEXT,
+            session_id TEXT,
+            user_message TEXT NOT NULL,
+            assistant_message TEXT NOT NULL,
+            tool_calls JSONB DEFAULT '[]'::JSONB,
+            context JSONB,
+            terminated_early BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
     """)
     conn.commit()
     print("Tables created.")
+
+
+def ensure_logging_indexes(conn) -> None:
+    """사용자 행동 로그·챗 로그 테이블의 인덱스를 보장.
+
+    server startup 에서 호출되어 user_event / chat_log 테이블에 필요한
+    인덱스가 항상 존재하도록 한다. IF NOT EXISTS 로 멱등.
+    """
+    cur = conn.cursor()
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_user_event_device_created ON user_event(device_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_user_event_type_created ON user_event(event_type, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_user_event_created_brin ON user_event USING brin(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_user_event_payload_gin ON user_event USING gin(payload jsonb_path_ops)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_log_device_created ON chat_log(device_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_log_created_brin ON chat_log USING brin(created_at)",
+    ]
+    for sql in indexes:
+        cur.execute(sql)
+    conn.commit()
 
 
 def create_indexes(conn) -> None:
@@ -400,6 +443,13 @@ def create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_trade_apt_sgg ON trade_history(apt_nm, sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_rent_apt_sgg ON rent_history(apt_nm, sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_trade_created ON trade_history(created_at)",
+        # 사용자 행동 로그 — device별 조회 + 이벤트별 집계 + 90일 퍼지(BRIN) + JSONB 분석(GIN)
+        "CREATE INDEX IF NOT EXISTS idx_user_event_device_created ON user_event(device_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_user_event_type_created ON user_event(event_type, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_user_event_created_brin ON user_event USING brin(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_user_event_payload_gin ON user_event USING gin(payload jsonb_path_ops)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_log_device_created ON chat_log(device_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_log_created_brin ON chat_log USING brin(created_at)",
     ]
     for sql in indexes:
         cur.execute(sql)
