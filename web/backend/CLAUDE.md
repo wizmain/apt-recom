@@ -23,6 +23,27 @@
 - `tools.py` — LLM tool 정의 (search_apartments, get_apartment_detail, search_commute, compare_apartments, get_market_trend, get_school_info)
 - `rag.py` — ChromaDB 기반 RAG 검색
 - `knowledge_manager.py` — PDF 처리, 지식 베이스 CRUD
+
+## LLM 모델 변경 규칙 (필수)
+
+`LLM_MODEL` 또는 프로바이더 기본 모델을 변경할 때는 반드시 다음 절차를 모두 거친다.
+
+### 절차 (체크리스트)
+- [ ] 1. 모델 공식 문서에서 파라미터 호환성 확인
+  - `temperature` 자유 설정 가능 여부 (gpt-5 계열은 1만 허용)
+  - 토큰 한도 파라미터명 (`max_tokens` vs `max_completion_tokens`)
+  - tool/function calling 지원 여부
+  - streaming 지원 여부
+- [ ] 2. `web/backend/services/llm/model_registry.py` 의 `MODEL_CAPABILITIES` 에 새 모델 등록
+  - provider, temperature 정책, token_param, supports_tools, supports_streaming, notes 모두 채울 것
+- [ ] 3. 프로바이더 코드(`openai_provider.py` 등)는 레지스트리 함수(`get_caps`, `supports_custom_temperature`, `get_token_param_name`)를 사용해 호출 파라미터를 동적으로 구성. 모델명 하드코딩 금지.
+- [ ] 4. `.venv/bin/python -m scripts.llm_smoke_test` 실행 → 4단계(레지스트리/chat/chat_with_tools/stream_chat) 모두 PASS 확인
+- [ ] 5. 위 4단계 모두 통과하지 못하면 커밋·배포 금지
+
+### 왜 이렇게 하는가
+- gpt-5 계열은 OpenAI Chat Completions API에서 `temperature` 와 `max_tokens` 파라미터 동작이 다름 → 기존 코드 그대로 모델만 바꾸면 BadRequestError 발생
+- 스트리밍 예외는 SSE 본문으로 흘러 HTTP 200으로 보이므로 액세스 로그만 보면 발견 어려움 → 사전 검증 필수
+- 신규 모델은 model_registry 에 등록되지 않은 상태로 기동되면 즉시 ValueError 로 차단됨 (런타임 안전망)
 - `llm/` — LLM 프로바이더 추상화
   - `base.py` — BaseLLMProvider, Tool 클래스
   - `factory.py` — get_llm_provider() (LLM_PROVIDER 환경변수)
