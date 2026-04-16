@@ -7,15 +7,15 @@ interface MenuItem {
 }
 
 const MENU_ITEMS: MenuItem[] = [
-  { path: "/admin", icon: "📊", label: "대시보드" },
-  { path: "/admin/data", icon: "🗄", label: "데이터" },
-  { path: "/admin/batch", icon: "⚙", label: "배치" },
-  { path: "/admin/feedback", icon: "💬", label: "피드백" },
-  { path: "/admin/logs", icon: "📈", label: "로그 분석" },
-  { path: "/admin/scoring", icon: "🎯", label: "스코어링" },
-  { path: "/admin/knowledge", icon: "📚", label: "지식베이스" },
-  { path: "/admin/codes", icon: "🏷", label: "공통코드" },
-  { path: "/admin/mgmt-cost", icon: "💰", label: "관리비 등록" },
+  { path: "/", icon: "📊", label: "대시보드" },
+  { path: "/data", icon: "🗄", label: "데이터" },
+  { path: "/batch", icon: "⚙", label: "배치" },
+  { path: "/feedback", icon: "💬", label: "피드백" },
+  { path: "/logs", icon: "📈", label: "로그 분석" },
+  { path: "/scoring", icon: "🎯", label: "스코어링" },
+  { path: "/knowledge", icon: "📚", label: "지식베이스" },
+  { path: "/codes", icon: "🏷", label: "공통코드" },
+  { path: "/mgmt-cost", icon: "💰", label: "관리비 등록" },
 ];
 
 export function Sidebar() {
@@ -30,7 +30,7 @@ export function Sidebar() {
           <NavLink
             key={item.path}
             to={item.path}
-            end={item.path === "/admin"}
+            end={item.path === "/"}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors ${
                 isActive

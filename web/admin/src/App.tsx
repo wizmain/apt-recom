@@ -25,15 +25,15 @@ function App() {
         <Sidebar />
         <main className="flex-1 p-5 bg-slate-100 overflow-y-auto">
           <Routes>
-            <Route path="/admin" element={<Dashboard />} />
-            <Route path="/admin/data" element={<DataManagement />} />
-            <Route path="/admin/batch" element={<BatchMonitor />} />
-            <Route path="/admin/feedback" element={<Feedback />} />
-            <Route path="/admin/logs" element={<Logs />} />
-            <Route path="/admin/scoring" element={<Scoring />} />
-            <Route path="/admin/knowledge" element={<Knowledge />} />
-            <Route path="/admin/codes" element={<CommonCode />} />
-            <Route path="/admin/mgmt-cost" element={<MgmtCost />} />
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/data" element={<DataManagement />} />
+            <Route path="/batch" element={<BatchMonitor />} />
+            <Route path="/feedback" element={<Feedback />} />
+            <Route path="/logs" element={<Logs />} />
+            <Route path="/scoring" element={<Scoring />} />
+            <Route path="/knowledge" element={<Knowledge />} />
+            <Route path="/codes" element={<CommonCode />} />
+            <Route path="/mgmt-cost" element={<MgmtCost />} />
           </Routes>
         </main>
         <button
