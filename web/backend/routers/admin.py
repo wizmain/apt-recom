@@ -1218,3 +1218,332 @@ async def mgmt_cost_import(
             os.unlink(cost_tmp.name)
         if area_tmp:
             os.unlink(area_tmp.name)
+
+
+# ── log-analytics ─────────────────────────────────────────────────────────
+# 사용자 행동 로그(user_event) · 챗봇 대화 로그(chat_log) 분석 API.
+#
+# 모든 쿼리는 `device_id IS NOT NULL` 필터로 레거시 null 건을 제외하고
+# `created_at` BRIN 인덱스로 시간범위 스캔을 빠르게 처리한다.
+
+from collections import Counter
+import json
+
+
+def _resolve_range(
+    days: int | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> tuple[datetime, datetime]:
+    """기간 파라미터 해석. days 있으면 now-days ~ now, 아니면 date_from/to,
+    둘 다 없으면 최근 7일을 기본값으로 사용.
+
+    date_from/to 는 ISO 8601 문자열(예: '2026-04-01' 또는 '2026-04-01T00:00:00').
+    """
+    now = datetime.now(KST)
+    if days is not None and days > 0:
+        return now - timedelta(days=days), now
+    if date_from or date_to:
+        frm = (datetime.fromisoformat(date_from) if date_from else now - timedelta(days=7))
+        to = datetime.fromisoformat(date_to) if date_to else now
+        # naive 면 KST 로 간주
+        if frm.tzinfo is None:
+            frm = frm.replace(tzinfo=KST)
+        if to.tzinfo is None:
+            to = to.replace(tzinfo=KST)
+        return frm, to
+    return now - timedelta(days=7), now
+
+
+@router.get("/log-analytics/overview")
+def log_analytics_overview(
+    days: int | None = Query(None, ge=1, le=365),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    """8종 KPI 한번에 반환 — 개요 탭 상단 카드·미니리스트."""
+    frm, to = _resolve_range(days, date_from, date_to)
+    conn = DictConnection()
+    try:
+        # DAU (최근 1일, 기간과 무관하게 항상 현재 기준)
+        dau_row = conn.execute(
+            "SELECT COUNT(DISTINCT device_id) AS c FROM user_event "
+            "WHERE created_at > NOW() - INTERVAL '1 day' AND device_id IS NOT NULL"
+        ).fetchone()
+        # 7일 활성 디바이스
+        wau_row = conn.execute(
+            "SELECT COUNT(DISTINCT device_id) AS c FROM user_event "
+            "WHERE created_at > NOW() - INTERVAL '7 days' AND device_id IS NOT NULL"
+        ).fetchone()
+        # 기간 내 총 이벤트·채팅·중단율
+        events_row = conn.execute(
+            "SELECT COUNT(*) AS c FROM user_event "
+            "WHERE created_at BETWEEN %s AND %s AND device_id IS NOT NULL",
+            [frm, to],
+        ).fetchone()
+        chats_row = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "       COALESCE((COUNT(*) FILTER (WHERE terminated_early))::float / NULLIF(COUNT(*),0), 0) AS rate "
+            "FROM chat_log WHERE created_at BETWEEN %s AND %s AND device_id IS NOT NULL",
+            [frm, to],
+        ).fetchone()
+
+        # 상위 검색어 Top 3
+        top_keywords = conn.execute(
+            "SELECT payload->>'keyword' AS keyword, COUNT(*) AS count "
+            "FROM user_event "
+            "WHERE event_type = 'search' AND event_name = 'keyword' "
+            "  AND payload ? 'keyword' "
+            "  AND created_at BETWEEN %s AND %s AND device_id IS NOT NULL "
+            "GROUP BY payload->>'keyword' ORDER BY count DESC LIMIT 3",
+            [frm, to],
+        ).fetchall()
+
+        # 넛지 조합 Top 3 — SQL 로 JSONB array 가져와 Python 에서 정규화
+        nudge_rows = conn.execute(
+            "SELECT payload->'nudges' AS nudges FROM user_event "
+            "WHERE event_type = 'nudge_score' "
+            "  AND jsonb_typeof(payload->'nudges') = 'array' "
+            "  AND created_at BETWEEN %s AND %s AND device_id IS NOT NULL",
+            [frm, to],
+        ).fetchall()
+        nudge_counter: Counter = Counter()
+        for r in nudge_rows:
+            arr = r["nudges"] or []
+            if isinstance(arr, list):
+                key = tuple(sorted(str(x) for x in arr))
+                if key:
+                    nudge_counter[key] += 1
+        top_nudge_combos = [
+            {"combo": list(combo), "count": cnt}
+            for combo, cnt in nudge_counter.most_common(3)
+        ]
+
+        # 상세조회 Top 5 (apartments.bld_nm 조인)
+        top_apt_rows = conn.execute(
+            "SELECT ue.payload->>'pnu' AS pnu, a.bld_nm, COUNT(*) AS count "
+            "FROM user_event ue "
+            "LEFT JOIN apartments a ON a.pnu = ue.payload->>'pnu' "
+            "WHERE ue.event_type = 'detail_view' "
+            "  AND ue.payload ? 'pnu' "
+            "  AND ue.created_at BETWEEN %s AND %s AND ue.device_id IS NOT NULL "
+            "GROUP BY ue.payload->>'pnu', a.bld_nm ORDER BY count DESC LIMIT 5",
+            [frm, to],
+        ).fetchall()
+
+        return {
+            "range": {"from": frm.isoformat(), "to": to.isoformat()},
+            "dau": dau_row["c"] or 0,
+            "wau_devices": wau_row["c"] or 0,
+            "total_events": events_row["c"] or 0,
+            "chat_sessions": chats_row["total"] or 0,
+            "terminated_rate": float(chats_row["rate"] or 0),
+            "top_keywords": [
+                {"keyword": r["keyword"], "count": r["count"]} for r in top_keywords
+            ],
+            "top_nudge_combos": top_nudge_combos,
+            "top_apt_details": [
+                {"pnu": r["pnu"], "bld_nm": r["bld_nm"], "count": r["count"]}
+                for r in top_apt_rows
+            ],
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/log-analytics/timeline")
+def log_analytics_timeline(
+    days: int | None = Query(None, ge=1, le=365),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    granularity: str = Query("day", pattern="^(day|hour)$"),
+):
+    """일/시간별 이벤트·활성 디바이스·채팅 추이."""
+    frm, to = _resolve_range(days, date_from, date_to)
+    conn = DictConnection()
+    try:
+        event_rows = conn.execute(
+            "SELECT DATE_TRUNC(%s, created_at) AS d, "
+            "       COUNT(*) AS events, "
+            "       COUNT(DISTINCT device_id) AS unique_devices "
+            "FROM user_event "
+            "WHERE created_at BETWEEN %s AND %s AND device_id IS NOT NULL "
+            "GROUP BY d ORDER BY d",
+            [granularity, frm, to],
+        ).fetchall()
+        chat_rows = conn.execute(
+            "SELECT DATE_TRUNC(%s, created_at) AS d, COUNT(*) AS chats "
+            "FROM chat_log "
+            "WHERE created_at BETWEEN %s AND %s AND device_id IS NOT NULL "
+            "GROUP BY d ORDER BY d",
+            [granularity, frm, to],
+        ).fetchall()
+
+        chat_by_d: dict[str, int] = {
+            r["d"].isoformat(): r["chats"] for r in chat_rows if r["d"]
+        }
+        points = []
+        for r in event_rows:
+            ts = r["d"].isoformat() if r["d"] else None
+            points.append({
+                "ts": ts,
+                "events": r["events"],
+                "unique_devices": r["unique_devices"],
+                "chats": chat_by_d.get(ts, 0),
+            })
+        return {"granularity": granularity, "points": points}
+    finally:
+        conn.close()
+
+
+@router.get("/log-analytics/events")
+def log_analytics_events(
+    days: int | None = Query(None, ge=1, le=365),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    device_id: str | None = Query(None),
+    event_type: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+):
+    """페이지네이션된 이벤트 목록. device_id / event_type 필터 지원."""
+    frm, to = _resolve_range(days, date_from, date_to)
+    conn = DictConnection()
+    try:
+        conditions = [
+            "created_at BETWEEN %s AND %s",
+            "device_id IS NOT NULL",
+        ]
+        params: list = [frm, to]
+        if device_id:
+            conditions.append("device_id = %s")
+            params.append(device_id)
+        if event_type:
+            conditions.append("event_type = %s")
+            params.append(event_type)
+        where = " AND ".join(conditions)
+
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM user_event WHERE {where}", params
+        ).fetchone()["c"]
+
+        offset = (page - 1) * page_size
+        rows = conn.execute(
+            f"SELECT id, device_id, event_type, event_name, payload, created_at "
+            f"FROM user_event WHERE {where} "
+            f"ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            params + [page_size, offset],
+        ).fetchall()
+
+        return {
+            "items": [
+                {
+                    "id": r["id"],
+                    "device_id": r["device_id"],
+                    "event_type": r["event_type"],
+                    "event_name": r["event_name"],
+                    "payload_preview": (json.dumps(r["payload"], ensure_ascii=False)
+                                         if r["payload"] is not None else "{}")[:160],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                }
+                for r in rows
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size if total else 0,
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/log-analytics/chats")
+def log_analytics_chats(
+    days: int | None = Query(None, ge=1, le=365),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    device_id: str | None = Query(None),
+    terminated_only: bool = Query(False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+):
+    """페이지네이션된 채팅 로그 목록 (preview)."""
+    frm, to = _resolve_range(days, date_from, date_to)
+    conn = DictConnection()
+    try:
+        conditions = [
+            "created_at BETWEEN %s AND %s",
+            "device_id IS NOT NULL",
+        ]
+        params: list = [frm, to]
+        if device_id:
+            conditions.append("device_id = %s")
+            params.append(device_id)
+        if terminated_only:
+            conditions.append("terminated_early = TRUE")
+        where = " AND ".join(conditions)
+
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM chat_log WHERE {where}", params
+        ).fetchone()["c"]
+
+        offset = (page - 1) * page_size
+        rows = conn.execute(
+            f"SELECT id, device_id, "
+            f"       LEFT(user_message, 80) AS user_preview, "
+            f"       LEFT(assistant_message, 120) AS assistant_preview, "
+            f"       COALESCE(jsonb_array_length(tool_calls), 0) AS tool_call_count, "
+            f"       terminated_early, created_at "
+            f"FROM chat_log WHERE {where} "
+            f"ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            params + [page_size, offset],
+        ).fetchall()
+
+        return {
+            "items": [
+                {
+                    "id": r["id"],
+                    "device_id": r["device_id"],
+                    "user_message_preview": r["user_preview"],
+                    "assistant_message_preview": r["assistant_preview"],
+                    "tool_call_count": r["tool_call_count"],
+                    "terminated_early": r["terminated_early"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                }
+                for r in rows
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size if total else 0,
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/log-analytics/chats/{chat_id}")
+def log_analytics_chat_detail(chat_id: int):
+    """단건 chat_log 원문 (user_message, assistant_message, tool_calls, context 전체)."""
+    conn = DictConnection()
+    try:
+        row = conn.execute(
+            "SELECT id, device_id, session_id, user_message, assistant_message, "
+            "       tool_calls, context, terminated_early, created_at "
+            "FROM chat_log WHERE id = %s",
+            [chat_id],
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "chat_log not found")
+        return {
+            "id": row["id"],
+            "device_id": row["device_id"],
+            "session_id": row["session_id"],
+            "user_message": row["user_message"],
+            "assistant_message": row["assistant_message"],
+            "tool_calls": row["tool_calls"] or [],
+            "context": row["context"] or {},
+            "terminated_early": row["terminated_early"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+    finally:
+        conn.close()
