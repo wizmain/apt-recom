@@ -148,3 +148,92 @@ export interface RegisterStatusResponse {
   message: string;
   elapsed_seconds: number;
 }
+
+// ── Log Analytics ─────────────────────────────────────────
+
+export type RangePreset = "24h" | "7d" | "30d" | "90d" | "custom";
+
+export interface LogRange {
+  preset: RangePreset;
+  from?: string;  // ISO 8601 (custom 인 경우)
+  to?: string;
+}
+
+export interface KeywordCount {
+  keyword: string;
+  count: number;
+}
+
+export interface NudgeComboCount {
+  combo: string[];
+  count: number;
+}
+
+export interface AptDetailCount {
+  pnu: string;
+  bld_nm: string | null;
+  count: number;
+}
+
+export interface LogOverview {
+  range: { from: string; to: string };
+  dau: number;
+  wau_devices: number;
+  total_events: number;
+  chat_sessions: number;
+  terminated_rate: number;
+  top_keywords: KeywordCount[];
+  top_nudge_combos: NudgeComboCount[];
+  top_apt_details: AptDetailCount[];
+}
+
+export interface LogTimelinePoint {
+  ts: string;
+  events: number;
+  unique_devices: number;
+  chats: number;
+}
+
+export interface LogTimelineResponse {
+  granularity: "day" | "hour";
+  points: LogTimelinePoint[];
+}
+
+export interface LogPaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface EventLogRow {
+  id: number;
+  device_id: string;
+  event_type: string;
+  event_name: string | null;
+  payload_preview: string;
+  created_at: string | null;
+}
+
+export interface ChatLogRow {
+  id: number;
+  device_id: string;
+  user_message_preview: string;
+  assistant_message_preview: string;
+  tool_call_count: number;
+  terminated_early: boolean;
+  created_at: string | null;
+}
+
+export interface ChatLogDetail {
+  id: number;
+  device_id: string;
+  session_id: string | null;
+  user_message: string;
+  assistant_message: string;
+  tool_calls: Array<{ name?: string; arguments?: unknown }>;
+  context: Record<string, unknown>;
+  terminated_early: boolean;
+  created_at: string | null;
+}
