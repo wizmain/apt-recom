@@ -54,3 +54,25 @@ batch/data/
 collect_incheon_missing.py
 convert_to_sqlite.py
 pet_friendly_cultural_facilities.csv
+
+# Claude Code 개인 설정 (settings.json / hooks/check-staged-imports.py 는 tracked 유지)
+.claude/
+
+# OS / 마운트 임시파일
+.fuse_hidden*
+
+# SQLite WAL/SHM (런타임 산출물)
+*.db-wal
+*.db-shm
+
+# 배치 체크포인트 (런타임 상태)
+batch/.*_checkpoint.json
+
+# ML 학습 산출물
+models/*.joblib
+
+# 생성된 EDA 차트 이미지 (대량 PNG)
+docs/images/
+
+# 스크래치/임시 이미지
+images/
