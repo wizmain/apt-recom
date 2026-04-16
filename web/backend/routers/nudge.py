@@ -1,8 +1,9 @@
 """Nudge scoring API."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from database import DictConnection
+from services.activity_log import log_event
 from services.scoring import (
     get_nudge_weights,
     get_region_profile,
@@ -40,8 +41,21 @@ class NudgeScoreRequest(BaseModel):
 
 
 @router.post("/nudge/score")
-def nudge_score(req: NudgeScoreRequest):
+def nudge_score(req: NudgeScoreRequest, request: Request):
     """Calculate nudge scores for apartments and return top_n."""
+    log_event(
+        request.headers.get("x-device-id"),
+        "nudge_score",
+        None,
+        {
+            "nudges": req.nudges,
+            "top_n": req.top_n,
+            "keyword": req.keyword,
+            "sigungu_code": req.sigungu_code,
+            "bjd_code": req.bjd_code,
+        },
+    )
+
     conn = DictConnection()
     try:
         # 1. Get apartments (keyword, bounds, and property filters)

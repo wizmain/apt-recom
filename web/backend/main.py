@@ -31,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from database import create_tables, ensure_logging_indexes, get_connection
-from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin
+from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log
 
 app = FastAPI(title="Apartment Recommendation API")
 
@@ -75,6 +75,7 @@ app.include_router(dashboard.router, prefix="/api")
 app.include_router(codes.router, prefix="/api")
 app.include_router(similar.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(log.router, prefix="/api")
 
 
 @app.get("/api/health")

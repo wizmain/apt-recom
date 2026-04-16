@@ -1,7 +1,8 @@
 """Apartment detail + trade history API."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from database import DictConnection
+from services.activity_log import log_event
 from services.scoring import (
     get_nudge_weights,
     get_region_profile,
@@ -13,8 +14,15 @@ router = APIRouter()
 
 
 @router.get("/apartment/{pnu}")
-def apartment_detail(pnu: str):
+def apartment_detail(pnu: str, request: Request):
     """Return full detail for one apartment: basic info, scores, facilities, school."""
+    log_event(
+        request.headers.get("x-device-id"),
+        "detail_view",
+        None,
+        {"pnu": pnu},
+    )
+
     conn = DictConnection()
     try:
         basic = conn.execute("SELECT * FROM apartments WHERE pnu = %s", [pnu]).fetchone()
