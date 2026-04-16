@@ -212,6 +212,16 @@ export function useApartments() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       refetch(newFilters, selectedRegionRef.current, boundsRef.current, keywordsRef.current);
+      // 필터 변경 로깅 — debounce 300ms 끝에 1회, 빈 값은 제외. 실패는 흡수.
+      const sanitized: Record<string, number> = {};
+      for (const [k, v] of Object.entries(newFilters)) {
+        if (typeof v === 'number' && !Number.isNaN(v)) sanitized[k] = v;
+      }
+      api.post('/api/log/event', {
+        event_type: 'filter_change',
+        event_name: null,
+        payload: sanitized,
+      }).catch(() => { /* ignore */ });
     }, 300);
   }, [refetch]);
 
