@@ -1,6 +1,6 @@
 # 아파트 추천 서비스 프로젝트 진행 현황
 
-> 최종 업데이트: 2026-04-15
+> 최종 업데이트: 2026-04-16
 
 ---
 
@@ -377,6 +377,100 @@
 
 ---
 
+## Phase 12: 사용자 이용 로그 & 관리 대시보드 (2026-04-16)
+
+### 12.1 배경 & 설계
+- 로그인 체계가 없어 검색·챗봇 이용 패턴을 추적할 수 없었음
+- 익명 `device_id`(localStorage UUID) 기반 무인증 수집으로 결정
+- 로그인·IP·상세 UA 수집 금지, 90일 보관 + opt-out 스위치로 개인정보 부담 최소화
+- 설계 리뷰에서 리스크 8건 사전 식별 후 반영 (viewport 폭증, SSE abort 누락, tool result 개인정보 등)
+
+### 12.2 Phase 1+2 — 로그 수집 인프라 (PR #52)
+#### DB 스키마
+- `user_event` (BIGSERIAL PK): device_id / event_type / event_name / payload(JSONB)
+- `chat_log` (BIGSERIAL PK): device_id / session_id / user_message / assistant_message / tool_calls(JSONB) / context(JSONB) / terminated_early
+- 인덱스 6종: `(device_id, created_at DESC)`, `(event_type, created_at DESC)`, BRIN(created_at) × 2, GIN(payload jsonb_path_ops), `chat_log(device_id, created_at DESC)`
+- `ensure_logging_indexes()` 를 `main.py` startup hook 에 추가 — Railway 재배포 시 자동 보장
+
+#### 백엔드 수집
+- `services/activity_log.py` 신규: `log_event()`, `log_chat()`
+  - device_id 없으면 no-op, INSERT 실패는 warning 흡수 → 본 요청 영향 없음
+  - `tool_calls`는 `{name, arguments}`만 저장 (result 본문 제외 — 위치정보법·용량 리스크 차단)
+  - `context`는 화이트리스트(`apartment_pnu`, `apartment_name`, `nudges`, `selected_region`)만
+- `chat_engine.process_chat_stream()` try/finally 로 감싸 SSE abort·예외·early return 모든 경로에서 1회 로깅. `terminated_early` 플래그로 정상 완료 여부 구분
+- 검색/넛지/상세 라우터에 `X-Device-Id` 헤더 수신 + `log_event()` 1줄 삽입 (코드 침습 최소)
+- 신규 `POST /api/log/event` — 페이지뷰/필터 변경 등 서버 핸들러 없는 이벤트 수집
+
+#### 프론트엔드
+- `lib/device.ts`: localStorage UUID, `crypto.randomUUID()` fallback, Safari private mode 예외 처리
+- `lib/api.ts`: axios 인스턴스 + interceptor 로 `X-Device-Id` 자동 주입 — opt-out 시 헤더 미포함
+- 기존 hook/component axios 호출을 `api` 인스턴스로 교체 (10개 파일)
+- SSE `fetch` 호출에는 헤더 수동 주입 (`useChat.ts`의 stream/feedback 2곳)
+- `TrackingToggle.tsx` 컴포넌트 — ChatModal 하단 opt-out 체크박스
+- `App.tsx`: `viewMode` 변경 시 `page_view` 이벤트 전송
+- `useApartments.applyFilters()`: 300ms debounce 끝에 `filter_change` 이벤트 전송 (`/api/apartments` viewport 폭증 회피)
+
+#### 수집되는 이벤트 5종
+- `page_view` (event_name: `map`/`dashboard`)
+- `search` (event_name: `keyword`, payload: `{keyword}`)
+- `filter_change` (payload: `{minPrice, maxPrice, minArea, ...}`)
+- `nudge_score` (payload: `{nudges, top_n, keyword, bjd_code, sigungu_code}`)
+- `detail_view` (payload: `{pnu}`)
+
+### 12.3 Phase 3 — 관리 대시보드 백엔드 (PR #53)
+- `admin.py` 끝에 `# ── log-analytics ──` 섹션 추가 (5개 엔드포인트)
+- `_resolve_range(days, date_from, date_to)` 헬퍼로 기간 파라미터 통일 (미지정 시 기본 7일)
+- 모든 쿼리에 `device_id IS NOT NULL` 필터 — 레거시 NULL 행 제외, BRIN/GIN 활용
+- 엔드포인트:
+  - `GET /admin/log-analytics/overview` — 8종 KPI (DAU, WAU devices, 총 이벤트, 채팅 세션, 중단율, 검색어 Top3, 넛지 조합 Top3, 상세조회 Top5)
+  - `GET /admin/log-analytics/timeline?granularity=day|hour`
+  - `GET /admin/log-analytics/events` — 페이지네이션 + device_id / event_type 필터
+  - `GET /admin/log-analytics/chats` — 페이지네이션 + device_id / terminated_only 필터
+  - `GET /admin/log-analytics/chats/{id}` — 원문 전체 (user/assistant/tool_calls/context)
+- 넛지 조합 집계는 Python `Counter(tuple(sorted(nudges)))` 로 정규화
+- TestClient E2E 검증: 200/401/404/422 경로 모두 통과
+
+### 12.4 Phase 3 — 관리 대시보드 UI (PR #54)
+- `web/admin/` 기존 SPA에 `/admin/logs` 단일 페이지 추가
+- 탭 3개 — 개요 / 이벤트 로그 / 채팅 로그
+- `RangeFilterBar`: 24h / 7d / 30d / 90d 프리셋 + 커스텀 날짜 범위 (date input 2개)
+- URL 쿼리 동기화 — `?tab=&preset=&from=&to=&device=&type=&page=&terminated=` (뒤로가기·공유·새로고침 복원 가능)
+- 개요 탭: `KpiCard` × 5 + 미니 리스트 카드 3종 + `Recharts LineChart` (events/unique_devices/chats 이중선)
+- 이벤트/채팅 탭: 공용 `DataTable` 재사용 (`onRowClick`, `renderCell` prop 추가)
+- `ChatDetailModal`: user/assistant 섹션 + `tool_calls`·`context` 접힘 JSON + ESC/배경 클릭 닫기
+- Sidebar MENU_ITEMS 에 📈 "로그 분석" 추가
+- TypeScript 체크 + Vite 빌드 통과
+
+### 12.5 Phase 4 — 90일 보관 배치 (PR #55, 본 마일스톤)
+- `batch/purge_old_logs.py` 신규
+  - `user_event`, `chat_log` 대상
+  - `LIMIT {batch_size}` 루프 + `SELECT id ... LIMIT` 서브쿼리 → WAL 폭증·락 지속 최소화
+  - `--dry-run`: 삭제 없이 대상 건수만 조회
+  - `--days`, `--batch-size` CLI 플래그
+  - `time.sleep(0.2)` 로 다른 트랜잭션에게 I/O 양보
+- `.github/workflows/purge-logs.yml`
+  - `cron: '0 18 * * 6'` — 매주 토요일 18:00 UTC = **일요일 03:00 KST** (트래픽 최저 시간대)
+  - `workflow_dispatch` 수동 실행 + `dry_run` / `days` 입력 파라미터
+  - `RAILWAY_DATABASE_URL` secret 사용
+- 로컬 검증: 100일 과거 시각으로 테스트 행 삽입 → 정상 2건 삭제 확인
+
+### 12.6 개인정보·운영 체크리스트
+- IP · UA 상세 **미수집**
+- tool `result` 본문 저장 금지 (`activity_log._sanitize_tool_calls`)
+- `chat_log.context` 화이트리스트 필드만 저장
+- 브라우저 localStorage 삭제 시 device_id 자동 소멸 → 신규 UUID 부여
+- opt-out 즉시 반영 (헤더 미포함 → 서버 자동 no-op)
+- 90일 초과 행 자동 삭제
+- INSERT 실패는 warning 로그로 흡수 → 본 요청 UX 영향 없음
+
+### 관련 PR
+- #52 Phase 1+2 — 로그 수집 인프라 (DB 스키마 + activity_log + 라우터 + 프론트 device_id/opt-out)
+- #53 Phase 3 백엔드 — log-analytics API 5종
+- #54 Phase 3 프론트 — /admin/logs 대시보드 (단일 페이지 + 3탭 + 원문 모달)
+- #55 Phase 4 — 90일 보관 purge 배치 + GitHub Actions 주간 cron
+
+---
+
 ## Phase 10: 문서화 (2026-03-24 ~ 04-01)
 
 - [x] ERD, 컬럼 매핑, 설계 문서 16종
@@ -401,6 +495,7 @@
 | 인구 데이터 | 94개 시군구 × 22개 연령대 |
 | EDA 차트 | 200개+ |
 | ML 모델 | XGBoost (R²=0.59), 39차원 벡터 |
+| 사용자 로그 | `user_event` / `chat_log` (90일 보관, 익명 device_id) |
 
 ---
 
@@ -430,3 +525,4 @@
 - [ ] 아파트 클러스터링 (K-Means → "이 아파트는 학군형입니다")
 - [ ] 사용자 인증 + 관심 아파트 저장
 - [ ] A/B 프롬프트 테스트
+- [ ] 로그 분석 대시보드 확장 — CSV 내보내기, 중단율 임계치 알림
