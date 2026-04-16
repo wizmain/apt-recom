@@ -4,7 +4,7 @@
 체크포인트를 DB(common_code 테이블)에 저장하여 GitHub Actions에서도 이어서 수집.
 
 사용법:
-  python -m batch.initial_collect [--max-calls 900]
+  python -m batch.initial_collect [--max-calls 900] [--skip-enrich]
 """
 
 import argparse
@@ -67,6 +67,7 @@ def save_checkpoint(conn, completed):
 def main():
     parser = argparse.ArgumentParser(description="비수도권 과거 3년 거래 데이터 초기 수집")
     parser.add_argument("--max-calls", type=int, default=900, help="이번 실행 최대 API 호출 수")
+    parser.add_argument("--skip-enrich", action="store_true", help="신규 아파트 보충 생략 (별도 워크플로에서 실행)")
     args = parser.parse_args()
 
     logger = setup_logger("initial")
@@ -121,15 +122,18 @@ def main():
     logger.info(f"전체 진행: {len(completed)}/{total_pairs}쌍 ({len(completed) * 100 // total_pairs}%)")
 
     # ── 신규 아파트 등록 + 건축물대장/전유부(공급면적)/K-APT 보충 ──
-    # 거래만 적재하면 apt_seq 미매핑 상태로 남으므로 동일 실행에서 enrich 실행.
-    # enrich_new_apartments 내부에서 스키마 마이그레이션 + area_info 호출까지 수행.
-    try:
-        from batch.trade.enrich_apartments import enrich_new_apartments
-        logger.info("신규 아파트 보충 시작...")
-        enriched, new_pnus = enrich_new_apartments(conn, logger)
-        logger.info(f"신규 아파트 등록: {enriched}건 (신규 PNU {len(new_pnus)})")
-    except Exception as e:
-        logger.error(f"신규 아파트 보충 실패: {e}")
+    # CI에서는 --skip-enrich로 별도 워크플로(batch-enrich-apartments)에서 실행.
+    # 로컬 실행 시에는 기본적으로 enrich까지 수행.
+    if args.skip_enrich:
+        logger.info("--skip-enrich: 신규 아파트 보충 생략 (별도 워크플로에서 실행)")
+    else:
+        try:
+            from batch.trade.enrich_apartments import enrich_new_apartments
+            logger.info("신규 아파트 보충 시작...")
+            enriched, new_pnus = enrich_new_apartments(conn, logger)
+            logger.info(f"신규 아파트 등록: {enriched}건 (신규 PNU {len(new_pnus)})")
+        except Exception as e:
+            logger.error(f"신규 아파트 보충 실패: {e}")
 
     conn.close()
 

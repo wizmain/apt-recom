@@ -1,0 +1,28 @@
+name: Enrich New Apartments
+
+on:
+  workflow_run:
+    workflows: ["Initial Nationwide Trade Collection"]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion != 'cancelled'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install psycopg2-binary requests python-dotenv pandas joblib numpy scikit-learn
+      - name: Enrich new apartments
+        run: python -m batch.trade.enrich_apartments
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+          KAKAO_API_KEY: ${{ secrets.KAKAO_API_KEY }}

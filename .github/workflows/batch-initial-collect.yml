@@ -8,7 +8,7 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: pip install psycopg2-binary requests python-dotenv pandas
       - name: Run initial collection (max 900 calls)
-        run: python -m batch.initial_collect --max-calls 900
+        run: python -m batch.initial_collect --max-calls 900 --skip-enrich
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}

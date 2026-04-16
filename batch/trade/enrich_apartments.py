@@ -960,3 +960,43 @@ def enrich_new_apartments(conn, logger):
         logger.info(f"  K-APT 보완: {kapt_cnt}건")
 
     return created + matched, new_pnus
+
+
+# ── CLI 진입점 ──
+
+def main():
+    """독립 실행용 CLI. GitHub Actions 워크플로에서 호출.
+
+    사용법:
+      python -m batch.trade.enrich_apartments
+    """
+    from batch.db import get_connection
+    from batch.logger import setup_logger
+
+    logger = setup_logger("enrich")
+    conn = get_connection()
+    try:
+        logger.info("신규 아파트 보충 시작 (독립 실행)")
+        enriched, new_pnus = enrich_new_apartments(conn, logger)
+        logger.info(f"신규 아파트 등록: {enriched}건 (신규 PNU {len(new_pnus)})")
+
+        # 신규 PNU가 있으면 시설집계/안전점수/벡터 재생성
+        if new_pnus:
+            from batch.quarterly.recalc_summary import recalc_for_new_apartments
+            recalc_for_new_apartments(conn, logger, new_pnus)
+            logger.info(f"시설집계/안전점수 재계산: {len(new_pnus)}건")
+
+        if enriched > 0:
+            from batch.ml.build_vectors import build_all_vectors
+            build_all_vectors(conn, logger)
+            logger.info("벡터 재생성 완료")
+
+    except Exception as e:
+        logger.error(f"신규 아파트 보충 실패: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()
