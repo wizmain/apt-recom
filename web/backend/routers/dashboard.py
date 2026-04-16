@@ -40,21 +40,23 @@ def dashboard_regions(q: str = Query("", description="검색어")):
 def dashboard_summary(
     sigungu: str = Query("", description="시군구 코드 필터"),
 ):
-    """최근 30일 vs 전년 동기 30일(YoY) 비교 요약 통계 + 갱신 정보.
+    """30~60일 전 30일 구간 vs 전년 동기 30일(YoY) 비교 요약 통계 + 갱신 정보.
 
-    계절성을 상쇄하기 위해 전년 동기 비교 방식을 사용한다. 단, 전국 거래
-    데이터 수집이 진행 중이라 전년 동기 구간의 일부 지역이 누락될 수 있어
-    비교 수치는 부정확할 수 있다(UI에서 안내).
+    부동산 실거래가는 계약 후 30일 이내 신고 의무가 있어 최근 30일 구간은
+    신고 지연으로 과소집계된다. 이를 피하기 위해 "30~60일 전"의 30일 윈도우를
+    현재 구간으로 사용한다. 계절성을 상쇄하기 위해 전년 동기(365일 전)와
+    비교한다. 단, 전국 거래 데이터 수집이 진행 중이라 전년 동기 구간의 일부
+    지역이 누락될 수 있어 비교 수치는 부정확할 수 있다(UI에서 안내).
     """
     conn = DictConnection()
     from datetime import timedelta
     now = datetime.now()
 
-    # 최근 30일 / 전년 동기 30일 (YoY)
-    cur_start = now - timedelta(days=29)
-    cur_end = now
+    # 신고 지연 회피용 "30~60일 전" 30일 윈도우 vs 전년 동기 (YoY)
+    cur_end = now - timedelta(days=30)
+    cur_start = cur_end - timedelta(days=29)
     prev_start = cur_start - timedelta(days=365)
-    prev_end = now - timedelta(days=365)
+    prev_end = cur_end - timedelta(days=365)
 
     sgg_filter = ""
     sgg_params: list = []
@@ -136,7 +138,7 @@ def dashboard_summary(
         "prev_period": f"{prev_start.year}.{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}",
         "prev_label": "전년 동기",
         "comparison_mode": "yoy",
-        "data_lag_notice": "전국 거래 데이터 수집이 진행 중입니다. 전년 동기 구간의 일부 지역(비수도권 등) 데이터가 아직 누락되어 있어 전년 대비 비교 수치는 부정확할 수 있습니다. 수집이 완료되면 정확한 비교가 반영됩니다.",
+        "data_lag_notice": "실거래 신고 지연(30일 이내 신고 의무)을 피하기 위해 현재 구간은 '30~60일 전' 30일 윈도우로 집계합니다. 전국 거래 데이터 수집이 진행 중이라 전년 동기 구간의 일부 지역(비수도권 등) 데이터가 아직 누락되어 있어 전년 대비 비교 수치는 부정확할 수 있습니다.",
         "last_updated": last_updated,
         "new_today": (new_today["cnt"] or 0) if new_today else 0,
         "trade": {
