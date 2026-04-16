@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config';
+import { api } from '../lib/api';
 
 interface CodeItem {
   code: string;
@@ -16,7 +15,7 @@ const cache: Record<string, CodeItem[]> = {};
 
 async function fetchCodes(group: string): Promise<CodeItem[]> {
   if (cache[group]) return cache[group];
-  const res = await axios.get<CodeItem[]>(`${API_BASE}/api/codes/${group}`);
+  const res = await api.get<CodeItem[]>(`/api/codes/${group}`);
   cache[group] = res.data;
   return res.data;
 }

@@ -13,6 +13,7 @@ load_dotenv(_env_path)
 
 from services.llm import get_provider, LLMResponse, Tool
 from services.tools import TOOL_DEFINITIONS, TOOL_EXECUTORS
+from services.activity_log import log_chat
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,8 @@ async def process_chat(
     message: str,
     conversation: list[dict] | None = None,
     context: dict | None = None,
+    device_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """Process a chat message through LLM with tool calling.
 
@@ -123,10 +126,32 @@ async def process_chat(
         message: User's message
         conversation: Previous conversation history
         context: Additional context (e.g., selected nudges, map bounds)
+        device_id: 익명 사용자 식별자(프론트 localStorage UUID). 있으면 chat_log 저장.
+        session_id: 선택적 세션 ID.
 
     Returns:
         dict with keys: content, tool_calls, map_actions
     """
+    result = await _process_chat_core(message, conversation, context)
+    # 완성된 대화 로깅 (device_id 없으면 no-op, 실패는 흡수)
+    log_chat(
+        device_id=device_id,
+        session_id=session_id,
+        user_message=message,
+        assistant_message=result.get("content", ""),
+        tool_calls=result.get("tool_calls", []),
+        context=context,
+        terminated_early=False,
+    )
+    return result
+
+
+async def _process_chat_core(
+    message: str,
+    conversation: list[dict] | None = None,
+    context: dict | None = None,
+) -> dict:
+    """process_chat 본 로직 — 로깅은 상위 wrapper가 담당."""
     # Check if API key is configured
     provider_name = os.getenv("LLM_PROVIDER", "openai").lower()
     if provider_name == "openai" and not os.getenv("OPENAI_API_KEY"):
@@ -272,6 +297,49 @@ async def process_chat_stream(
     message: str,
     conversation: list[dict] | None = None,
     context: dict | None = None,
+    device_id: str | None = None,
+    session_id: str | None = None,
+):
+    """Streaming version of process_chat — yields SSE events.
+
+    SSE 스트리밍은 클라이언트 abort / early return / 예외 모두에서 대화가
+    어딘가에서 '완성 직전에 끊길' 수 있다. try/finally 로 감싸 모든 종료
+    경로에서 chat_log 1회 저장을 보장한다. terminated_early 플래그로
+    정상 종료 여부를 구분한다.
+    """
+    collected_content: list[str] = []
+    collected_tool_calls: list[dict] = []
+    completed_normally = False
+    try:
+        async for event in _process_chat_stream_core(message, conversation, context):
+            data = event.get("data") or {}
+            if event.get("event") == "delta":
+                content = data.get("content") or ""
+                if content:
+                    collected_content.append(content)
+            elif event.get("event") == "done":
+                completed_normally = True
+                # done 이벤트의 tool_calls 가 최종 누적본 — core 가 관리하는 값 사용
+                final_tools = data.get("tool_calls") or []
+                if final_tools:
+                    collected_tool_calls = final_tools
+            yield event
+    finally:
+        log_chat(
+            device_id=device_id,
+            session_id=session_id,
+            user_message=message,
+            assistant_message="".join(collected_content),
+            tool_calls=collected_tool_calls,
+            context=context,
+            terminated_early=not completed_normally,
+        )
+
+
+async def _process_chat_stream_core(
+    message: str,
+    conversation: list[dict] | None = None,
+    context: dict | None = None,
 ):
     """Streaming version of process_chat — yields SSE events."""
     # Check API key
@@ -330,6 +398,7 @@ async def process_chat_stream(
                 temperature=0.7,
             )
         except Exception as e:
+            logger.exception(f"LLM stream call failed (iteration {iteration}): {e}")
             yield {"event": "delta", "data": {"content": f"AI 서비스 오류: {type(e).__name__}"}}
             yield {"event": "done", "data": {"tool_calls": executed_tools, "map_actions": map_actions}}
             return

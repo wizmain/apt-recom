@@ -11,6 +11,7 @@ import ChatButton from './components/ChatButton';
 import ChatModal from './components/ChatModal';
 import FilterPanel from './components/FilterPanel';
 import { API_BASE } from './config';
+import { api } from './lib/api';
 import { useApartments, countActiveFilters } from './hooks/useApartments';
 import { useNudge } from './hooks/useNudge';
 import type { MapBounds } from './types/apartment';
@@ -47,6 +48,14 @@ function App() {
   useEffect(() => {
     fetchWeights();
   }, [fetchWeights]);
+
+  // 페이지뷰 로깅 — viewMode 전환 시마다 1회 기록. opt-out 상태면 서버에서 no-op.
+  useEffect(() => {
+    api.post('/api/log/event', {
+      event_type: 'page_view',
+      event_name: viewMode,
+    }).catch(() => { /* 로깅 실패는 UX에 영향 주지 않도록 흡수 */ });
+  }, [viewMode]);
 
   // DetailModal이 열릴 때(선택된 pnu가 순위 목록에 있으면) 배너 컨텍스트 자동 설정
   useEffect(() => {

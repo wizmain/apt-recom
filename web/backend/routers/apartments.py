@@ -1,7 +1,8 @@
 """Apartment listing API with filtering."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from database import DictConnection
+from services.activity_log import log_event
 
 router = APIRouter()
 
@@ -113,7 +114,7 @@ def list_apartments(
 
 
 @router.get("/apartments/search")
-def search_apartments(q: str = Query(..., min_length=1)):
+def search_apartments(request: Request, q: str = Query(..., min_length=1)):
     """검색어를 분석하여 지역/단지명을 자동 분류 후 아파트 검색.
 
     반환: {"results": [...], "region_candidates": [...]?}
@@ -121,6 +122,13 @@ def search_apartments(q: str = Query(..., min_length=1)):
     - region_candidates: 동일 명칭의 지역이 2곳 이상 매칭된 경우 후보 목록 (선택적)
     """
     from services.search_engine import search
+
+    log_event(
+        request.headers.get("x-device-id"),
+        "search",
+        "keyword",
+        {"keyword": q},
+    )
 
     conn = DictConnection()
     try:

@@ -3,12 +3,35 @@
 import os
 from pathlib import Path
 
+# ── Sentry 초기화 (DSN이 설정된 환경에서만 활성화) ────────────────────────
+# FastAPI app 생성 전에 init 해야 미들웨어가 첫 요청부터 추적됨.
+_SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if _SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+        release=os.getenv("RAILWAY_DEPLOYMENT_ID") or os.getenv("GIT_COMMIT_SHA"),
+        # 무료 티어 절감을 위해 보수적 샘플링
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.0")),
+        send_default_pii=False,
+        integrations=[
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(transaction_style="endpoint"),
+        ],
+    )
+    print(f"[sentry] initialized (env={os.getenv('SENTRY_ENVIRONMENT', 'production')})")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from database import create_tables, get_connection
-from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin
+from database import create_tables, ensure_logging_indexes, get_connection
+from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log
 
 app = FastAPI(title="Apartment Recommendation API")
 
@@ -25,6 +48,7 @@ def migrate_schema_on_startup() -> None:
         conn = get_connection()
         try:
             create_tables(conn)
+            ensure_logging_indexes(conn)
         finally:
             conn.close()
         print("[startup] schema migration 완료")
@@ -51,11 +75,20 @@ app.include_router(dashboard.router, prefix="/api")
 app.include_router(codes.router, prefix="/api")
 app.include_router(similar.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(log.router, prefix="/api")
 
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/_sentry_test")
+def sentry_test():
+    """Sentry 연동 검증용 — 의도적으로 예외 발생.
+    Sentry 대시보드에서 이벤트가 보이면 정상 연결.
+    """
+    raise RuntimeError("Sentry test exception (intentional)")
 
 
 KAKAO_MAP_HTML = """<!DOCTYPE html>
