@@ -6,6 +6,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { DataManagement } from "./pages/DataManagement";
 import { BatchMonitor } from "./pages/BatchMonitor";
 import { Feedback } from "./pages/Feedback";
+import { Logs } from "./pages/Logs";
 import { Scoring } from "./pages/Scoring";
 import { Knowledge } from "./pages/Knowledge";
 import { CommonCode } from "./pages/CommonCode";
@@ -28,6 +29,7 @@ function App() {
             <Route path="/admin/data" element={<DataManagement />} />
             <Route path="/admin/batch" element={<BatchMonitor />} />
             <Route path="/admin/feedback" element={<Feedback />} />
+            <Route path="/admin/logs" element={<Logs />} />
             <Route path="/admin/scoring" element={<Scoring />} />
             <Route path="/admin/knowledge" element={<Knowledge />} />
             <Route path="/admin/codes" element={<CommonCode />} />

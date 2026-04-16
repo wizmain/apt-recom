@@ -18,6 +18,10 @@ interface DataTableProps {
   onSearch?: (column: string, value: string) => void;
   searchColumns?: string[];
   loading?: boolean;
+  /** 행 클릭 시 콜백. 설정되면 행에 cursor-pointer + 클릭 이벤트 바인딩. */
+  onRowClick?: (row: Record<string, unknown>) => void;
+  /** 셀 커스텀 렌더러. 컬럼 key → ReactNode. 미지정 컬럼은 String(row[key]) 사용. */
+  renderCell?: (row: Record<string, unknown>, columnKey: string) => React.ReactNode;
 }
 
 export function DataTable({
@@ -31,6 +35,8 @@ export function DataTable({
   onSearch,
   searchColumns,
   loading,
+  onRowClick,
+  renderCell,
 }: DataTableProps) {
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -136,11 +142,16 @@ export function DataTable({
               data.map((row, i) => (
                 <tr
                   key={i}
-                  className="border-b border-gray-100 hover:bg-gray-50"
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  className={`border-b border-gray-100 hover:bg-gray-50 ${
+                    onRowClick ? "cursor-pointer" : ""
+                  }`}
                 >
                   {columns.map((col) => (
                     <td key={col.key} className="px-3 py-2 text-gray-700">
-                      {String(row[col.key] ?? "-")}
+                      {renderCell
+                        ? (renderCell(row, col.key) ?? String(row[col.key] ?? "-"))
+                        : String(row[col.key] ?? "-")}
                     </td>
                   ))}
                 </tr>
