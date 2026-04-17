@@ -303,6 +303,24 @@ def search(conn, query: str) -> dict:
     # 다중 지역 후보 감지
     candidates = _detect_candidates(results)
 
+    # candidate 의 count 를 DB 실제 아파트 수로 갱신
+    # (_detect_candidates 는 LIMIT 100 결과 기반이라 실제 수와 다름)
+    if candidates:
+        for c in candidates:
+            if c["type"] == "sigungu":
+                row = conn.execute(
+                    f"SELECT COUNT(*) as c FROM apartments WHERE {APT_BASE_FILTER} AND sigungu_code = %s",
+                    [c["code"]],
+                ).fetchone()
+                c["count"] = row["c"]
+            elif c["type"] == "emd":
+                row = conn.execute(
+                    f"SELECT COUNT(*) as c FROM apartments WHERE {APT_BASE_FILTER} AND bjd_code = %s",
+                    [c["code"]],
+                ).fetchone()
+                c["count"] = row["c"]
+        candidates.sort(key=lambda g: -g["count"])
+
     out: dict = {"results": results[:100]}
     if candidates:
         out["region_candidates"] = candidates
