@@ -319,7 +319,15 @@ def search(conn, query: str) -> dict:
                     [c["code"]],
                 ).fetchone()
                 c["count"] = row["c"]
-        candidates.sort(key=lambda g: -g["count"])
+        # 같은 label 의 candidates 통합 (예: 가평군이 41800+41820 두 코드)
+        merged: dict[str, dict] = {}
+        for c in candidates:
+            label = c["label"]
+            if label in merged:
+                merged[label]["count"] += c["count"]
+            else:
+                merged[label] = c
+        candidates = sorted(merged.values(), key=lambda g: -g["count"])
 
     out: dict = {"results": results[:100]}
     if candidates:
