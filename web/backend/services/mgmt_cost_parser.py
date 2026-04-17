@@ -178,7 +178,7 @@ def parse_cost_excel(
         repair = int(row.get("장충금 월부과액") or 0)
         total = common + indiv + repair
 
-        hhld = area_map.get(kapt_code, 0) or db_hhld or 1
+        hhld = area_map.get(kapt_code, 0) or db_hhld or 0
         per_unit = total // hhld if hhld > 0 else 0
 
         detail = {}
