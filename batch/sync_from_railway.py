@@ -29,6 +29,133 @@ SYNC_TABLES = [
     ("rent_history", "apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day, created_at"),
 ]
 
+# 아파트 관련 테이블: created_at 부재 → PK 기반 전략
+# mode: "missing_only" (Railway에만 있는 PK만 INSERT)
+#       "upsert"       (PK 충돌 시 전체 컬럼 UPDATE — 재계산되는 스코어용)
+APT_SYNC_TABLES = [
+    {
+        "name": "apartments",
+        "pk": ["pnu"],
+        "cols": ["pnu", "bld_nm", "total_hhld_cnt", "dong_count", "max_floor",
+                 "use_apr_day", "plat_plc", "new_plat_plc", "bjd_code", "sigungu_code",
+                 "lat", "lng", "bld_nm_norm", "coord_source", "group_pnu"],
+        "mode": "missing_only",
+    },
+    {
+        "name": "trade_apt_mapping",
+        "pk": ["apt_seq"],
+        "cols": ["apt_seq", "pnu", "apt_nm", "sgg_cd", "match_method"],
+        "mode": "missing_only",
+    },
+    {
+        "name": "apt_facility_summary",
+        "pk": ["pnu", "facility_subtype"],
+        "cols": ["pnu", "facility_subtype", "nearest_distance_m",
+                 "count_1km", "count_3km", "count_5km"],
+        "mode": "missing_only",
+    },
+    {
+        "name": "apt_safety_score",
+        "pk": ["pnu"],
+        "cols": ["pnu", "safety_score", "cctv_count_500m", "cctv_count_1km",
+                 "nearest_cctv_m", "crime_safety_score", "micro_score",
+                 "access_score", "macro_score", "complex_score", "data_reliability",
+                 "crime_hotspot_grade", "score_version", "complex_cctv_score",
+                 "complex_security_score", "complex_mgr_score", "complex_parking_score",
+                 "regional_safety_score", "crime_adjust_score", "complex_data_source"],
+        "mode": "upsert",
+    },
+    {
+        "name": "apt_price_score",
+        "pk": ["pnu"],
+        "cols": ["pnu", "price_per_m2", "sgg_avg_price_per_m2",
+                 "price_score", "jeonse_ratio"],
+        "mode": "upsert",
+    },
+]
+
+
+def _sync_apt_table(local, railway, cfg, logger):
+    """아파트 관련 테이블 단건 동기화."""
+    table = cfg["name"]
+    pk_cols = cfg["pk"]
+    all_cols = cfg["cols"]
+    mode = cfg["mode"]
+
+    pk_sql = ", ".join(pk_cols)
+    col_sql = ", ".join(all_cols)
+    placeholders = ", ".join(["%s"] * len(all_cols))
+
+    if mode == "missing_only":
+        # Railway 전체 조회 후 로컬 PK 집합과 비교해 누락 행만 INSERT
+        lcur = local.cursor()
+        lcur.execute(f"SELECT {pk_sql} FROM {table}")
+        local_pks = {tuple(r) for r in lcur.fetchall()}
+
+        rcur = railway.cursor()
+        rcur.execute(f"SELECT {col_sql} FROM {table}")
+        pk_indices = [all_cols.index(c) for c in pk_cols]
+        missing_rows = [
+            row for row in rcur.fetchall()
+            if tuple(row[i] for i in pk_indices) not in local_pks
+        ]
+
+        if not missing_rows:
+            logger.info(f"  {table}: 신규 없음")
+            return 0
+
+        lcur2 = local.cursor()
+        psycopg2.extras.execute_values(
+            lcur2,
+            f"INSERT INTO {table} ({col_sql}) VALUES %s ON CONFLICT ({pk_sql}) DO NOTHING",
+            missing_rows,
+            page_size=500,
+        )
+        local.commit()
+        logger.info(f"  {table}: {len(missing_rows):,}건 신규 INSERT")
+        return len(missing_rows)
+
+    elif mode == "upsert":
+        # Railway 전체를 로컬로 UPSERT (PK 충돌 시 UPDATE)
+        rcur = railway.cursor()
+        rcur.execute(f"SELECT {col_sql} FROM {table}")
+        rows = rcur.fetchall()
+        if not rows:
+            logger.info(f"  {table}: Railway 데이터 없음")
+            return 0
+
+        update_cols = [c for c in all_cols if c not in pk_cols]
+        update_sql = ", ".join([f"{c} = EXCLUDED.{c}" for c in update_cols])
+        lcur = local.cursor()
+        psycopg2.extras.execute_values(
+            lcur,
+            f"""INSERT INTO {table} ({col_sql}) VALUES %s
+                ON CONFLICT ({pk_sql}) DO UPDATE SET {update_sql}""",
+            rows,
+            page_size=500,
+        )
+        local.commit()
+        logger.info(f"  {table}: {len(rows):,}건 UPSERT")
+        return len(rows)
+
+    else:
+        logger.warning(f"  {table}: 알 수 없는 모드 '{mode}' — 스킵")
+        return 0
+
+
+def sync_apt_tables(local, railway, logger):
+    """아파트 관련 5개 테이블 동기화."""
+    logger.info("아파트 관련 테이블 동기화 시작")
+    total = 0
+    for cfg in APT_SYNC_TABLES:
+        try:
+            total += _sync_apt_table(local, railway, cfg, logger)
+        except Exception as e:
+            local.rollback()
+            logger.error(f"  {cfg['name']} 동기화 실패: {e}")
+    logger.info(f"아파트 관련 테이블 동기화 완료: {total:,}건")
+    return total
+
 
 def _get_last_sync(local_conn):
     """로컬 DB에서 마지막 동기화 시각 조회."""
@@ -105,21 +232,30 @@ def incremental_sync(logger):
     # 동기화 시각 갱신
     _save_last_sync(local, max_created)
 
+    # 아파트 관련 테이블 동기화 (PK 기반)
+    apt_total = sync_apt_tables(local, railway, logger)
+
     # 검증
     logger.info("정합성 검증:")
-    for table in ["trade_history", "rent_history"]:
+    verify_tables = ["trade_history", "rent_history"] + [c["name"] for c in APT_SYNC_TABLES]
+    for table in verify_tables:
         lcur = local.cursor()
         rcur = railway.cursor()
         lcur.execute(f"SELECT COUNT(*) FROM {table}")
         l = lcur.fetchone()[0]
         rcur.execute(f"SELECT COUNT(*) FROM {table}")
         r = rcur.fetchone()[0]
-        ok = "OK" if l == r else f"차이 {r - l:+,}"
-        logger.info(f"  {table}: 로컬 {l:,} / Railway {r:,} [{ok}]")
+        if l == r:
+            status = "OK"
+        elif l > r:
+            status = f"로컬 추가 +{l - r:,}"
+        else:
+            status = f"부족 {r - l:+,}"
+        logger.info(f"  {table:28s} 로컬 {l:>10,} / Railway {r:>10,} [{status}]")
 
     local.close()
     railway.close()
-    logger.info(f"증분 동기화 완료: {total:,}건")
+    logger.info(f"증분 동기화 완료: trade/rent {total:,}건 + apt {apt_total:,}건")
 
 
 def full_sync(logger):
