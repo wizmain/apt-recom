@@ -21,9 +21,15 @@ from batch.config import KAKAO_API_KEY, DATA_GO_KR_API_KEY, KAKAO_RATE, DATA_GO_
 from batch.db import get_connection, get_dict_cursor
 from batch.fill_addresses import _address_to_bld_params
 from batch.logger import setup_logger
+from batch.trade.enrich_apartments import _name_similarity_ratio, _NAME_SIM_THRESHOLD
 
 BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 CHECKPOINT_GROUP = "batch_checkpoint"
+
+# Phase 2 검증 상수
+KEYWORD_DIST_MAX_M = 2000  # 이름 일치 후보라도 이 거리 넘으면 오매칭 판정
+KEYWORD_DIST_MIN_M = 100   # 이 거리 이하면 업데이트 불필요
+ADDR_DIST_MIN_M = 100      # address API 결과도 동일
 
 
 # ── 체크포인트 ──
@@ -225,8 +231,170 @@ def _distance_m(lat1, lng1, lat2, lng2) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _load_sigungu_name_index(cur) -> dict[tuple[str, str], str]:
+    """(시도, 시군구명) → sgg_code 매핑. Kakao address_name 파싱 결과와 매칭용."""
+    cur.execute("SELECT code, name, extra FROM common_code WHERE group_id='sigungu'")
+    idx: dict[tuple[str, str], str] = {}
+    for r in cur.fetchall():
+        sido = (r["extra"] or "").strip()
+        sgg = (r["name"] or "").strip()
+        if not sido or not sgg:
+            continue
+        # 시도 다양한 표기 흡수 (예: "대구" ↔ "대구광역시")
+        for sido_variant in {sido, _sido_full_name(sido)}:
+            idx[(sido_variant, sgg)] = r["code"]
+    return idx
+
+
+def _sido_full_name(short: str) -> str:
+    """짧은 시도명 → 전체명. 예: '대구' → '대구광역시'."""
+    _MAP = {
+        "서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시", "인천": "인천광역시",
+        "광주": "광주광역시", "대전": "대전광역시", "울산": "울산광역시", "세종": "세종특별자치시",
+        "경기": "경기도", "강원": "강원특별자치도", "충북": "충청북도", "충남": "충청남도",
+        "전북": "전북특별자치도", "전남": "전라남도", "경북": "경상북도", "경남": "경상남도",
+        "제주": "제주특별자치도",
+    }
+    return _MAP.get(short, short)
+
+
+def _parse_sgg_from_address(address_name: str, sgg_name_to_code: dict) -> str | None:
+    """Kakao address_name → sgg_code.
+    예: '대구 달서구 본리동 1224' → '27290'
+        '서울특별시 강남구 역삼동 123' → '11680'
+    """
+    if not address_name:
+        return None
+    parts = address_name.split()
+    if len(parts) < 2:
+        return None
+    sido = parts[0]
+    sgg = parts[1]
+    # 3depth 이상일 때 일부 도의 "OO시 OO구" 케이스: "경기 수원시 영통구" → sgg="수원시 영통구" 형태로 결합
+    if len(parts) >= 3 and (parts[1].endswith("시") and parts[2].endswith("구")):
+        # 수원시/성남시/안양시/안산시/고양시/용인시/청주시/천안시/전주시/포항시/창원시 등
+        combined = f"{parts[1]} {parts[2]}"
+        code = sgg_name_to_code.get((sido, combined))
+        if code:
+            return code
+    return sgg_name_to_code.get((sido, sgg))
+
+
+def _kakao_address_search(addr: str, headers: dict, logger) -> dict | None:
+    """Address API — 정확한 주소 매칭으로 좌표만 획득 (이름 변경 없음)."""
+    if not addr:
+        return None
+    try:
+        r = requests.get(
+            "https://dapi.kakao.com/v2/local/search/address.json",
+            headers=headers, params={"query": addr}, timeout=5,
+        )
+        r.raise_for_status()
+        time.sleep(KAKAO_RATE)
+        docs = r.json().get("documents", [])
+    except Exception as e:
+        logger.debug(f"address API 실패: {addr} ({e})")
+        return None
+
+    if not docs:
+        return None
+    doc = docs[0]
+    try:
+        return {
+            "lat": float(doc["y"]),
+            "lng": float(doc["x"]),
+            "address_name": doc.get("address_name"),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _kakao_keyword_validated(
+    addr: str,
+    apt: dict,
+    sgg_name_to_code: dict,
+    headers: dict,
+    logger,
+) -> dict | None:
+    """Keyword API + 엄격 검증.
+
+    검증:
+      (1) category_name에 "아파트"
+      (2) 시군구 일치 (Kakao address_name 파싱)
+      (3) 이름 유사도 ≥ _NAME_SIM_THRESHOLD (0.4)
+      (4) 기존 좌표와의 거리 ≤ KEYWORD_DIST_MAX_M (2km)
+      (5) 검증 통과 후보가 정확히 1개 (애매하면 거부)
+
+    통과시 {name, lat, lng, sim}, 실패시 None.
+    """
+    apt_nm = (apt.get("bld_nm") or "").strip()
+    if not apt_nm:
+        return None
+
+    query = f"{addr} {apt_nm}".strip()
+    try:
+        r = requests.get(
+            "https://dapi.kakao.com/v2/local/search/keyword.json",
+            headers=headers, params={"query": query, "size": 5}, timeout=5,
+        )
+        r.raise_for_status()
+        time.sleep(KAKAO_RATE)
+        docs = r.json().get("documents", [])
+    except Exception as e:
+        logger.debug(f"keyword API 실패: {query} ({e})")
+        return None
+
+    apt_sgg = (apt.get("sigungu_code") or "")[:5]
+
+    accepted = []
+    for d in docs:
+        # (1) 카테고리
+        if "아파트" not in (d.get("category_name") or ""):
+            continue
+
+        # (2) 시군구 일치
+        kk_sgg = _parse_sgg_from_address(d.get("address_name") or "", sgg_name_to_code)
+        if not kk_sgg or (apt_sgg and kk_sgg != apt_sgg):
+            continue
+
+        # (3) 이름 유사도
+        kakao_name = re.sub(r"아파트$", "", (d.get("place_name") or "").strip()).strip()
+        if not kakao_name:
+            continue
+        sim = _name_similarity_ratio(kakao_name, apt_nm)
+        if sim < _NAME_SIM_THRESHOLD:
+            continue
+
+        # (4) 좌표
+        try:
+            kk_lat = float(d["y"])
+            kk_lng = float(d["x"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if apt.get("lat") and apt.get("lng"):
+            dist = _distance_m(apt["lat"], apt["lng"], kk_lat, kk_lng)
+            if dist > KEYWORD_DIST_MAX_M:
+                continue
+
+        accepted.append({"name": kakao_name, "lat": kk_lat, "lng": kk_lng, "sim": sim})
+
+    # (5) 단일 후보
+    if len(accepted) == 1:
+        return accepted[0]
+    return None
+
+
 def phase2_fix_name_coord(dry_run: bool = False):
-    """Kakao 키워드 검색으로 명칭+좌표 동시 보정."""
+    """Kakao API로 좌표/명칭 보정 — 엄격 검증.
+
+    전략:
+      1차) address API로 주소→좌표 (이름은 안 건드림) → coord_source='kakao_address'
+      2차) keyword API 결과를 이름·시군구·거리·단일성 4중 검증 후 수용
+           → coord_source='kakao_keyword_v2'
+
+    거부 사유별로 카운트해서 투명성 확보.
+    """
     logger = setup_logger("fix_name_coord")
     conn = get_connection()
     cur = get_dict_cursor(conn)
@@ -238,85 +406,79 @@ def phase2_fix_name_coord(dry_run: bool = False):
 
     headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
 
+    sgg_name_to_code = _load_sigungu_name_index(cur)
+    logger.info(f"시군구 매핑: {len(sgg_name_to_code)}건 로드")
+
     last_pnu = _load_checkpoint(cur, "fix_name_coord")
 
     cur.execute("""
-        SELECT pnu, bld_nm, new_plat_plc, lat, lng
+        SELECT pnu, bld_nm, plat_plc, new_plat_plc, sigungu_code, lat, lng
         FROM apartments
         WHERE group_pnu = pnu
-          AND new_plat_plc IS NOT NULL AND LENGTH(new_plat_plc) > 5
+          AND (
+            (new_plat_plc IS NOT NULL AND LENGTH(new_plat_plc) > 5)
+            OR (plat_plc IS NOT NULL AND LENGTH(plat_plc) > 5)
+          )
           AND pnu > %s
         ORDER BY pnu
     """, [last_pnu])
     targets = cur.fetchall()
-    logger.info(f"Phase 2+3 대상: {len(targets)}건")
+    logger.info(f"Phase 2 대상: {len(targets)}건")
 
     name_fixed = 0
-    coord_fixed = 0
-    skipped = 0
+    coord_fixed_addr = 0
+    coord_fixed_kw = 0
+    skipped_no_result = 0
 
     for i, apt in enumerate(targets):
         pnu = apt["pnu"]
-        addr = apt["new_plat_plc"]
+        addr = apt.get("new_plat_plc") or apt.get("plat_plc")
 
-        try:
-            resp = requests.get(
-                "https://dapi.kakao.com/v2/local/search/keyword.json",
-                headers=headers,
-                params={"query": f"{addr} 아파트", "size": 5},
-                timeout=5,
-            )
-            resp.raise_for_status()
-            docs = resp.json().get("documents", [])
-        except Exception:
-            skipped += 1
-            time.sleep(KAKAO_RATE)
-            continue
+        # 1차: address API
+        addr_result = _kakao_address_search(addr, headers, logger)
+        # 2차: keyword API + 검증
+        kw_result = _kakao_keyword_validated(addr, apt, sgg_name_to_code, headers, logger)
 
-        time.sleep(KAKAO_RATE)
-
-        # 아파트 카테고리 우선 선택
-        apt_docs = [d for d in docs if "아파트" in (d.get("category_name") or "")]
-        doc = apt_docs[0] if apt_docs else None
-
-        if not doc:
-            skipped += 1
+        if not addr_result and not kw_result:
+            skipped_no_result += 1
+            if (i + 1) % 1000 == 0:
+                logger.info(f"  진행: {i+1}/{len(targets)} (명칭={name_fixed}, 좌표addr={coord_fixed_addr}, 좌표kw={coord_fixed_kw}, 결과없음={skipped_no_result})")
             continue
 
         updates = []
         params = []
 
-        # 명칭 보정
-        kakao_name = (doc.get("place_name") or "").strip()
-        kakao_name = re.sub(r"아파트$", "", kakao_name).strip()
-        if kakao_name and kakao_name != apt["bld_nm"] and len(kakao_name) >= 2:
+        # 이름 업데이트: keyword 검증 통과한 경우만
+        if kw_result and kw_result["name"] != apt["bld_nm"]:
             updates.append("bld_nm = %s")
-            params.append(kakao_name)
+            params.append(kw_result["name"])
             name_fixed += 1
             if name_fixed <= 5 or name_fixed % 500 == 0:
-                logger.info(f"  명칭: {apt['bld_nm']} → {kakao_name}")
+                logger.info(f"  명칭: {apt['bld_nm']} → {kw_result['name']} (sim={kw_result['sim']:.2f})")
 
-        # 좌표 보정
-        kakao_lat = float(doc["y"]) if doc.get("y") else None
-        kakao_lng = float(doc["x"]) if doc.get("x") else None
+        # 좌표 업데이트: keyword 우선, 없으면 address
+        if kw_result:
+            new_lat, new_lng = kw_result["lat"], kw_result["lng"]
+            new_src = "kakao_keyword_v2"
+        else:
+            new_lat, new_lng = addr_result["lat"], addr_result["lng"]
+            new_src = "kakao_address"
 
-        if kakao_lat and kakao_lng:
-            if not apt["lat"] or not apt["lng"]:
-                updates.append("lat = %s")
-                params.append(kakao_lat)
-                updates.append("lng = %s")
-                params.append(kakao_lng)
-                coord_fixed += 1
+        need_coord_update = False
+        if not apt.get("lat") or not apt.get("lng"):
+            need_coord_update = True
+        else:
+            dist = _distance_m(apt["lat"], apt["lng"], new_lat, new_lng)
+            if dist > KEYWORD_DIST_MIN_M:
+                need_coord_update = True
+
+        if need_coord_update:
+            updates.extend(["lat = %s", "lng = %s", "coord_source = %s"])
+            params.extend([new_lat, new_lng, new_src])
+            if kw_result:
+                coord_fixed_kw += 1
             else:
-                dist = _distance_m(apt["lat"], apt["lng"], kakao_lat, kakao_lng)
-                if dist > 100:
-                    updates.append("lat = %s")
-                    params.append(kakao_lat)
-                    updates.append("lng = %s")
-                    params.append(kakao_lng)
-                    coord_fixed += 1
-                    if coord_fixed <= 5 or coord_fixed % 500 == 0:
-                        logger.info(f"  좌표: {apt['bld_nm']} | {dist:.0f}m 보정")
+                coord_fixed_addr += 1
 
         if updates and not dry_run:
             params.append(pnu)
@@ -326,13 +488,17 @@ def phase2_fix_name_coord(dry_run: bool = False):
             _save_checkpoint(cur, conn, "fix_name_coord", pnu)
 
         if (i + 1) % 1000 == 0:
-            logger.info(f"  진행: {i+1}/{len(targets)} (명칭={name_fixed}, 좌표={coord_fixed}, 스킵={skipped})")
+            logger.info(f"  진행: {i+1}/{len(targets)} (명칭={name_fixed}, 좌표addr={coord_fixed_addr}, 좌표kw={coord_fixed_kw}, 결과없음={skipped_no_result})")
 
     if not dry_run and targets:
         _save_checkpoint(cur, conn, "fix_name_coord", targets[-1]["pnu"])
         conn.commit()
 
-    logger.info(f"Phase 2+3 {'Dry-run' if dry_run else '완료'}: 명칭={name_fixed}, 좌표={coord_fixed}, 스킵={skipped}")
+    logger.info(
+        f"Phase 2 {'Dry-run' if dry_run else '완료'}: "
+        f"명칭={name_fixed}, 좌표(address)={coord_fixed_addr}, 좌표(keyword)={coord_fixed_kw}, "
+        f"결과없음={skipped_no_result}"
+    )
     conn.close()
 
 
