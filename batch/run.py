@@ -46,6 +46,24 @@ def run_trade(args, logger, result):
         enriched, new_pnus = enrich_new_apartments(conn, logger)
         result.record("신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0)
 
+        # 4.5. 대시보드 집계 갱신 — 별도 커넥션에서 수행하여 선행 단계와 격리.
+        #      선행 단계(load_trades/recalc_price/enrich)가 내부 commit 하지만 안전망으로 commit 재호출.
+        #      집계 갱신 실패는 배치 전체 critical 오탐을 피하기 위해 warning record로 분리.
+        conn.commit()
+        try:
+            from batch.trade.refresh_dashboard import refresh_dashboard_stats
+            t0 = time.time()
+            counts = refresh_dashboard_stats(logger)
+            result.record(
+                "대시보드 집계 갱신",
+                "success",
+                rows=sum(counts.values()),
+                duration=time.time() - t0,
+            )
+        except Exception as e:
+            logger.error(f"대시보드 집계 갱신 실패: {e}")
+            result.record("대시보드 집계 갱신", "warning", error=str(e))
+
         # 5. K-APT 보완은 enrich_new_apartments 내부 Phase 3에서 처리됨
 
         # 6. 시설 집계 + 안전점수 + 유사도 벡터 (모든 데이터 반영 후 계산)

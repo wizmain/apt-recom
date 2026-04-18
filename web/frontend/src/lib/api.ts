@@ -12,6 +12,7 @@ import { API_BASE } from '../config'
 import { getDeviceId } from './device'
 
 export const api = axios.create({ baseURL: API_BASE })
+export const isCancel = axios.isCancel
 
 api.interceptors.request.use((config) => {
   const id = getDeviceId()

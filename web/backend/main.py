@@ -30,7 +30,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from database import create_tables, ensure_logging_indexes, get_connection
+from database import create_tables, ensure_logging_indexes, ensure_dashboard_indexes, get_connection
 from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log
 
 app = FastAPI(title="Apartment Recommendation API")
@@ -49,6 +49,7 @@ def migrate_schema_on_startup() -> None:
         try:
             create_tables(conn)
             ensure_logging_indexes(conn)
+            ensure_dashboard_indexes(conn)
         finally:
             conn.close()
         print("[startup] schema migration 완료")
