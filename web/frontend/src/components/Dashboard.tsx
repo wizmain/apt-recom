@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { api } from '../lib/api';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { api, isCancel } from '../lib/api';
 import TradeHistoryPanel from './TradeHistoryPanel';
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from 'recharts';
+
+// Recharts를 포함한 차트 컴포넌트를 lazy 로드하여 초기 번들에서 분리.
+// 첫 paint는 summary + recent만으로 완료되고, 차트는 별도 chunk로 순차 도착.
+const VolumeTrendChart = lazy(() => import('./VolumeTrendChart'));
+const PriceJeonseCharts = lazy(() => import('./PriceJeonseCharts'));
+const RankingChart = lazy(() => import('./RankingChart'));
 
 interface Summary {
   current_month: string;
@@ -115,21 +118,31 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // 지역 검색
+  // 지역 검색 (debounce 200ms + AbortController로 stale 응답 덮어쓰기 방지)
   useEffect(() => {
     if (!regionQuery.trim()) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clear results on empty query
       setRegionResults([]);
       return;
     }
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const res = await api.get<RegionOption[]>(`/api/dashboard/regions`, { params: { q: regionQuery } });
+        const res = await api.get<RegionOption[]>(`/api/dashboard/regions`, {
+          params: { q: regionQuery },
+          signal: controller.signal,
+        });
         setRegionResults(res.data);
         setHighlightIndex(0);
-      } catch { /* ignore */ }
+      } catch (err) {
+        if (isCancel(err)) return;
+        // 그 외 에러는 무시 (일시적 네트워크 실패 시 사용자가 다시 입력하면 됨)
+      }
     }, 200);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [regionQuery]);
 
   const handleSelectRegion = useCallback((code: string, name: string) => {
@@ -179,12 +192,21 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
     setShowRegionDropdown(false);
   }, []);
 
+  const abortRef = useRef<AbortController | null>(null);
+
   const fetchData = useCallback(async () => {
+    // 이전 요청 전부 취소 — rankingType/recentType/sggFilter 연타 시 stale 응답이
+    // 최신 state를 덮어쓰는 것을 방지.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const signal = controller.signal;
+
     try {
       // 요약 카드 + 최근 거래를 먼저 로드 (가장 빠름)
       const [summaryRes, recentRes] = await Promise.all([
-        api.get<Summary>(`/api/dashboard/summary`, { params: { sigungu: sggFilter } }),
-        api.get<RecentTrade[]>(`/api/dashboard/recent`, { params: { type: recentType, limit: 20, sigungu: sggFilter } }),
+        api.get<Summary>(`/api/dashboard/summary`, { params: { sigungu: sggFilter }, signal }),
+        api.get<RecentTrade[]>(`/api/dashboard/recent`, { params: { type: recentType, limit: 20, sigungu: sggFilter }, signal }),
       ]);
       setSummary(summaryRes.data);
       setRecent(recentRes.data);
@@ -192,24 +214,36 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
 
       // 차트 + 랭킹은 백그라운드 로드 (이전 데이터 유지하며 업데이트)
       const [trendRes, rankingRes] = await Promise.all([
-        api.get<TrendItem[]>(`/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter } }),
-        api.get<RankingItem[]>(`/api/dashboard/ranking`, { params: { type: rankingType } }),
+        api.get<TrendItem[]>(`/api/dashboard/trend`, { params: { months: 12, sigungu: sggFilter }, signal }),
+        api.get<RankingItem[]>(`/api/dashboard/ranking`, { params: { type: rankingType }, signal }),
       ]);
       setTrend(trendRes.data);
       setRanking(rankingRes.data);
     } catch (err) {
+      if (isCancel(err)) return;
       console.error('대시보드 데이터 로드 실패:', err);
       setLoading(false);
     }
   }, [sggFilter, rankingType, recentType]);
 
+  // 최신 fetchData를 ref로 보관 — interval은 마운트 1회만 설치해 버그 방지.
+  const fetchRef = useRef(fetchData);
+  useEffect(() => {
+    fetchRef.current = fetchData;
+  }, [fetchData]);
+
+  // 필터/타입 변경 시 로딩 + fetch (첫 로드 포함).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loading reset on filter change
     setLoading(true);
-    fetchData();
-    const timer = setInterval(fetchData, REFRESH_INTERVAL);
+    fetchRef.current();
+  }, [sggFilter, rankingType, recentType]);
+
+  // 주기적 새로고침 — deps 빈 배열로 한 번만 설치, ref 통해 최신 fetcher 호출.
+  useEffect(() => {
+    const timer = setInterval(() => fetchRef.current(), REFRESH_INTERVAL);
     return () => clearInterval(timer);
-  }, [fetchData]);
+  }, []);
 
   if (loading && !summary) {
     return (
@@ -344,9 +378,9 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {recent.map((r, i) => (
+                {recent.map((r) => (
                   <tr
-                    key={i}
+                    key={`${r.sgg_cd}-${r.date}-${r.apt_nm}-${r.area ?? ''}-${r.floor ?? ''}`}
                     className="hover:bg-blue-50 cursor-pointer transition-colors"
                     onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd, area: r.area, pnu: r.pnu })}
                   >
@@ -385,97 +419,32 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
         />
       )}
 
-      {/* Volume trend */}
+      {/* Volume trend (lazy — recharts 초기 번들 제외) */}
       {trend.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">월별 거래량 추이</h2>
-          <div className="h-56 sm:h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={50} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="trade_volume" name="매매" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="rent_volume" name="전월세" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <Suspense fallback={<div className="h-56 sm:h-72 bg-gray-50 rounded-xl animate-pulse" />}>
+          <VolumeTrendChart data={trend} />
+        </Suspense>
       )}
 
-      {/* Price + Jeonse ratio */}
+      {/* Price + Jeonse ratio (lazy) */}
       {trend.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">평균 매매가 추이</h2>
-            <div className="h-48 sm:h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={50} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- recharts Formatter */}
-                  <Tooltip formatter={(val: any) => [`${formatPrice(Number(val))}`, '평균가']} />
-                  <Line type="monotone" dataKey="trade_avg_price" name="매매 평균가" stroke="#2563eb" strokeWidth={2} dot={{ r: 2 }} />
-                </LineChart>
-              </ResponsiveContainer>
+        <Suspense
+          fallback={
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="h-48 sm:h-64 bg-gray-50 rounded-xl animate-pulse" />
+              <div className="h-48 sm:h-64 bg-gray-50 rounded-xl animate-pulse" />
             </div>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">전세가율 추이</h2>
-            <div className="h-48 sm:h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={50} />
-                  <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} />
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- recharts Formatter */}
-                  <Tooltip formatter={(val: any) => [`${val}%`, '전세가율']} />
-                  <Line type="monotone" dataKey="jeonse_ratio" name="전세가율" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
+          }
+        >
+          <PriceJeonseCharts data={trend} />
+        </Suspense>
       )}
 
-      {/* Ranking */}
+      {/* Ranking (lazy) */}
       {ranking.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-700">시군구별 거래량 Top 10</h2>
-            <div className="flex bg-gray-100 rounded-full p-0.5">
-              <button
-                onClick={() => setRankingType('trade')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors
-                  ${rankingType === 'trade' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-              >
-                매매
-              </button>
-              <button
-                onClick={() => setRankingType('rent')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors
-                  ${rankingType === 'rent' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-              >
-                전월세
-              </button>
-            </div>
-          </div>
-          <div className="h-64 sm:h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={ranking} layout="vertical" margin={{ left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="sigungu_name" tick={{ fontSize: 11 }} width={80} />
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- recharts Formatter */}
-                <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()}건`, '거래량']} />
-                <Bar dataKey="volume" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <Suspense fallback={<div className="h-64 sm:h-80 bg-gray-50 rounded-xl animate-pulse" />}>
+          <RankingChart data={ranking} type={rankingType} onTypeChange={setRankingType} />
+        </Suspense>
       )}
     </div>
   );

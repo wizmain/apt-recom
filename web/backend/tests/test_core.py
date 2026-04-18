@@ -735,6 +735,172 @@ if __name__ == "__main__":
         metro_score = facility_score(500, 5, "mart", profile="metro")
         assert default_score == metro_score, f"default({default_score}) != metro({metro_score})"
 
+    # ---------- 대시보드 성능: 집계 테이블 + 엔드포인트 ----------
+
+    @test("대시보드: 집계 테이블 3종이 비어있지 않음")
+    def test_dashboard_aggregate_tables_populated():
+        from database import DictConnection
+        conn = DictConnection()
+        for table in ["dashboard_monthly_stats", "dashboard_window_stats", "dashboard_ranking_stats"]:
+            row = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+            assert row["n"] > 0, f"{table} 비어있음 — 배치 실행 필요"
+        conn.close()
+
+    @test("대시보드: dashboard_monthly_stats(ALL 최근월)의 trade_volume이 raw COUNT와 일치")
+    def test_dashboard_monthly_matches_raw():
+        from database import DictConnection
+        conn = DictConnection()
+        agg = conn.execute("""
+            SELECT deal_year, deal_month, trade_volume
+            FROM dashboard_monthly_stats
+            WHERE scope = 'ALL'
+            ORDER BY deal_year DESC, deal_month DESC
+            LIMIT 1
+        """).fetchone()
+        assert agg is not None, "monthly 집계 없음"
+        raw = conn.execute(
+            "SELECT COUNT(*) AS n FROM trade_history WHERE deal_year = %s AND deal_month = %s",
+            [agg["deal_year"], agg["deal_month"]],
+        ).fetchone()
+        assert agg["trade_volume"] == raw["n"], (
+            f"agg={agg['trade_volume']} vs raw={raw['n']} for "
+            f"{agg['deal_year']}-{agg['deal_month']:02d}"
+        )
+        conn.close()
+
+    @test("대시보드 /summary: API 응답 volume이 window_stats 값과 일치")
+    def test_dashboard_summary_matches_window():
+        from routers.dashboard import dashboard_summary
+        from database import DictConnection
+        conn = DictConnection()
+        agg = conn.execute(
+            "SELECT trade_volume, rent_volume FROM dashboard_window_stats "
+            "WHERE scope = 'ALL' AND window_kind = 'current'"
+        ).fetchone()
+        conn.close()
+        assert agg is not None, "window_stats 없음"
+        api = dashboard_summary(sigungu="")
+        assert api["trade"]["volume"] == agg["trade_volume"], (
+            f"summary.trade.volume={api['trade']['volume']} != "
+            f"window.trade_volume={agg['trade_volume']}"
+        )
+        assert api["rent"]["volume"] == agg["rent_volume"], (
+            f"summary.rent.volume={api['rent']['volume']} != "
+            f"window.rent_volume={agg['rent_volume']}"
+        )
+        # 응답 스키마 유지 확인
+        for k in ["current_period", "prev_period", "trade", "rent", "last_updated", "new_today", "data_lag_notice"]:
+            assert k in api, f"응답에 {k} 없음"
+
+    @test("대시보드 /trend: months 이내 결과 + 필수 키 포함")
+    def test_dashboard_trend_structure():
+        from routers.dashboard import dashboard_trend
+        result = dashboard_trend(months=12, sigungu="")
+        assert isinstance(result, list), "배열 아님"
+        assert len(result) <= 12, f"len={len(result)} > 12"
+        if result:
+            for k in ["month", "trade_volume", "trade_avg_price", "trade_avg_price_m2",
+                      "rent_volume", "rent_avg_deposit", "jeonse_ratio"]:
+                assert k in result[0], f"응답에 {k} 없음"
+
+    @test("대시보드 /ranking: Top 10 이하 + volume 단조 감소 + 필수 키")
+    def test_dashboard_ranking_structure():
+        from routers.dashboard import dashboard_ranking
+        trade = dashboard_ranking(type="trade")
+        assert isinstance(trade, list)
+        assert len(trade) <= 10, f"len={len(trade)} > 10"
+        for i in range(len(trade) - 1):
+            assert trade[i]["volume"] >= trade[i + 1]["volume"], (
+                f"volume 단조 감소 위반: {trade[i]['volume']} < {trade[i + 1]['volume']}"
+            )
+        if trade:
+            for k in ["sigungu_code", "sigungu_name", "volume", "avg_price"]:
+                assert k in trade[0], f"trade ranking에 {k} 없음"
+        rent = dashboard_ranking(type="rent")
+        if rent:
+            assert "avg_deposit" in rent[0], "rent ranking에 avg_deposit 없음"
+
+    @test("대시보드 /recent: limit 이하 + 날짜 단조 감소")
+    def test_dashboard_recent_ordering():
+        from routers.dashboard import dashboard_recent
+        rows = dashboard_recent(type="trade", limit=20, sigungu="")
+        assert isinstance(rows, list)
+        assert len(rows) <= 20, f"len={len(rows)} > 20"
+        # date 문자열 'YYYY.MM.DD' 형식 → 단조 감소
+        for i in range(len(rows) - 1):
+            assert rows[i]["date"] >= rows[i + 1]["date"], (
+                f"date 단조 감소 위반: {rows[i]['date']} < {rows[i + 1]['date']}"
+            )
+
+    @test("대시보드 시군구 필터: /summary?sigungu=X의 volume이 window_stats(scope=X)와 일치")
+    def test_dashboard_sigungu_filter():
+        from routers.dashboard import dashboard_summary
+        from database import DictConnection
+        conn = DictConnection()
+        # window_stats에서 scope가 실제 존재하는 시군구 하나 선택
+        row = conn.execute("""
+            SELECT scope, trade_volume FROM dashboard_window_stats
+            WHERE window_kind = 'current' AND scope <> 'ALL' AND trade_volume > 0
+            ORDER BY trade_volume DESC LIMIT 1
+        """).fetchone()
+        conn.close()
+        if not row:
+            return  # 시군구별 데이터 없으면 skip (신규 배치 전)
+        api = dashboard_summary(sigungu=row["scope"])
+        assert api["trade"]["volume"] == row["trade_volume"], (
+            f"sigungu={row['scope']} agg={row['trade_volume']} vs api={api['trade']['volume']}"
+        )
+
+    @test("대시보드 Fallback: 집계 테이블 비어도 HTTP 200 + 응답 구조 유지")
+    def test_dashboard_fallback_when_empty():
+        """집계 테이블이 배치 전 빈 상태일 때 raw 쿼리 fallback이 동작하는지 확인.
+
+        가장 위험한 배포 상태(배치 최초 실행 전)가 미검증으로 남는 걸 방지.
+        """
+        from routers.dashboard import dashboard_summary, dashboard_trend, dashboard_ranking
+        from database import DictConnection
+
+        # 백업 → TRUNCATE → 테스트 → 복원
+        conn = DictConnection()
+        tables = ["dashboard_monthly_stats", "dashboard_window_stats", "dashboard_ranking_stats"]
+        backup = {}
+        for t in tables:
+            backup[t] = conn.execute(f"SELECT * FROM {t}").fetchall()
+            conn.execute(f"DELETE FROM {t}")
+
+        try:
+            summary = dashboard_summary(sigungu="")
+            assert summary is not None, "summary fallback 실패"
+            for k in ["trade", "rent", "current_period", "prev_period"]:
+                assert k in summary, f"summary fallback 응답에 {k} 없음"
+
+            trend = dashboard_trend(months=12, sigungu="")
+            assert isinstance(trend, list), "trend fallback 배열 아님"
+            if trend:
+                for k in ["month", "trade_volume", "rent_volume", "jeonse_ratio"]:
+                    assert k in trend[0], f"trend fallback에 {k} 없음"
+
+            ranking = dashboard_ranking(type="trade")
+            assert isinstance(ranking, list)
+            assert len(ranking) <= 10
+            if ranking:
+                for k in ["sigungu_code", "sigungu_name", "volume", "avg_price"]:
+                    assert k in ranking[0], f"ranking fallback에 {k} 없음"
+        finally:
+            # 복원 — 집계 테이블을 원상태로 되돌림
+            from psycopg2.extras import execute_values
+            raw_conn = conn._conn  # DictConnection 내부 커넥션
+            cur = raw_conn.cursor()
+            for t, rows in backup.items():
+                if not rows:
+                    continue
+                cols = list(rows[0].keys())
+                placeholders = "(" + ", ".join(["%s"] * len(cols)) + ")"
+                sql = f"INSERT INTO {t} ({', '.join(cols)}) VALUES %s"
+                execute_values(cur, sql, [tuple(r[c] for c in cols) for r in rows], template=placeholders)
+            raw_conn.commit()
+            conn.close()
+
     # 모든 테스트 수집
     tests = [v for v in globals().values() if callable(v) and hasattr(v, '_test_name')]
 

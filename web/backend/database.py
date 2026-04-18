@@ -394,6 +394,52 @@ def create_tables(conn) -> None:
             terminated_early BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMPTZ DEFAULT NOW()
         );
+
+        -- 대시보드 월별 집계 (trend 엔드포인트 전용)
+        -- scope: 'ALL' 또는 sgg_cd 5자리. 최근 60개월 보관.
+        CREATE TABLE IF NOT EXISTS dashboard_monthly_stats (
+            scope TEXT NOT NULL,
+            deal_year INTEGER NOT NULL,
+            deal_month INTEGER NOT NULL,
+            trade_volume INTEGER NOT NULL DEFAULT 0,
+            trade_avg_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+            trade_avg_price_m2 DOUBLE PRECISION NOT NULL DEFAULT 0,
+            trade_median_price_m2 DOUBLE PRECISION NOT NULL DEFAULT 0,
+            rent_volume INTEGER NOT NULL DEFAULT 0,
+            rent_avg_deposit DOUBLE PRECISION NOT NULL DEFAULT 0,
+            rent_median_deposit_m2 DOUBLE PRECISION NOT NULL DEFAULT 0,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (scope, deal_year, deal_month)
+        );
+
+        -- 대시보드 30일 슬라이딩 윈도우 집계 (summary 엔드포인트 전용)
+        -- 배치 실행 시점 기준 30~60일 전 윈도우(current)와 전년 동기(prev_year)를 저장.
+        -- 매일 배치가 돌면 period_start/period_end가 하루씩 이동한다.
+        CREATE TABLE IF NOT EXISTS dashboard_window_stats (
+            scope TEXT NOT NULL,
+            window_kind TEXT NOT NULL,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            trade_volume INTEGER NOT NULL DEFAULT 0,
+            trade_median_price_m2 DOUBLE PRECISION NOT NULL DEFAULT 0,
+            rent_volume INTEGER NOT NULL DEFAULT 0,
+            rent_median_deposit_m2 DOUBLE PRECISION NOT NULL DEFAULT 0,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (scope, window_kind)
+        );
+
+        -- 대시보드 최근 3개월 시군구 랭킹 (ranking 엔드포인트 전용)
+        -- API는 현재월만 반환. 3개월 보관은 월 경계 배치 타이밍 대비.
+        CREATE TABLE IF NOT EXISTS dashboard_ranking_stats (
+            type TEXT NOT NULL,
+            deal_year INTEGER NOT NULL,
+            deal_month INTEGER NOT NULL,
+            sgg_cd TEXT NOT NULL,
+            volume INTEGER NOT NULL,
+            avg_value DOUBLE PRECISION NOT NULL DEFAULT 0,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (type, deal_year, deal_month, sgg_cd)
+        );
     """)
     conn.commit()
     print("Tables created.")
@@ -413,6 +459,22 @@ def ensure_logging_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_user_event_payload_gin ON user_event USING gin(payload jsonb_path_ops)",
         "CREATE INDEX IF NOT EXISTS idx_chat_log_device_created ON chat_log(device_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_chat_log_created_brin ON chat_log USING brin(created_at)",
+    ]
+    for sql in indexes:
+        cur.execute(sql)
+    conn.commit()
+
+
+def ensure_dashboard_indexes(conn) -> None:
+    """대시보드 집계 테이블 보조 인덱스를 보장.
+
+    startup 에서 호출되어 dashboard_* 집계 테이블의 보조 인덱스가 항상
+    존재하도록 한다. 행 수가 작아(수천) 부담 없음. IF NOT EXISTS 로 멱등.
+    원천 테이블(trade/rent_history) 인덱스는 create_indexes() 쪽에서 관리.
+    """
+    cur = conn.cursor()
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_dash_ranking_lookup ON dashboard_ranking_stats(type, deal_year DESC, deal_month DESC, volume DESC)",
     ]
     for sql in indexes:
         cur.execute(sql)
@@ -443,6 +505,10 @@ def create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_trade_apt_sgg ON trade_history(apt_nm, sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_rent_apt_sgg ON rent_history(apt_nm, sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_trade_created ON trade_history(created_at)",
+        # 대시보드 /recent 시군구 필터 + 최신순 LIMIT 20 전용
+        # (Phase 0 EXPLAIN: idx_trade_ymd backward scan + sgg_cd Filter → 8145 rows filter로 제거됨, 9.7ms)
+        "CREATE INDEX IF NOT EXISTS idx_trade_sgg_recent ON trade_history(sgg_cd, deal_year DESC, deal_month DESC, deal_day DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_rent_sgg_recent ON rent_history(sgg_cd, deal_year DESC, deal_month DESC, deal_day DESC)",
         # 사용자 행동 로그 — device별 조회 + 이벤트별 집계 + 90일 퍼지(BRIN) + JSONB 분석(GIN)
         "CREATE INDEX IF NOT EXISTS idx_user_event_device_created ON user_event(device_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_user_event_type_created ON user_event(event_type, created_at DESC)",
