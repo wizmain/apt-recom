@@ -1,6 +1,6 @@
 """Nudge scoring API."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 from pydantic import BaseModel
 from database import DictConnection
 from services.activity_log import log_event
@@ -41,9 +41,13 @@ class NudgeScoreRequest(BaseModel):
 
 
 @router.post("/nudge/score")
-def nudge_score(req: NudgeScoreRequest, request: Request):
-    """Calculate nudge scores for apartments and return top_n."""
-    log_event(
+def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: BackgroundTasks):
+    """Calculate nudge scores for apartments and return top_n.
+
+    log_event 는 BackgroundTasks 로 비동기 기록.
+    """
+    background_tasks.add_task(
+        log_event,
         request.headers.get("x-device-id"),
         "nudge_score",
         None,
