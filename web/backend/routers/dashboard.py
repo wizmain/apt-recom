@@ -7,18 +7,21 @@ from datetime import datetime
 router = APIRouter()
 
 
-def _get_sgg_names(conn=None):
-    """common_code 테이블에서 시군구 코드→이름 매핑 조회."""
-    close = False
-    if conn is None:
-        conn = DictConnection()
-        close = True
+def _get_sgg_names(conn):
+    """common_code 테이블에서 시군구 코드→이름 매핑 조회.
+
+    호출자가 반드시 conn 을 전달해야 한다. pool 기반으로 전환된 뒤에는
+    dead branch(함수 내부에서 DictConnection 생성) 제거 — 잉여 conn 획득 방지.
+    """
     rows = conn.execute(
         "SELECT code, name, extra FROM common_code WHERE group_id = %s", ["sigungu"]
     ).fetchall()
-    if close:
-        conn.close()
-    return {r["code"]: f"{r['name']}({r['extra']})" if r["extra"] and r["extra"] != r["name"] else r["name"] for r in rows}
+    return {
+        r["code"]: f"{r['name']}({r['extra']})"
+        if r["extra"] and r["extra"] != r["name"]
+        else r["name"]
+        for r in rows
+    }
 
 
 @router.get("/dashboard/regions")

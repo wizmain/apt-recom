@@ -30,6 +30,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from database import (
@@ -80,6 +81,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 응답 압축 — 1KB 이상 JSON 을 대상으로 gzip 적용. detail 50KB 응답에서 특히 효과.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(apartments.router, prefix="/api")
 app.include_router(nudge.router, prefix="/api")
