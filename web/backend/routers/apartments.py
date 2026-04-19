@@ -1,6 +1,6 @@
 """Apartment listing API with filtering."""
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Query, Request
 from database import DictConnection
 from services.activity_log import log_event
 
@@ -114,16 +114,23 @@ def list_apartments(
 
 
 @router.get("/apartments/search")
-def search_apartments(request: Request, q: str = Query(..., min_length=1)):
+def search_apartments(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    q: str = Query(..., min_length=1),
+):
     """검색어를 분석하여 지역/단지명을 자동 분류 후 아파트 검색.
 
     반환: {"results": [...], "region_candidates": [...]?}
     - results: 개별 아파트 목록 (최대 100건)
     - region_candidates: 동일 명칭의 지역이 2곳 이상 매칭된 경우 후보 목록 (선택적)
+
+    log_event 는 BackgroundTasks 로 비동기 기록.
     """
     from services.search_engine import search
 
-    log_event(
+    background_tasks.add_task(
+        log_event,
         request.headers.get("x-device-id"),
         "search",
         "keyword",

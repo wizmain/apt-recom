@@ -1,6 +1,6 @@
 """Apartment detail + trade history API."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from database import DictConnection
 from services.activity_log import log_event
 from services.scoring import (
@@ -14,9 +14,14 @@ router = APIRouter()
 
 
 @router.get("/apartment/{pnu}")
-def apartment_detail(pnu: str, request: Request):
-    """Return full detail for one apartment: basic info, scores, facilities, school."""
-    log_event(
+def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTasks):
+    """Return full detail for one apartment: basic info, scores, facilities, school.
+
+    log_event 는 BackgroundTasks 로 실행되어 응답 반환 후 비동기 기록.
+    응답 경로에서 INSERT 블로킹 제거.
+    """
+    background_tasks.add_task(
+        log_event,
         request.headers.get("x-device-id"),
         "detail_view",
         None,
