@@ -26,24 +26,33 @@ if _SENTRY_DSN:
     )
     print(f"[sentry] initialized (env={os.getenv('SENTRY_ENVIRONMENT', 'production')})")
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from database import create_tables, ensure_logging_indexes, ensure_dashboard_indexes, get_connection
+from database import (
+    create_tables,
+    ensure_logging_indexes,
+    ensure_dashboard_indexes,
+    get_connection,
+    init_pool,
+    close_pool,
+)
 from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log
 
-app = FastAPI(title="Apartment Recommendation API")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 수명 관리.
 
-@app.on_event("startup")
-def migrate_schema_on_startup() -> None:
-    """서버 기동 시 스키마 멱등 마이그레이션.
-
-    CREATE TABLE IF NOT EXISTS + ALTER TABLE ... ADD COLUMN IF NOT EXISTS 구성이라
-    기존 테이블/컬럼이 있으면 NO-OP. 누락된 신규 컬럼이 있으면 자동 추가.
-    Railway 재배포 후 첫 API 호출 전에 DB 스키마가 최신 코드와 어긋나는 문제를 예방.
+    - startup: connection pool 초기화 → 스키마 멱등 마이그레이션
+      (CREATE TABLE IF NOT EXISTS + ALTER TABLE ... ADD COLUMN IF NOT EXISTS)
+      Railway 재배포 후 첫 요청 전에 스키마를 최신 코드와 맞춤.
+    - shutdown: pool 해제.
     """
+    init_pool()
     try:
         conn = get_connection()
         try:
@@ -51,11 +60,18 @@ def migrate_schema_on_startup() -> None:
             ensure_logging_indexes(conn)
             ensure_dashboard_indexes(conn)
         finally:
-            conn.close()
+            conn.close()  # pool 반납
         print("[startup] schema migration 완료")
     except Exception as e:
         # 마이그레이션 실패해도 서버 기동은 계속 (운영 중단 방지)
         print(f"[startup] schema migration 실패: {e}")
+    try:
+        yield
+    finally:
+        close_pool()
+
+
+app = FastAPI(title="Apartment Recommendation API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
