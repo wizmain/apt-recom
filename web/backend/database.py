@@ -1,10 +1,20 @@
-"""PostgreSQL connection utility with table/index creation for apartment recommendation app."""
+"""PostgreSQL connection utility with table/index creation for apartment recommendation app.
+
+Connection pool 정책
+- 서버(FastAPI) 기동 시 `init_pool()` 로 `ThreadedConnectionPool` 을 1회 초기화.
+- 종료 시 `close_pool()` 로 모두 정리.
+- `DictConnection()` / `get_connection()` 은 pool 에서 raw conn 을 빌려오고 `close()` 시 반납.
+- 배치·CLI(build_db 등 lifespan 미동작 경로)는 `get_connection(use_pool=False)` 로 pool 우회.
+- raw psycopg2 conn 의 close 를 monkey-patch 하지 않고 `PooledConnection` wrapper 로 감싼다.
+"""
 
 import os
+import threading
 from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool as psycopg2_pool
 from dotenv import load_dotenv
 
 # Load .env from project root
@@ -16,15 +26,126 @@ DATABASE_URL = os.getenv(
     f"postgresql://{os.getenv('USER', 'postgres')}@localhost:5432/apt_recom",
 )
 
+_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
+_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
+_pool: psycopg2_pool.ThreadedConnectionPool | None = None
+_pool_lock = threading.Lock()
 
-def get_connection(db_path=None):
-    """Create and return a PostgreSQL connection.
 
-    db_path is accepted but ignored (kept for backward compatibility).
+def init_pool() -> None:
+    """프로세스 당 1회 pool 초기화 (lifespan startup). 멱등."""
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = psycopg2_pool.ThreadedConnectionPool(
+                _POOL_MIN, _POOL_MAX, dsn=DATABASE_URL
+            )
+            print(f"[db] pool initialized (min={_POOL_MIN}, max={_POOL_MAX})")
+
+
+def close_pool() -> None:
+    """프로세스 종료 시 pool 전체 해제 (lifespan shutdown)."""
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            _pool.closeall()
+            _pool = None
+            print("[db] pool closed")
+
+
+def _pool_acquire(autocommit: bool):
+    """pool 에서 raw conn 을 빌려오고 autocommit 모드 세팅.
+
+    pool 이 없으면 lazy init (개발 환경에서 lifespan 없이 DictConnection 쓰는 경우 대비).
     """
-    conn = psycopg2.connect(DATABASE_URL)
-    conn.autocommit = False
-    return conn
+    if _pool is None:
+        init_pool()
+    assert _pool is not None  # init_pool 이후에는 반드시 생성됨
+    raw = _pool.getconn()
+    raw.autocommit = autocommit
+    return raw
+
+
+def _pool_release(raw) -> None:
+    """raw conn 을 pool 로 반납. broken conn 은 close 로 폐기."""
+    if _pool is None or raw is None:
+        return
+    try:
+        # 미완결 트랜잭션은 pool 오염 방지를 위해 rollback
+        if not raw.autocommit and raw.status != psycopg2.extensions.STATUS_READY:
+            raw.rollback()
+    except Exception:
+        pass
+    try:
+        _pool.putconn(raw)
+    except Exception:
+        try:
+            raw.close()
+        except Exception:
+            pass
+
+
+class PooledConnection:
+    """psycopg2 connection wrapper.
+
+    raw conn 의 C 확장 메서드(close)를 monkey-patch 하지 않고, 외부에서 쓰는
+    인터페이스(cursor/commit/rollback/close)만 명시 노출한다. 그 외 속성은
+    `__getattr__` 로 raw 로 proxy.
+
+    `pooled=True` 면 close() 가 pool 반납, `pooled=False` 면 raw.close() 호출.
+    """
+
+    def __init__(self, raw, pooled: bool):
+        self._raw = raw
+        self._pooled = pooled
+        self._closed = False
+
+    def cursor(self, *args, **kwargs):
+        return self._raw.cursor(*args, **kwargs)
+
+    def commit(self):
+        return self._raw.commit()
+
+    def rollback(self):
+        return self._raw.rollback()
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        if self._pooled:
+            _pool_release(self._raw)
+        else:
+            try:
+                self._raw.close()
+            except Exception:
+                pass
+
+    def __getattr__(self, name):
+        # autocommit, status, encoding 등 자주 쓰지 않는 속성 proxy
+        return getattr(self._raw, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+def get_connection(db_path=None, use_pool: bool = True):
+    """트랜잭션 경로용 conn (autocommit=False).
+
+    - `use_pool=True` (기본, 서버 런타임): pool 에서 빌림. close() 시 반납.
+    - `use_pool=False` (batch/CLI/build_db): 직접 connect. close() 시 raw close.
+
+    db_path 는 과거 sqlite 호환용 더미 인자 (무시됨).
+    """
+    if use_pool:
+        raw = _pool_acquire(autocommit=False)
+        return PooledConnection(raw, pooled=True)
+    raw = psycopg2.connect(DATABASE_URL)
+    raw.autocommit = False
+    return PooledConnection(raw, pooled=False)
 
 
 def get_dict_cursor(conn):
@@ -33,29 +154,32 @@ def get_dict_cursor(conn):
 
 
 class DictConnection:
-    """Wrapper that mimics sqlite3 connection with row_factory=dict.
+    """자동커밋 + RealDictCursor 반환 래퍼. pool 기반.
 
-    Usage:
-        conn = get_dict_connection()
+    기존 호출부 호환:
+        conn = DictConnection()
         rows = conn.execute("SELECT ...", [param]).fetchall()
         conn.close()
     """
 
     def __init__(self):
-        self._conn = psycopg2.connect(DATABASE_URL)
-        self._conn.autocommit = True
+        self._raw = _pool_acquire(autocommit=True)
+        self._closed = False
 
     def execute(self, sql, params=None):
-        """Execute SQL and return a cursor (supports fetchone/fetchall)."""
-        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur = self._raw.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(sql, params or [])
         return cur
 
     def commit(self):
-        self._conn.commit()
+        # autocommit=True 이므로 no-op. 호환용 유지.
+        pass
 
     def close(self):
-        self._conn.close()
+        if self._closed:
+            return
+        self._closed = True
+        _pool_release(self._raw)
 
     def __enter__(self):
         return self

@@ -242,7 +242,9 @@ def main():
     if db_path.exists():
         db_path.unlink()
 
-    conn = get_connection(db_path)
+    # CLI 스크립트는 FastAPI lifespan 바깥이므로 pool 미초기화.
+    # use_pool=False 로 pool 우회해 직접 connect.
+    conn = get_connection(db_path, use_pool=False)
     conn.execute("PRAGMA synchronous=OFF")
     create_tables(conn)
 

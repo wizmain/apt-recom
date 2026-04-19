@@ -851,6 +851,58 @@ if __name__ == "__main__":
             f"sigungu={row['scope']} agg={row['trade_volume']} vs api={api['trade']['volume']}"
         )
 
+    # ---------- API 레벨 개선: Connection Pool ----------
+
+    @test("Pool: init_pool 후 DictConnection 반복 acquire/close 시 pool leak 없음")
+    def test_pool_no_leak_on_repeat():
+        from database import init_pool, DictConnection
+        import database as db_module
+        init_pool()
+        assert db_module._pool is not None, "pool 미초기화"
+        pool = db_module._pool
+        # 절대값 0 체크는 이전 테스트 영향을 받으니 delta 로 비교.
+        used_before = len(pool._used)
+        for _ in range(100):
+            conn = DictConnection()
+            conn.execute("SELECT 1 AS ok").fetchone()
+            conn.close()
+        used_after = len(pool._used)
+        assert used_after == used_before, (
+            f"leak delta: before={used_before}, after={used_after}"
+        )
+
+    @test("Pool: log_event 정상/예외 호출 후 conn leak 없음")
+    def test_pool_no_leak_on_log_event_failure():
+        from database import init_pool
+        from services.activity_log import log_event
+        import database as db_module
+        init_pool()
+        pool = db_module._pool
+        used_before = len(pool._used)
+        # 1) json.dumps 실패 유도 (직렬화 불가 객체) — DictConnection 생성 전 예외
+        class Unserializable:
+            pass
+        log_event("device-test-1", "test_event", None, {"bad": Unserializable()})
+        # 2) 정상 호출 100회
+        for _ in range(100):
+            log_event("device-test-2", "test_event_ok", None, {"n": 1})
+        used_after = len(pool._used)
+        assert used_after == used_before, (
+            f"log_event 호출 후 conn leak: before={used_before}, after={used_after}"
+        )
+
+    @test("Pool: get_connection(use_pool=False) 는 pool 을 거치지 않음")
+    def test_get_connection_bypass_pool():
+        from database import init_pool, get_connection
+        import database as db_module
+        init_pool()
+        pool = db_module._pool
+        used_before = len(pool._used)
+        conn = get_connection(use_pool=False)
+        assert len(pool._used) == used_before, "use_pool=False 인데 pool 사용됨"
+        conn.close()
+        assert len(pool._used) == used_before
+
     @test("대시보드 Fallback: 집계 테이블 비어도 HTTP 200 + 응답 구조 유지")
     def test_dashboard_fallback_when_empty():
         """집계 테이블이 배치 전 빈 상태일 때 raw 쿼리 fallback이 동작하는지 확인.
@@ -889,7 +941,7 @@ if __name__ == "__main__":
         finally:
             # 복원 — 집계 테이블을 원상태로 되돌림
             from psycopg2.extras import execute_values
-            raw_conn = conn._conn  # DictConnection 내부 커넥션
+            raw_conn = conn._raw  # DictConnection 내부 raw conn (pool wrapper 이후 속성명)
             cur = raw_conn.cursor()
             for t, rows in backup.items():
                 if not rows:

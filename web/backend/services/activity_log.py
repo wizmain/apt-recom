@@ -53,9 +53,11 @@ def log_event(
     """사용자 행동 이벤트 1건 저장.
 
     device_id 가 없으면 no-op. 실패는 warning 만 남기고 흡수한다.
+    try/finally 로 INSERT 중 예외가 나도 conn 반납 보장 (pool leak 방지).
     """
     if not device_id or not event_type:
         return
+    conn = None
     try:
         conn = DictConnection()
         conn.execute(
@@ -63,9 +65,11 @@ def log_event(
             "VALUES (%s, %s, %s, %s::jsonb)",
             [device_id, event_type, event_name, json.dumps(payload or {}, ensure_ascii=False)],
         )
-        conn.close()
     except Exception as e:
         logger.warning(f"log_event failed (type={event_type}): {e}")
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def log_chat(
@@ -77,9 +81,13 @@ def log_chat(
     context: dict | None = None,
     terminated_early: bool = False,
 ) -> None:
-    """챗봇 대화 1건 저장. user_message 가 비어있으면 저장하지 않는다."""
+    """챗봇 대화 1건 저장. user_message 가 비어있으면 저장하지 않는다.
+
+    try/finally 로 INSERT 예외 시에도 conn 반납 보장 (pool leak 방지).
+    """
     if not (user_message or "").strip():
         return
+    conn = None
     try:
         conn = DictConnection()
         conn.execute(
@@ -96,6 +104,8 @@ def log_chat(
                 terminated_early,
             ],
         )
-        conn.close()
     except Exception as e:
         logger.warning(f"log_chat failed: {e}")
+    finally:
+        if conn is not None:
+            conn.close()
