@@ -364,9 +364,15 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             """, [sgg, latest_ym]).fetchone()
 
             # 주택형별 관리비 (공식 B: 공용+장충금은 전용면적 비례, 개별은 평균)
+            # 소수 2자리 기준 그룹화: 84.986 / 84.990 처럼 UI 반올림 시 동일해지는
+            # 미세 차이 주택형을 하나로 병합(세대수 합산).
             area_types = conn.execute(
-                "SELECT exclusive_area, unit_count, priv_area_total "
-                "FROM apt_area_type WHERE pnu = %s ORDER BY exclusive_area",
+                """SELECT ROUND(exclusive_area::numeric, 2)::float AS exclusive_area,
+                          SUM(unit_count)::int AS unit_count,
+                          MAX(priv_area_total) AS priv_area_total
+                   FROM apt_area_type WHERE pnu = %s
+                   GROUP BY ROUND(exclusive_area::numeric, 2)
+                   ORDER BY 1""",
                 [pnu],
             ).fetchall()
             by_area = compute_by_area(
