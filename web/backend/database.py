@@ -431,6 +431,24 @@ def create_tables(conn) -> None:
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS max_supply_area DOUBLE PRECISION;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS avg_supply_area DOUBLE PRECISION;
 
+        -- apt_kapt_info 보충 컬럼 (K-APT 20260417 엑셀 재적재용)
+        ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS joined_date TEXT;
+        ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS food_waste_method TEXT;
+        ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS cleaning_staff INTEGER;
+        ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS elevator_mgr_type TEXT;
+
+        -- 주택형별 면적/세대수 (K-APT 면적 엑셀의 "주거전용면적(세부)" row)
+        CREATE TABLE IF NOT EXISTS apt_area_type (
+            pnu TEXT NOT NULL,
+            exclusive_area DOUBLE PRECISION NOT NULL,
+            unit_count INTEGER NOT NULL,
+            mgmt_area_total DOUBLE PRECISION,
+            priv_area_total DOUBLE PRECISION,
+            last_refreshed TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (pnu, exclusive_area)
+        );
+        CREATE INDEX IF NOT EXISTS idx_apt_area_type_pnu ON apt_area_type(pnu);
+
         CREATE TABLE IF NOT EXISTS apt_mgmt_cost (
             pnu TEXT,
             year_month TEXT,
