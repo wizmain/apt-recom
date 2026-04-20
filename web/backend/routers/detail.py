@@ -3,6 +3,7 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from database import DictConnection
 from services.activity_log import log_event
+from services.mgmt_cost_calc import compute_by_area
 from services.scoring import (
     get_nudge_weights,
     get_region_profile,
@@ -362,9 +363,22 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                   AND m.cost_per_unit != m.total_cost
             """, [sgg, latest_ym]).fetchone()
 
+            # 주택형별 관리비 (공식 B: 공용+장충금은 전용면적 비례, 개별은 평균)
+            area_types = conn.execute(
+                "SELECT exclusive_area, unit_count, priv_area_total "
+                "FROM apt_area_type WHERE pnu = %s ORDER BY exclusive_area",
+                [pnu],
+            ).fetchall()
+            by_area = compute_by_area(
+                dict(cost_rows[0]),
+                [dict(r) for r in area_types],
+            )
+
             mgmt_cost = {
                 "months": [dict(r) for r in cost_rows],
                 "region_avg_per_unit": round(avg_row["median_per_unit"]) if avg_row and avg_row["median_per_unit"] else None,
+                "by_area": by_area,
+                "latest_year_month": cost_rows[0]["year_month"] if cost_rows else None,
             }
 
         return {

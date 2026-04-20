@@ -64,9 +64,17 @@ interface MgmtCostMonth {
   detail: Record<string, number>;
 }
 
+interface MgmtCostByArea {
+  exclusive_area: number;
+  unit_count: number;
+  per_unit_cost: number;
+}
+
 interface MgmtCost {
   months: MgmtCostMonth[];
   region_avg_per_unit: number | null;
+  by_area: MgmtCostByArea[] | null;
+  latest_year_month: string | null;
 }
 
 interface ApartmentDetail {
@@ -832,6 +840,45 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
           <span>{formatWon(latest.repair_fund)}원</span>
         </div>
       </div>
+
+      {/* 면적별 관리비 (K-APT 면적 데이터 있는 경우만) */}
+      {mgmtCost.by_area && mgmtCost.by_area.length > 0 && (
+        <div>
+          <div className="flex items-baseline justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-700">
+              면적별 관리비
+              {mgmtCost.latest_year_month && (
+                <span className="text-xs text-gray-500 ml-2">
+                  ({mgmtCost.latest_year_month.slice(0, 4)}.{mgmtCost.latest_year_month.slice(4)})
+                </span>
+              )}
+            </h3>
+            <span className="text-[11px] text-gray-400">전용면적 비례 추정</span>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-gray-200">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">전용면적</th>
+                  <th className="text-right px-3 py-2 font-medium">세대수</th>
+                  <th className="text-right px-3 py-2 font-medium">세대당</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {mgmtCost.by_area.map(r => (
+                  <tr key={r.exclusive_area} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-800">{r.exclusive_area.toFixed(2)}㎡</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{r.unit_count}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-gray-900">
+                      {r.per_unit_cost.toLocaleString()}원
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* 월별 추이 (여러 달 있을 때) */}
       {mgmtCost.months.length > 1 && (
