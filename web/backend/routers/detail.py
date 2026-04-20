@@ -347,13 +347,18 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             # 지역 평균 (같은 시군구, 같은 월)
             sgg = basic.get("sigungu_code", "")[:5]
             latest_ym = cost_rows[0]["year_month"]
+            # 지역 median 계산 시 비정상 row 제외:
+            #   - cost_per_unit = total_cost: 분모=1 등 fallback 오류
+            #   - cost_per_unit < 10,000 또는 total_cost < 100,000: K-APT 엑셀 오입력
+            #     (예: 총액 268원 같은 극저 단지가 median 을 끌어내림)
             avg_row = conn.execute("""
                 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_unit) as median_per_unit
                 FROM apt_mgmt_cost m
                 JOIN apt_kapt_info k ON m.pnu = k.pnu
                 JOIN apartments a ON m.pnu = a.pnu
                 WHERE a.sigungu_code = %s AND m.year_month = %s
-                  AND m.cost_per_unit > 0
+                  AND m.cost_per_unit >= 10000
+                  AND m.total_cost >= 100000
                   AND m.cost_per_unit != m.total_cost
             """, [sgg, latest_ym]).fetchone()
 
