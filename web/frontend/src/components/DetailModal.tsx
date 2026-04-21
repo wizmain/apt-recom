@@ -804,7 +804,7 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
       {/* 요약 카드 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="bg-blue-50 rounded-lg p-3 text-center">
-          <p className="text-xs text-blue-500">세대당 관리비</p>
+          <p className="text-xs text-blue-500">세대 평균 관리비</p>
           <p className="text-lg font-bold text-blue-800">{formatWon(latest.cost_per_unit)}원</p>
         </div>
         {regionAvg && (
