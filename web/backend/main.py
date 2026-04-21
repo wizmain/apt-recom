@@ -41,7 +41,7 @@ from database import (
     init_pool,
     close_pool,
 )
-from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log
+from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log, sitemap
 
 
 @asynccontextmanager
@@ -97,6 +97,8 @@ app.include_router(codes.router, prefix="/api")
 app.include_router(similar.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(log.router, prefix="/api")
+# sitemap.xml / robots.txt 는 크롤러 관례상 루트 경로에서 서빙되어야 하므로 prefix 없이 등록.
+app.include_router(sitemap.router)
 
 
 @app.get("/api/health")
