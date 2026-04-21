@@ -20,9 +20,40 @@ Tool 선정 기준
 
 from __future__ import annotations
 
+import os
+
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from services import tools as tool_executors
+
+
+def _build_transport_security() -> TransportSecuritySettings:
+    """DNS rebinding 방어를 위한 Host/Origin 허용 목록 구성.
+
+    MCP SDK 기본값은 `enable_dns_rebinding_protection=True` + 빈 allowed_hosts 라서
+    production host 를 전부 거부해 421 Invalid Host header 가 반환된다.
+    운영 환경에서는 Cloudflare TLS 종단 뒤에 있으므로 해당 방어는 사실상 CF 가 담당하지만,
+    SDK 정책을 존중하는 차원에서 허용 목록을 명시한다.
+
+    허용 host: 개발(localhost:8000, 127.0.0.1:8000) + 운영(api.apt-recom.kr).
+    추가 host 는 `MCP_ALLOWED_HOSTS` 환경변수 (콤마 구분) 로 확장.
+    """
+    defaults = [
+        "localhost:8000", "127.0.0.1:8000",
+        "localhost:8765", "127.0.0.1:8765",  # 로컬 테스트용 포트
+        "api.apt-recom.kr",
+    ]
+    extra_hosts = os.getenv("MCP_ALLOWED_HOSTS", "").strip()
+    if extra_hosts:
+        defaults.extend(h.strip() for h in extra_hosts.split(",") if h.strip())
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=defaults,
+        # Origin 검사는 MCP 클라이언트가 기본적으로 Origin 을 보내지 않으므로 빈 값 유지.
+        allowed_origins=[],
+    )
+
 
 mcp = FastMCP(
     name="apt-recom",
@@ -33,6 +64,7 @@ mcp = FastMCP(
     ),
     stateless_http=True,
     streamable_http_path="/",
+    transport_security=_build_transport_security(),
 )
 
 
