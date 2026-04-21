@@ -388,6 +388,29 @@ def test_chat_safety_data():
     assert "safety" in data.get("nudge_scores", {}), "safety 넛지 점수 없음"
 
 
+@test("챗봇: get_apartment_detail 응답에서 None 필드 제거")
+def test_chat_detail_drops_none_fields():
+    """LLM/agent 응답 깔끔함 확보를 위해 None 값 필드는 응답에서 제외한다.
+
+    데이터 커버리지 약 4~18% 의 필드(total_households, dong_count, max_floor, built_date,
+    address, school 등)가 누락된 PNU 에서, 해당 key 자체가 응답에 없어야 한다.
+    """
+    from services.tools import get_apartment_detail
+    # 청운벽산빌리지 — total_hhld_cnt/dong_count/max_floor/use_apr_day/new_plat_plc/plat_plc 가 모두 NULL 인 희소 케이스
+    result = asyncio.run(get_apartment_detail("1111010100000010000"))
+    data = json.loads(result)
+    assert "error" not in data, f"에러: {data.get('error')}"
+    basic = data.get("basic", {})
+    # NULL 필드는 basic 에서 완전히 제거
+    for absent in ("total_households", "dong_count", "max_floor", "built_date"):
+        assert absent not in basic, f"basic 에 NULL 필드가 남아있음: {absent}={basic.get(absent)!r}"
+    # 반대로 실제 값이 있는 필드는 보존
+    assert basic.get("name") == "청운벽산빌리지"
+    assert basic.get("lat") is not None and basic.get("lng") is not None
+    # school 데이터가 없는 케이스는 top-level 에서 제거
+    assert "school" not in data or data["school"] is not None
+
+
 # ============================================================
 # 8. 피드백 API 테스트
 # ============================================================

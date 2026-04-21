@@ -17,6 +17,15 @@ def _get_conn():
     return DictConnection()
 
 
+def _drop_empty(d: dict) -> dict:
+    """None / 빈 컨테이너 필드를 제거한 얕은 복사본.
+
+    agent 응답 깔끔하게 + 토큰 절약 목적. 값이 0, False, "0" 은 보존 (의미 있는 값).
+    하위(중첩) dict·list 는 구조 유지; 상위 레벨의 "비어있음" 만 처리.
+    """
+    return {k: v for k, v in d.items() if v is not None and v != {} and v != []}
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions (for LLM function calling)
 # ---------------------------------------------------------------------------
@@ -573,32 +582,38 @@ async def get_apartment_detail(query: str) -> str:
             name_extra = sgg_codes.get(sgg[:5])
             address = f"{name_extra[1]} {name_extra[0]}" if name_extra else f"시군구코드 {sgg}"
 
-        result = {
-            "basic": {
-                "pnu": apt["pnu"],
-                "name": apt["bld_nm"],
-                "address": address,
-                "total_households": apt["total_hhld_cnt"],
-                "dong_count": apt["dong_count"],
-                "max_floor": apt["max_floor"],
-                "built_date": apt.get("use_apr_day"),
-                "lat": apt["lat"],
-                "lng": apt["lng"],
-            },
+        # LLM/agent 에게 전달하는 응답은 None/빈 값 필드를 제거해 가독성·토큰 효율 확보.
+        # 데이터가 없는 필드 자체를 숨김으로써, 모델이 "없는 정보"를 "있다고 환각"하는 위험도 줄인다.
+        basic = _drop_empty({
+            "pnu": apt["pnu"],
+            "name": apt["bld_nm"],
+            "address": address,
+            "total_households": apt["total_hhld_cnt"],
+            "dong_count": apt["dong_count"],
+            "max_floor": apt["max_floor"],
+            "built_date": apt.get("use_apr_day"),
+            "lat": apt["lat"],
+            "lng": apt["lng"],
+        })
+
+        trades = [
+            _drop_empty({
+                "date": f"{t['deal_year']}.{t['deal_month']:02d}",
+                "price": f"{t['deal_amount'] // 10000}억{t['deal_amount'] % 10000:,}만원" if t["deal_amount"] >= 10000 else f"{t['deal_amount']:,}만원",
+                "area": f"{t['exclu_use_ar']}㎡" if t.get("exclu_use_ar") else None,
+                "floor": t.get("floor"),
+            })
+            for t in recent_trades
+        ]
+
+        result = _drop_empty({
+            "basic": basic,
             "nudge_scores": scores,
             "facility_summary": facility_summary,
             "school": school,
-            "recent_trades": [
-                {
-                    "date": f"{t['deal_year']}.{t['deal_month']:02d}",
-                    "price": f"{t['deal_amount'] // 10000}억{t['deal_amount'] % 10000:,}만원" if t["deal_amount"] >= 10000 else f"{t['deal_amount']:,}만원",
-                    "area": f"{t['exclu_use_ar']}㎡" if t.get("exclu_use_ar") else None,
-                    "floor": t.get("floor"),
-                }
-                for t in recent_trades
-            ],
+            "recent_trades": trades,
             "price_info": price_row,
-        }
+        })
 
         return json.dumps(result, ensure_ascii=False)
     finally:
