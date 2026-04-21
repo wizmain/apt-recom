@@ -78,6 +78,7 @@ interface MgmtCost {
   region_avg_per_unit: number | null;
   by_area: MgmtCostByArea[] | null;
   cost_per_m2: number | null;
+  region_avg_per_m2: number | null;
   latest_year_month: string | null;
 }
 
@@ -825,17 +826,46 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
       </div>
 
       {/* 단위면적당 관리비 (관리비부과면적 기준) */}
-      {mgmtCost.cost_per_m2 && (
-        <div className="bg-indigo-50 rounded-lg p-3 flex items-baseline justify-between">
-          <div>
-            <p className="text-xs text-indigo-500">단위면적당 관리비</p>
-            <p className="text-[11px] text-indigo-400 mt-0.5">관리비부과면적 기준</p>
+      {mgmtCost.cost_per_m2 && (() => {
+        const diffM2 = mgmtCost.region_avg_per_m2
+          ? mgmtCost.cost_per_m2 - mgmtCost.region_avg_per_m2
+          : null;
+        return (
+          <div className="bg-indigo-50 rounded-lg p-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <p className="text-xs text-indigo-500 font-medium">단위면적당 관리비</p>
+              <p className="text-[11px] text-indigo-400">관리비부과면적 기준</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="bg-white rounded-md p-2 text-center">
+                <p className="text-[11px] text-indigo-500">이 단지</p>
+                <p className="text-base font-bold text-indigo-800">
+                  {mgmtCost.cost_per_m2.toLocaleString()}
+                  <span className="text-xs font-normal text-indigo-500 ml-1">원/㎡</span>
+                </p>
+              </div>
+              {mgmtCost.region_avg_per_m2 && (
+                <div className="bg-white rounded-md p-2 text-center">
+                  <p className="text-[11px] text-gray-500">지역 평균</p>
+                  <p className="text-base font-semibold text-gray-800">
+                    {mgmtCost.region_avg_per_m2.toLocaleString()}
+                    <span className="text-xs font-normal text-gray-500 ml-1">원/㎡</span>
+                  </p>
+                </div>
+              )}
+              {diffM2 !== null && (
+                <div className={`rounded-md p-2 text-center ${diffM2 > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                  <p className={`text-[11px] ${diffM2 > 0 ? 'text-red-500' : 'text-green-500'}`}>지역 대비</p>
+                  <p className={`text-base font-semibold ${diffM2 > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                    {diffM2 > 0 ? '+' : ''}{diffM2.toLocaleString()}
+                    <span className="text-xs font-normal ml-1">원/㎡</span>
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
-          <p className="text-lg font-bold text-indigo-800">
-            {mgmtCost.cost_per_m2.toLocaleString()}원<span className="text-xs font-normal text-indigo-500 ml-1">/㎡</span>
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 공용/개별/장충금 비율 */}
       <div className="bg-gray-50 rounded-lg p-4">
