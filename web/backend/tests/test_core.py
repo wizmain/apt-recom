@@ -737,7 +737,7 @@ if __name__ == "__main__":
 
     # ---------- 관리비 면적별 안분 ----------
 
-    @test("관리비 안분: 경희궁의아침4단지 4 주택형 합계 ≈ 단지 총액(오차<0.1%)")
+    @test("관리비 안분: 경희궁의아침4단지 정수 평형 그룹화(150은 2 subtype 병합)")
     def test_mgmt_cost_by_area_formula():
         from services.mgmt_cost_calc import compute_by_area
         latest = {"common_cost": 29805940, "individual_cost": 18721144, "repair_fund": 4168125}
@@ -748,9 +748,16 @@ if __name__ == "__main__":
             {"exclusive_area": 150.77, "unit_count": 15, "priv_area_total": 16020.9},
         ]
         result = compute_by_area(latest, area_types)
-        assert result is not None and len(result) == 4, f"expected 4 rows, got {result}"
-        # 124㎡ 세대: 40만원대
-        assert 400000 <= result[0]["per_unit_cost"] <= 430000, result[0]
+        # 124, 145, 150 — 150 그룹에 subtype 2개 병합
+        assert result is not None and len(result) == 3, f"expected 3 groups, got {result}"
+        keys = [r["exclusive_area"] for r in result]
+        assert keys == [124, 145, 150], keys
+        # 150 그룹: 30세대, 2 subtype
+        g150 = next(r for r in result if r["exclusive_area"] == 150)
+        assert g150["unit_count"] == 30 and g150["subtype_count"] == 2, g150
+        # 124 그룹 세대당 관리비 40만원대
+        g124 = next(r for r in result if r["exclusive_area"] == 124)
+        assert 400000 <= g124["per_unit_cost"] <= 430000, g124
         # 단조 증가
         values = [r["per_unit_cost"] for r in result]
         assert values == sorted(values), f"values not sorted asc: {values}"
@@ -770,7 +777,7 @@ if __name__ == "__main__":
             [{"exclusive_area": 0, "unit_count": 0, "priv_area_total": 0}],
         ) is None
 
-    @test("상세 API: mgmt_cost.by_area 필드 존재, 세대 합 == 총 세대수")
+    @test("상세 API: mgmt_cost.by_area 정수 그룹, 세대 합 == 총 세대수")
     def test_detail_api_by_area():
         from fastapi.testclient import TestClient
         from main import app
@@ -781,9 +788,12 @@ if __name__ == "__main__":
         mc = data.get("mgmt_cost")
         assert mc is not None, "mgmt_cost 없음"
         by_area = mc.get("by_area")
-        assert by_area and len(by_area) == 4, f"by_area 기대 4건, got {by_area}"
+        # 124, 145, 150 — 150.48/150.77 병합으로 3 그룹
+        assert by_area and len(by_area) == 3, f"by_area 기대 3건, got {by_area}"
         total_units = sum(r["unit_count"] for r in by_area)
         assert total_units == 120, f"세대 합 120 기대, got {total_units}"
+        keys = [r["exclusive_area"] for r in by_area]
+        assert keys == [124, 145, 150], keys
 
     # ---------- 대시보드 성능: 집계 테이블 + 엔드포인트 ----------
 
