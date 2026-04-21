@@ -809,9 +809,9 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
     <div className="space-y-4">
       {/* 요약 카드 — 세대당 + 단위면적당 통합 */}
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        {/* 이 단지 */}
+        {/* 이 단지 세대 평균 */}
         <div className="bg-blue-50 rounded-lg p-3 text-center">
-          <p className="text-xs text-blue-500">이 단지</p>
+          <p className="text-xs text-blue-500">세대 평균 관리비</p>
           <p className="text-base sm:text-lg font-bold text-blue-800 mt-0.5">
             {formatWon(latest.cost_per_unit)}원
           </p>
