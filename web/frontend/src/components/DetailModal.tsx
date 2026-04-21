@@ -801,71 +801,60 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
     .filter(([, v]) => v > 0)
     .sort(([, a], [, b]) => b - a);
 
+  const perM2 = mgmtCost.cost_per_m2;
+  const regionM2 = mgmtCost.region_avg_per_m2;
+  const diffM2 = perM2 && regionM2 ? perM2 - regionM2 : null;
+
   return (
     <div className="space-y-4">
-      {/* 요약 카드 */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      {/* 요약 카드 — 세대당 + 단위면적당 통합 */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        {/* 이 단지 */}
         <div className="bg-blue-50 rounded-lg p-3 text-center">
-          <p className="text-xs text-blue-500">세대 평균 관리비</p>
-          <p className="text-lg font-bold text-blue-800">{formatWon(latest.cost_per_unit)}원</p>
-        </div>
-        {regionAvg && (
-          <div className="bg-gray-50 rounded-lg p-3 text-center">
-            <p className="text-xs text-gray-500">지역 평균</p>
-            <p className="text-base font-semibold text-gray-800">{formatWon(regionAvg)}원</p>
-          </div>
-        )}
-        {diff !== null && (
-          <div className={`rounded-lg p-3 text-center ${diff > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-            <p className={`text-xs ${diff > 0 ? 'text-red-500' : 'text-green-500'}`}>지역 대비</p>
-            <p className={`text-base font-semibold ${diff > 0 ? 'text-red-700' : 'text-green-700'}`}>
-              {diff > 0 ? '+' : ''}{formatWon(diff)}원
+          <p className="text-xs text-blue-500">이 단지</p>
+          <p className="text-base sm:text-lg font-bold text-blue-800 mt-0.5">
+            {formatWon(latest.cost_per_unit)}원
+          </p>
+          {perM2 && (
+            <p className="text-[11px] text-blue-600 mt-0.5">
+              {perM2.toLocaleString()}<span className="text-[10px] ml-0.5">원/㎡</span>
             </p>
-          </div>
-        )}
+          )}
+        </div>
+        {/* 지역 평균 */}
+        <div className="bg-gray-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-gray-500">지역 평균</p>
+          <p className="text-base sm:text-lg font-semibold text-gray-800 mt-0.5">
+            {regionAvg ? `${formatWon(regionAvg)}원` : '—'}
+          </p>
+          {regionM2 && (
+            <p className="text-[11px] text-gray-600 mt-0.5">
+              {regionM2.toLocaleString()}<span className="text-[10px] ml-0.5">원/㎡</span>
+            </p>
+          )}
+        </div>
+        {/* 지역 대비 */}
+        <div className={`rounded-lg p-3 text-center ${
+          diff !== null ? (diff > 0 ? 'bg-red-50' : 'bg-green-50') : 'bg-gray-50'
+        }`}>
+          <p className={`text-xs ${
+            diff !== null ? (diff > 0 ? 'text-red-500' : 'text-green-500') : 'text-gray-500'
+          }`}>지역 대비</p>
+          <p className={`text-base sm:text-lg font-semibold mt-0.5 ${
+            diff !== null ? (diff > 0 ? 'text-red-700' : 'text-green-700') : 'text-gray-800'
+          }`}>
+            {diff !== null ? `${diff > 0 ? '+' : ''}${formatWon(diff)}원` : '—'}
+          </p>
+          {diffM2 !== null && (
+            <p className={`text-[11px] mt-0.5 ${diffM2 > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {diffM2 > 0 ? '+' : ''}{diffM2.toLocaleString()}<span className="text-[10px] ml-0.5">원/㎡</span>
+            </p>
+          )}
+        </div>
       </div>
-
-      {/* 단위면적당 관리비 (관리비부과면적 기준) */}
-      {mgmtCost.cost_per_m2 && (() => {
-        const diffM2 = mgmtCost.region_avg_per_m2
-          ? mgmtCost.cost_per_m2 - mgmtCost.region_avg_per_m2
-          : null;
-        return (
-          <div className="bg-indigo-50 rounded-lg p-3">
-            <div className="flex items-baseline justify-between mb-2">
-              <p className="text-xs text-indigo-500 font-medium">단위면적당 관리비</p>
-              <p className="text-[11px] text-indigo-400">관리비부과면적 기준</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <div className="bg-white rounded-md p-2 text-center">
-                <p className="text-[11px] text-indigo-500">이 단지</p>
-                <p className="text-base font-bold text-indigo-800">
-                  {mgmtCost.cost_per_m2.toLocaleString()}
-                  <span className="text-xs font-normal text-indigo-500 ml-1">원/㎡</span>
-                </p>
-              </div>
-              {mgmtCost.region_avg_per_m2 && (
-                <div className="bg-white rounded-md p-2 text-center">
-                  <p className="text-[11px] text-gray-500">지역 평균</p>
-                  <p className="text-base font-semibold text-gray-800">
-                    {mgmtCost.region_avg_per_m2.toLocaleString()}
-                    <span className="text-xs font-normal text-gray-500 ml-1">원/㎡</span>
-                  </p>
-                </div>
-              )}
-              {diffM2 !== null && (
-                <div className={`rounded-md p-2 text-center ${diffM2 > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-                  <p className={`text-[11px] ${diffM2 > 0 ? 'text-red-500' : 'text-green-500'}`}>지역 대비</p>
-                  <p className={`text-base font-semibold ${diffM2 > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                    {diffM2 > 0 ? '+' : ''}{diffM2.toLocaleString()}
-                    <span className="text-xs font-normal ml-1">원/㎡</span>
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {perM2 && (
+        <p className="text-[11px] text-gray-400 -mt-2">* 원/㎡ 수치는 관리비부과면적 기준</p>
+      )}
 
       {/* 공용/개별/장충금 비율 */}
       <div className="bg-gray-50 rounded-lg p-4">
