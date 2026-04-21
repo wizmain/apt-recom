@@ -366,7 +366,7 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             # 주택형별 관리비 (공식 B: 공용+장충금은 전용면적 비례, 개별은 평균)
             # 정수 면적(=평형) 그룹화는 compute_by_area 에서 처리.
             area_types = conn.execute(
-                "SELECT exclusive_area, unit_count, priv_area_total "
+                "SELECT exclusive_area, unit_count, priv_area_total, mgmt_area_total "
                 "FROM apt_area_type WHERE pnu = %s ORDER BY exclusive_area",
                 [pnu],
             ).fetchall()
@@ -375,10 +375,18 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                 [dict(r) for r in area_types],
             )
 
+            # 단위면적당 관리비: 단지 총 관리비 / 관리비부과면적 (K-APT 실제 부과 기준)
+            cost_per_m2 = None
+            if area_types:
+                mgmt_area = float(area_types[0]["mgmt_area_total"] or 0)
+                if mgmt_area > 0:
+                    cost_per_m2 = round(cost_rows[0]["total_cost"] / mgmt_area)
+
             mgmt_cost = {
                 "months": [dict(r) for r in cost_rows],
                 "region_avg_per_unit": round(avg_row["median_per_unit"]) if avg_row and avg_row["median_per_unit"] else None,
                 "by_area": by_area,
+                "cost_per_m2": cost_per_m2,
                 "latest_year_month": cost_rows[0]["year_month"] if cost_rows else None,
             }
 
