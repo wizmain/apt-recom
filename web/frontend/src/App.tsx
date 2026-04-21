@@ -16,6 +16,7 @@ import { useApartments, countActiveFilters } from './hooks/useApartments';
 import { useNudge } from './hooks/useNudge';
 import type { MapBounds } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
+import { parseAptPnuFromPath, buildAptPath, DEFAULT_DOCUMENT_TITLE } from './lib/route';
 
 function App() {
   const {
@@ -31,7 +32,12 @@ function App() {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [customWeights, setCustomWeights] = useState<Record<string, Record<string, number>> | null>(null);
   // mapBounds는 useApartments에서 관리
-  const [selectedPnu, setSelectedPnu] = useState<string | null>(null);
+  // 초기값은 URL 에서 직접 읽어 첫 렌더 시점에 selectedPnu 와 pathname 을 맞춘다.
+  // (effect 로 미루면 state→URL effect 가 먼저 pathname 을 '/' 로 덮어써버리는
+  //  경합이 발생 — React strict mode 의 이중 실행에서도 재현된다.)
+  const [selectedPnu, setSelectedPnu] = useState<string | null>(
+    () => parseAptPnuFromPath(window.location.pathname),
+  );
   const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
   const [keywordLabels, setKeywordLabels] = useState<Record<string, string>>({});
   const [showChat, setShowChat] = useState(false);
@@ -43,6 +49,29 @@ function App() {
   const [focusPnu, setFocusPnu] = useState<{ pnu: string; lat: number; lng: number; name: string } | null>(null);
   const [rankContext, setRankContext] = useState<RankContext | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'dashboard'>('map');
+
+  // popstate (뒤로/앞으로) 시 URL → selectedPnu 재동기화.
+  // 초기값은 useState initializer 에서 URL 로부터 이미 채워졌으므로 mount 동기화는 생략.
+  useEffect(() => {
+    const syncFromUrl = () => {
+      setSelectedPnu(parseAptPnuFromPath(window.location.pathname));
+    };
+    window.addEventListener('popstate', syncFromUrl);
+    return () => window.removeEventListener('popstate', syncFromUrl);
+  }, []);
+
+  // selectedPnu → URL 동기화 + document.title 기본값 원복.
+  // 상세 모달이 닫힐 때마다 title 을 기본값으로 복구한다. 상세가 열린 후 아파트명으로
+  // 업데이트 하는 책임은 DetailModal 이 실제 데이터를 받은 시점에 수행한다.
+  useEffect(() => {
+    const nextPath = selectedPnu ? buildAptPath(selectedPnu) : '/';
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState(null, '', nextPath);
+    }
+    if (!selectedPnu) {
+      document.title = DEFAULT_DOCUMENT_TITLE;
+    }
+  }, [selectedPnu]);
 
   // Fetch default weights on mount
   useEffect(() => {
@@ -232,12 +261,13 @@ function App() {
             />
           </div>
 
-          {/* Bottom result cards */}
+          {/* Bottom result cards — 카드 클릭 = 지도 포커스 + 상세 모달 오픈 (+ URL 동기화) */}
           <ResultCards results={results} loading={loading} onSelect={(pnu) => {
             const apt = results.find(r => r.pnu === pnu);
             if (apt?.lat && apt?.lng) {
               setFocusPnu({ pnu, lat: apt.lat, lng: apt.lng, name: apt.bld_nm });
             }
+            setSelectedPnu(pnu);
           }} />
 
           {/* Recent trades floating banner (좌측 하단) */}

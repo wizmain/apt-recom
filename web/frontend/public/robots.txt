@@ -1,0 +1,51 @@
+# 집토리 (apt-recom) — robots.txt
+# AI 에이전트·검색 크롤러 정책. 권위 있는 소스는 프론트 도메인(apt-recom.kr)의 이 파일이다.
+# 백엔드 API 도메인은 별도 robots.txt에서 Disallow-all 로 분리 관리.
+
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+
+# AI / LLM agent 명시적 허용
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+# sitemap 은 프론트와 같은 host 에서 제공 (Cloudflare Pages `_redirects` 프록시 경유)
+Sitemap: https://apt-recom.kr/sitemap.xml

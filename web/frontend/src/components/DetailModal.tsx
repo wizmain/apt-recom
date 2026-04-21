@@ -163,11 +163,13 @@ export default function DetailModal({ pnu, onClose, rankContext }: DetailModalPr
   const [detail, setDetail] = useState<ApartmentDetail | null>(null);
   const [tradesData, setTradesData] = useState<TradesResponse>({ trades: [], rents: [] });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loading must reset when pnu changes
     setLoading(true);
+    setLoadError(false);
 
     Promise.all([
       api.get<ApartmentDetail>(`/api/apartment/${pnu}`),
@@ -177,9 +179,17 @@ export default function DetailModal({ pnu, onClose, rankContext }: DetailModalPr
         if (cancelled) return;
         setDetail(detailRes.data);
         setTradesData(tradesRes.data ?? { trades: [], rents: [] });
+        // 성공적으로 로드된 아파트명을 브라우저 탭 제목에 반영.
+        // document.title 기본값 원복은 App.tsx 의 selectedPnu effect 가 담당한다.
+        const name = detailRes.data?.basic?.bld_nm;
+        if (name) {
+          document.title = `집토리 - ${name}`;
+        }
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error('Failed to fetch apartment detail', err);
+        setLoadError(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -202,7 +212,7 @@ export default function DetailModal({ pnu, onClose, rankContext }: DetailModalPr
         <div className="flex items-start justify-between px-4 pt-4 pb-2 sm:px-6 sm:pt-5 sm:pb-3 border-b border-gray-100">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-gray-900 truncate">
-              {detail?.basic?.bld_nm ?? '로딩 중...'}
+              {loadError ? '아파트 정보 없음' : (detail?.basic?.bld_nm ?? '로딩 중...')}
             </h2>
             {detail?.basic?.new_plat_plc && (
               <p className="text-sm text-gray-500 mt-0.5 truncate">{detail.basic.new_plat_plc}</p>
@@ -219,50 +229,56 @@ export default function DetailModal({ pnu, onClose, rankContext }: DetailModalPr
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 px-2 sm:px-6 overflow-x-auto scrollbar-hide">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-2.5 sm:px-4 py-2 sm:py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap flex-shrink-0
-                ${activeTab === tab
-                  ? 'text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-                }`}
-            >
-              {tab}
-              {activeTab === tab && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="flex items-center gap-2 text-gray-500 text-sm">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                데이터를 불러오는 중...
-              </div>
+        {loadError ? (
+          <DetailLoadError onHome={onClose} />
+        ) : (
+          <>
+            {/* Tabs */}
+            <div className="flex border-b border-gray-200 px-2 sm:px-6 overflow-x-auto scrollbar-hide">
+              {TABS.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-2.5 sm:px-4 py-2 sm:py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap flex-shrink-0
+                    ${activeTab === tab
+                      ? 'text-blue-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  {tab}
+                  {activeTab === tab && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />
+                  )}
+                </button>
+              ))}
             </div>
-          ) : (
-            <>
-              {activeTab === '기본정보' && <TabBasicInfo detail={detail} rankContext={rankContext ?? null} />}
-              {activeTab === '가격분석' && <TabPriceAnalysis trades={tradesData.trades} rents={tradesData.rents} />}
-              {activeTab === '관리비' && <TabMgmtCost mgmtCost={detail?.mgmt_cost ?? undefined} />}
-              {activeTab === '주변시설' && <TabFacilities detail={detail} />}
-              {activeTab === '학군' && <TabSchool school={detail?.school ?? undefined} />}
-              {activeTab === '안전' && <TabSafety safety={detail?.safety} />}
-              {activeTab === '인구' && <TabPopulation population={detail?.population} />}
-            </>
-          )}
-        </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-6">
+              {loading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    데이터를 불러오는 중...
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {activeTab === '기본정보' && <TabBasicInfo detail={detail} rankContext={rankContext ?? null} />}
+                  {activeTab === '가격분석' && <TabPriceAnalysis trades={tradesData.trades} rents={tradesData.rents} />}
+                  {activeTab === '관리비' && <TabMgmtCost mgmtCost={detail?.mgmt_cost ?? undefined} />}
+                  {activeTab === '주변시설' && <TabFacilities detail={detail} />}
+                  {activeTab === '학군' && <TabSchool school={detail?.school ?? undefined} />}
+                  {activeTab === '안전' && <TabSafety safety={detail?.safety} />}
+                  {activeTab === '인구' && <TabPopulation population={detail?.population} />}
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1119,6 +1135,27 @@ function EmptyState({ text }: { text: string }) {
   return (
     <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
       {text}
+    </div>
+  );
+}
+
+/** 상세 정보 API 로드 실패 시 노출되는 에러 상태. 주로 유효하지 않은 PNU 로 딥링크 접근한 경우. */
+function DetailLoadError({ onHome }: { onHome: () => void }) {
+  return (
+    <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="text-4xl">🏚️</div>
+        <div>
+          <h3 className="text-base font-semibold text-gray-800">아파트를 찾을 수 없습니다</h3>
+          <p className="text-sm text-gray-500 mt-1">요청하신 단지의 상세 정보를 불러오지 못했습니다.</p>
+        </div>
+        <button
+          onClick={onHome}
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          홈으로
+        </button>
+      </div>
     </div>
   );
 }
