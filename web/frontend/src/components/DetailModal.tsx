@@ -65,9 +65,12 @@ interface MgmtCostMonth {
 }
 
 interface MgmtCostByArea {
-  exclusive_area: number;
+  exclusive_area: number;  // 정수 그룹 대표 면적 (예: 84)
   unit_count: number;
   per_unit_cost: number;
+  area_min: number;
+  area_max: number;
+  subtype_count: number;
 }
 
 interface MgmtCost {
@@ -867,7 +870,14 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
               <tbody className="divide-y divide-gray-100">
                 {mgmtCost.by_area.map(r => (
                   <tr key={r.exclusive_area} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 text-gray-800">{r.exclusive_area.toFixed(2)}㎡</td>
+                    <td className="px-3 py-2 text-gray-800">
+                      <span className="font-medium">{r.exclusive_area}㎡</span>
+                      {r.subtype_count > 1 && (
+                        <span className="ml-2 text-[11px] text-gray-400">
+                          {r.area_min.toFixed(2)}~{r.area_max.toFixed(2)} · {r.subtype_count}개 타입
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right text-gray-600">{r.unit_count}</td>
                     <td className="px-3 py-2 text-right font-semibold text-gray-900">
                       {r.per_unit_cost.toLocaleString()}원
