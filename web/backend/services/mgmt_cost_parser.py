@@ -70,18 +70,28 @@ ELEVATOR_COLS = [
 ]
 
 
-def _load_kapt_pnu_map() -> dict[str, tuple[str, str, int]]:
-    """apt_kapt_info에서 kapt_code → (pnu, bld_nm, total_hhld_cnt) 매핑 로드."""
+def _load_kapt_pnu_map() -> dict[str, tuple[str, str, int, int]]:
+    """apt_kapt_info에서 kapt_code → (pnu, bld_nm, kapt_ho_cnt, total_hhld_cnt) 매핑 로드.
+
+    반환값의 세대수는 두 출처를 모두 포함:
+      - kapt_ho_cnt: apt_kapt_info.ho_cnt (K-APT 공식)
+      - total_hhld_cnt: apartments.total_hhld_cnt (건축물대장 + K-APT 갱신본)
+    세대당 관리비 계산 시 K-APT를 최우선으로 사용한다.
+    """
     conn = DictConnection()
     rows = conn.execute(
         """SELECT k.kapt_code, k.pnu, COALESCE(a.bld_nm, '') AS bld_nm,
+                  COALESCE(k.ho_cnt, 0) AS kapt_ho_cnt,
                   COALESCE(a.total_hhld_cnt, 0) AS hhld
            FROM apt_kapt_info k
            JOIN apartments a ON k.pnu = a.pnu
            WHERE k.kapt_code IS NOT NULL"""
     ).fetchall()
     conn.close()
-    return {r["kapt_code"]: (r["pnu"], r["bld_nm"], r["hhld"]) for r in rows}
+    return {
+        r["kapt_code"]: (r["pnu"], r["bld_nm"], r["kapt_ho_cnt"], r["hhld"])
+        for r in rows
+    }
 
 
 def parse_cost_excel(
@@ -166,19 +176,31 @@ def parse_cost_excel(
                     )
             continue
 
-        pnu, bld_nm, db_hhld = pnu_info
+        pnu, bld_nm, kapt_ho_cnt, db_hhld = pnu_info
 
         ym_raw = row.get("발생년월(YYYYMM)", 0)
         ym = str(int(ym_raw)) if pd.notna(ym_raw) else ""
         if len(ym) != 6:
             continue
 
-        common = sum(int(row.get(c) or 0) for c in COMMON_COLS)
-        indiv = sum(int(row.get(c) or 0) for c in INDIV_COLS)
+        # 공용관리비·개별사용료는 엑셀의 "계" 집계 컬럼을 우선 사용.
+        # 일부 단지(직영·단순표기)는 세부 항목이 NaN이고 "계"에만 합계가 들어있어
+        # 세부 합산만으로는 과소집계됨(경희궁의아침4단지 등).
+        # 반대로 세부합이 계보다 크면(반올림/입력오류) 큰 쪽을 사용.
+        common_sum = sum(int(row.get(c) or 0) for c in COMMON_COLS)
+        indiv_sum = sum(int(row.get(c) or 0) for c in INDIV_COLS)
+        common = max(int(row.get("공용관리비계") or 0), common_sum)
+        indiv = max(int(row.get("개별사용료계") or 0), indiv_sum)
         repair = int(row.get("장충금 월부과액") or 0)
         total = common + indiv + repair
 
-        hhld = area_map.get(kapt_code, 0) or db_hhld or 0
+        # 세대수 우선순위: K-APT 공식(ho_cnt) → 면적 엑셀 합 → apartments.total_hhld_cnt.
+        # Sanity check: K-APT ho_cnt 가 apartments 값의 5배 이상이면 K-APT 엑셀 오입력
+        # (예: 평택지제역자이 1052→10052)으로 판단, apartments 값 사용.
+        if kapt_ho_cnt and db_hhld and kapt_ho_cnt >= db_hhld * 5:
+            hhld = db_hhld
+        else:
+            hhld = kapt_ho_cnt or area_map.get(kapt_code, 0) or db_hhld or 0
         per_unit = total // hhld if hhld > 0 else 0
 
         detail = {}

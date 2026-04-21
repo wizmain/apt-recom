@@ -101,9 +101,16 @@ def collect_from_api(conn=None, logger=None, search_date=None, dry_run=False, li
     ym = search_date or _prev_month_yyyymm()
     logger.info(f"관리비 API 수집 시작: searchDate={ym}, limit={limit}, dry_run={dry_run}")
 
-    # kapt_code + pnu + 세대수 매핑 (세대수는 apartments 테이블)
+    # kapt_code + pnu + 세대수 매핑.
+    # 세대당 관리비 분모: K-APT 공식(ho_cnt) 최우선, Sanity check 로 K-APT 오입력(>5배) 방어.
     rows = query_all(conn, """
-        SELECT k.kapt_code, k.pnu, COALESCE(a.total_hhld_cnt, 1) AS hhld
+        SELECT k.kapt_code, k.pnu,
+               CASE
+                 WHEN k.ho_cnt > 0 AND a.total_hhld_cnt > 0
+                      AND k.ho_cnt::float / a.total_hhld_cnt >= 5
+                   THEN a.total_hhld_cnt
+                 ELSE COALESCE(NULLIF(k.ho_cnt, 0), a.total_hhld_cnt, 1)
+               END AS hhld
         FROM apt_kapt_info k
         JOIN apartments a ON k.pnu = a.pnu
         WHERE k.kapt_code IS NOT NULL
@@ -197,13 +204,21 @@ def collect_from_xlsx():
     }).reset_index()
     area_map = area_agg.set_index("단지코드").to_dict("index")
 
-    # 2. DB 연결 + kapt_code → pnu 매핑
+    # 2. DB 연결 + kapt_code → (pnu, K-APT 세대수, apts 세대수) 매핑
     conn = get_connection()
     cur = get_dict_cursor(conn)
 
-    kapt_pnu = {}
-    for r in query_all(conn, "SELECT pnu, kapt_code FROM apt_kapt_info WHERE kapt_code IS NOT NULL"):
-        kapt_pnu[r["kapt_code"]] = r["pnu"]
+    kapt_pnu: dict[str, tuple[str, int, int]] = {}
+    for r in query_all(
+        conn,
+        """SELECT k.kapt_code, k.pnu,
+                  COALESCE(k.ho_cnt, 0) AS kapt_hhld,
+                  COALESCE(a.total_hhld_cnt, 0) AS apts_hhld
+           FROM apt_kapt_info k
+           JOIN apartments a ON k.pnu = a.pnu
+           WHERE k.kapt_code IS NOT NULL""",
+    ):
+        kapt_pnu[r["kapt_code"]] = (r["pnu"], r["kapt_hhld"], r["apts_hhld"])
     logger.info(f"  kapt_code→pnu 매핑: {len(kapt_pnu):,}건")
 
     # 3. 적재
@@ -212,25 +227,33 @@ def collect_from_xlsx():
 
     for _, row in df_cost.iterrows():
         kapt_code = row.get("단지코드")
-        pnu = kapt_pnu.get(kapt_code)
-        if not pnu:
+        pnu_info = kapt_pnu.get(kapt_code)
+        if not pnu_info:
             skipped += 1
             continue
+        pnu, kapt_hhld, apts_hhld = pnu_info
 
         ym = str(int(row.get("발생년월(YYYYMM)", 0)))
         if len(ym) != 6:
             skipped += 1
             continue
 
-        # 금액 합산
-        common = sum(int(row.get(c) or 0) for c in COMMON_COLS)
-        indiv = sum(int(row.get(c) or 0) for c in INDIV_COLS)
+        # 금액 합산 — 엑셀의 "계" 집계 컬럼을 우선 사용.
+        # 일부 단지는 세부 항목이 NaN이고 계 컬럼에만 합계가 있어 세부합만으로는 과소집계됨.
+        common_sum = sum(int(row.get(c) or 0) for c in COMMON_COLS)
+        indiv_sum = sum(int(row.get(c) or 0) for c in INDIV_COLS)
+        common = max(int(row.get("공용관리비계") or 0), common_sum)
+        indiv = max(int(row.get("개별사용료계") or 0), indiv_sum)
         repair = int(row.get("장충금 월부과액") or 0)
         total = common + indiv + repair
 
-        # 면적/세대수
+        # 세대수 우선순위: K-APT 공식(ho_cnt) → 면적 엑셀 합 → apts
+        # Sanity check: K-APT ho_cnt 가 apts 의 5배 이상이면 엑셀 오입력으로 apts 사용.
         area_info = area_map.get(kapt_code, {})
-        hhld = int(area_info.get("세대수", 0)) or 1
+        if kapt_hhld and apts_hhld and kapt_hhld >= apts_hhld * 5:
+            hhld = apts_hhld
+        else:
+            hhld = kapt_hhld or int(area_info.get("세대수", 0)) or apts_hhld or 1
         charge_area = float(area_info.get("관리비부과면적", 0)) or None
 
         per_unit = total // hhld if hhld > 0 else 0
