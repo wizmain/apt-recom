@@ -77,6 +77,7 @@ interface MgmtCost {
   months: MgmtCostMonth[];
   region_avg_per_unit: number | null;
   by_area: MgmtCostByArea[] | null;
+  cost_per_m2: number | null;
   latest_year_month: string | null;
 }
 
@@ -822,6 +823,19 @@ function TabMgmtCost({ mgmtCost }: { mgmtCost?: MgmtCost }) {
           </div>
         )}
       </div>
+
+      {/* 단위면적당 관리비 (관리비부과면적 기준) */}
+      {mgmtCost.cost_per_m2 && (
+        <div className="bg-indigo-50 rounded-lg p-3 flex items-baseline justify-between">
+          <div>
+            <p className="text-xs text-indigo-500">단위면적당 관리비</p>
+            <p className="text-[11px] text-indigo-400 mt-0.5">관리비부과면적 기준</p>
+          </div>
+          <p className="text-lg font-bold text-indigo-800">
+            {mgmtCost.cost_per_m2.toLocaleString()}원<span className="text-xs font-normal text-indigo-500 ml-1">/㎡</span>
+          </p>
+        </div>
+      )}
 
       {/* 공용/개별/장충금 비율 */}
       <div className="bg-gray-50 rounded-lg p-4">
