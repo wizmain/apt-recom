@@ -35,6 +35,8 @@ node_modules/
 # Build output
 dist/
 web/backend/static/admin/
+# 빌드 시점에 scripts/fetch-sitemap.mjs 가 생성 — 소스로 취급 금지
+web/frontend/public/sitemap.xml
 
 # Playwright MCP
 .playwright-mcp/
