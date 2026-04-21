@@ -1,13 +1,11 @@
-# Cloudflare Pages routing rules for 집토리
+# Cloudflare Pages routing rules for 집토리 (apt-recom)
 # 형식: <source> <destination> <status>
-# <status> 200 = rewrite(URL 유지), 301/302 = redirect
 
-# 1) SPA fallback for apartment deep links
-#    /apartment/:pnu 같은 클라이언트 라우트로 직접 진입 시 index.html 반환 → React가 URL 파싱해서 해당 아파트 상세 모달을 오픈.
+# SPA fallback for apartment deep links
+# /apartment/:pnu 같은 클라이언트 라우트로 직접 진입 시 index.html 반환.
+# React 가 URL 파싱해 해당 아파트 상세 모달을 오픈.
 /apartment/*  /index.html  200
 
-# 2) Sitemap proxy — Pages Function 으로 대체됨.
-#    sitemap.xml 은 `functions/sitemap.xml.ts` 가 담당한다. Pages Function 이 존재하면
-#    `_redirects` 보다 우선 평가되므로 여기 rewrite 를 두어도 무시된다. 주석으로 남겨
-#    외부 host rewrite 로 전환하고 싶을 때 참고.
-# /sitemap.xml  https://api.apt-recom.kr/sitemap.xml  200
+# NOTE: sitemap.xml 은 빌드 시점에 scripts/fetch-sitemap.mjs 가 백엔드에서 받아
+# public/sitemap.xml 정적 파일로 저장한다. CF Pages `_redirects` 의 외부 host
+# rewrite(200) 는 지원되지 않아 index.html 로 흡수되던 문제를 우회한다.
