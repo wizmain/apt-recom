@@ -735,6 +735,66 @@ if __name__ == "__main__":
         metro_score = facility_score(500, 5, "mart", profile="metro")
         assert default_score == metro_score, f"default({default_score}) != metro({metro_score})"
 
+    # ---------- 관리비 면적별 안분 ----------
+
+    @test("관리비 안분: 경희궁의아침4단지 정수 평형 그룹화(150은 2 subtype 병합)")
+    def test_mgmt_cost_by_area_formula():
+        from services.mgmt_cost_calc import compute_by_area
+        latest = {"common_cost": 29805940, "individual_cost": 18721144, "repair_fund": 4168125}
+        area_types = [
+            {"exclusive_area": 124.17, "unit_count": 75, "priv_area_total": 16020.9},
+            {"exclusive_area": 145.96, "unit_count": 15, "priv_area_total": 16020.9},
+            {"exclusive_area": 150.48, "unit_count": 15, "priv_area_total": 16020.9},
+            {"exclusive_area": 150.77, "unit_count": 15, "priv_area_total": 16020.9},
+        ]
+        result = compute_by_area(latest, area_types)
+        # 124, 145, 150 — 150 그룹에 subtype 2개 병합
+        assert result is not None and len(result) == 3, f"expected 3 groups, got {result}"
+        keys = [r["exclusive_area"] for r in result]
+        assert keys == [124, 145, 150], keys
+        # 150 그룹: 30세대, 2 subtype
+        g150 = next(r for r in result if r["exclusive_area"] == 150)
+        assert g150["unit_count"] == 30 and g150["subtype_count"] == 2, g150
+        # 124 그룹 세대당 관리비 40만원대
+        g124 = next(r for r in result if r["exclusive_area"] == 124)
+        assert 400000 <= g124["per_unit_cost"] <= 430000, g124
+        # 단조 증가
+        values = [r["per_unit_cost"] for r in result]
+        assert values == sorted(values), f"values not sorted asc: {values}"
+        # 합계 검증 (오차 < 0.1%)
+        total_sum = sum(r["per_unit_cost"] * r["unit_count"] for r in result)
+        actual = latest["common_cost"] + latest["individual_cost"] + latest["repair_fund"]
+        err = abs(total_sum - actual) / actual
+        assert err < 0.001, f"합계 오차 {err*100:.3f}% 초과: {total_sum} vs {actual}"
+
+    @test("관리비 안분: 빈 입력/결측 데이터 방어")
+    def test_mgmt_cost_by_area_edge():
+        from services.mgmt_cost_calc import compute_by_area
+        assert compute_by_area({}, []) is None
+        assert compute_by_area({"common_cost": 100}, []) is None
+        assert compute_by_area(
+            {"common_cost": 100, "individual_cost": 0, "repair_fund": 0},
+            [{"exclusive_area": 0, "unit_count": 0, "priv_area_total": 0}],
+        ) is None
+
+    @test("상세 API: mgmt_cost.by_area 정수 그룹, 세대 합 == 총 세대수")
+    def test_detail_api_by_area():
+        from fastapi.testclient import TestClient
+        from main import app
+        client = TestClient(app)
+        resp = client.get("/api/apartment/1111011800000730000")  # 경희궁의아침4단지
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        mc = data.get("mgmt_cost")
+        assert mc is not None, "mgmt_cost 없음"
+        by_area = mc.get("by_area")
+        # 124, 145, 150 — 150.48/150.77 병합으로 3 그룹
+        assert by_area and len(by_area) == 3, f"by_area 기대 3건, got {by_area}"
+        total_units = sum(r["unit_count"] for r in by_area)
+        assert total_units == 120, f"세대 합 120 기대, got {total_units}"
+        keys = [r["exclusive_area"] for r in by_area]
+        assert keys == [124, 145, 150], keys
+
     # ---------- 대시보드 성능: 집계 테이블 + 엔드포인트 ----------
 
     @test("대시보드: 집계 테이블 3종이 비어있지 않음")
