@@ -42,6 +42,7 @@ from database import (
     close_pool,
 )
 from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log, sitemap
+from mcp_server import mcp as _mcp, mcp_asgi_app
 
 
 @asynccontextmanager
@@ -51,7 +52,9 @@ async def lifespan(app: FastAPI):
     - startup: connection pool 초기화 → 스키마 멱등 마이그레이션
       (CREATE TABLE IF NOT EXISTS + ALTER TABLE ... ADD COLUMN IF NOT EXISTS)
       Railway 재배포 후 첫 요청 전에 스키마를 최신 코드와 맞춤.
-    - shutdown: pool 해제.
+      → MCP StreamableHTTPSessionManager 실행 (서브 Starlette app 의 lifespan 은
+        mount 시 자동 호출되지 않으므로 메인 lifespan 에서 함께 관리).
+    - shutdown: pool 해제 + MCP 세션 매니저 정리.
     """
     init_pool()
     try:
@@ -67,7 +70,8 @@ async def lifespan(app: FastAPI):
         # 마이그레이션 실패해도 서버 기동은 계속 (운영 중단 방지)
         print(f"[startup] schema migration 실패: {e}")
     try:
-        yield
+        async with _mcp.session_manager.run():
+            yield
     finally:
         close_pool()
 
@@ -99,6 +103,10 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(log.router, prefix="/api")
 # sitemap.xml / robots.txt 는 크롤러 관례상 루트 경로에서 서빙되어야 하므로 prefix 없이 등록.
 app.include_router(sitemap.router)
+
+# MCP (Model Context Protocol) — Claude Desktop / Cursor 등 agent 용 엔드포인트.
+# 내부는 Streamable HTTP transport. 클라이언트는 `https://<domain>/mcp/` 에 연결.
+app.mount("/mcp", mcp_asgi_app)
 
 
 @app.get("/api/health")
