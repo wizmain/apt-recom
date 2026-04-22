@@ -2,21 +2,19 @@
 "use client";
 
 /**
- * 일반 아파트 마커 (작은 회색 점).
- * CustomOverlay 로 DOM 요소 자체를 지도에 올린다 (Marker 아닌 이유: 초소형 + 인터랙션 제어).
+ * 일반 아파트 마커 — Kakao 기본 Marker (파란 핀).
+ * MarkerClusterer 에 등록되어 줌 아웃 시 클러스터링된다.
  */
 export function createBasicMarker(
   position: kakao.maps.LatLng,
+  title: string,
   onClick: () => void,
-): kakao.maps.CustomOverlay {
-  const el = document.createElement("div");
-  el.style.cssText =
-    "width:10px;height:10px;border-radius:50%;background:#6B7280;border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);cursor:pointer;";
-  el.addEventListener("click", onClick);
-  return new window.kakao!.maps.CustomOverlay({
+): kakao.maps.Marker {
+  const marker = new window.kakao!.maps.Marker({
     position,
-    content: el,
-    yAnchor: 0.5,
+    title,
     clickable: true,
   });
+  window.kakao!.maps.event.addListener(marker, "click", onClick);
+  return marker;
 }

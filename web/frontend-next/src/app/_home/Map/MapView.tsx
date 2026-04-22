@@ -38,12 +38,12 @@ export function MapView(props: MapViewProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const ready = useKakaoReady();
-  const { mapRef } = useMapInstance(containerRef, ready, onBoundsChange);
+  const { mapRef, clustererRef } = useMapInstance(containerRef, ready, onBoundsChange);
 
-  // 스코어드(순위) 마커 / 챗봇 하이라이트 / 일반 마커 3레이어 관리
-  const rankedOverlaysRef = useRef<kakao.maps.CustomOverlay[]>([]);
-  const chatOverlaysRef = useRef<kakao.maps.CustomOverlay[]>([]);
-  const basicOverlaysRef = useRef<kakao.maps.CustomOverlay[]>([]);
+  // 마커 3 레이어: 기본(Marker + Clusterer), 순위(Marker image), 챗봇(Marker image)
+  const rankedMarkersRef = useRef<kakao.maps.Marker[]>([]);
+  const chatMarkersRef = useRef<kakao.maps.Marker[]>([]);
+  const basicMarkersRef = useRef<kakao.maps.Marker[]>([]);
   const closeInfoRef = useRef<(() => void) | null>(null);
 
   const showInfo = (apt: { pnu: string; bld_nm: string; lat: number; lng: number }) => {
@@ -75,71 +75,78 @@ export function MapView(props: MapViewProps) {
     );
   };
 
-  // 순위 마커 갱신 (scoredApartments 우선)
+  // 순위 마커 — Marker + MarkerImage (클러스터러에 넣지 않고 개별 표시)
   useEffect(() => {
     if (!mapRef.current || !ready) return;
     const k = window.kakao!.maps;
-    rankedOverlaysRef.current.forEach((o) => o.setMap(null));
-    rankedOverlaysRef.current = [];
+    rankedMarkersRef.current.forEach((m) => m.setMap(null));
+    rankedMarkersRef.current = [];
     scoredApartments.forEach((apt, idx) => {
       if (!apt.lat || !apt.lng) return;
       const rank = idx + 1;
-      const ov = createRankedMarker(
+      const marker = createRankedMarker(
         new k.LatLng(apt.lat, apt.lng),
         rank,
+        `${rank}위 ${apt.bld_nm}`,
         () => showInfo({ pnu: apt.pnu, bld_nm: apt.bld_nm, lat: apt.lat, lng: apt.lng }),
       );
-      ov.setMap(mapRef.current);
-      rankedOverlaysRef.current.push(ov);
+      marker.setMap(mapRef.current);
+      rankedMarkersRef.current.push(marker);
     });
     return () => {
-      rankedOverlaysRef.current.forEach((o) => o.setMap(null));
+      rankedMarkersRef.current.forEach((m) => m.setMap(null));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 는 매 렌더 생성되므로 제외 (안정적 참조 우회)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [scoredApartments, ready, mapRef]);
 
-  // 챗봇 하이라이트 마커
+  // 챗봇 하이라이트 — Marker + MarkerImage (개별 표시)
   useEffect(() => {
     if (!mapRef.current || !ready) return;
     const k = window.kakao!.maps;
-    chatOverlaysRef.current.forEach((o) => o.setMap(null));
-    chatOverlaysRef.current = [];
+    chatMarkersRef.current.forEach((m) => m.setMap(null));
+    chatMarkersRef.current = [];
     chatHighlights.forEach((apt) => {
-      const ov = createChatMarker(
+      const marker = createChatMarker(
         new k.LatLng(apt.lat, apt.lng),
+        apt.bld_nm,
         () => showInfo({ pnu: apt.pnu, bld_nm: apt.bld_nm, lat: apt.lat, lng: apt.lng }),
       );
-      ov.setMap(mapRef.current);
-      chatOverlaysRef.current.push(ov);
+      marker.setMap(mapRef.current);
+      chatMarkersRef.current.push(marker);
     });
     return () => {
-      chatOverlaysRef.current.forEach((o) => o.setMap(null));
+      chatMarkersRef.current.forEach((m) => m.setMap(null));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [chatHighlights, ready, mapRef]);
 
-  // 일반 아파트 마커 (스코어·챗봇이 없으면 기본 표시)
+  // 일반 아파트 마커 — MarkerClusterer 에 등록 (스코어 모드에서는 숨김)
   useEffect(() => {
-    if (!mapRef.current || !ready) return;
+    if (!mapRef.current || !ready || !clustererRef.current) return;
+    const clusterer = clustererRef.current;
     const k = window.kakao!.maps;
-    basicOverlaysRef.current.forEach((o) => o.setMap(null));
-    basicOverlaysRef.current = [];
-    if (scoredApartments.length > 0) return; // 순위 모드에서는 숨김
+    clusterer.clear();
+    basicMarkersRef.current = [];
+    if (scoredApartments.length > 0) return; // 순위 모드: 기본 마커 숨김
+    const markers: kakao.maps.Marker[] = [];
     apartments.forEach((apt) => {
-      const ov = createBasicMarker(
+      if (apt.lat == null || apt.lng == null) return;
+      const marker = createBasicMarker(
         new k.LatLng(apt.lat, apt.lng),
+        apt.bld_nm || "",
         () => showInfo({ pnu: apt.pnu, bld_nm: apt.bld_nm, lat: apt.lat, lng: apt.lng }),
       );
-      ov.setMap(mapRef.current);
-      basicOverlaysRef.current.push(ov);
+      markers.push(marker);
     });
+    basicMarkersRef.current = markers;
+    clusterer.addMarkers(markers);
     return () => {
-      basicOverlaysRef.current.forEach((o) => o.setMap(null));
+      clusterer.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
-  }, [apartments, scoredApartments.length, ready, mapRef]);
+  }, [apartments, scoredApartments.length, ready, mapRef, clustererRef]);
 
-  // focus 이동
+  // focus 이동 — panTo + InfoWindow
   useEffect(() => {
     if (!mapRef.current || !ready || !focusPnu) return;
     const k = window.kakao!.maps;
