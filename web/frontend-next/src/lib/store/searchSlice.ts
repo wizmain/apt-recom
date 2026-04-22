@@ -9,7 +9,10 @@ export type FilterState = {
   min_price?: number;
   max_price?: number;
   min_floor?: number;
+  min_hhld?: number;
+  max_hhld?: number;
   built_after?: number;
+  built_before?: number;
 };
 
 export type SearchSlice = {
