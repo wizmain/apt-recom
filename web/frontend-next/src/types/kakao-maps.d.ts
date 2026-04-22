@@ -83,6 +83,8 @@ declare namespace kakao.maps {
     averageCenter?: boolean;
     minLevel?: number;
     gridSize?: number;
+    disableClickZoom?: boolean;
+    styles?: Array<Record<string, string | number>>;
   }
   class MarkerClusterer {
     constructor(options: MarkerClustererOptions);

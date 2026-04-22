@@ -31,8 +31,21 @@ export function useMapInstance(
     const clusterer = new k.MarkerClusterer({
       map,
       averageCenter: true,
-      minLevel: 7,
-      gridSize: 60,
+      minLevel: 5,
+      disableClickZoom: false,
+      styles: [
+        {
+          width: "40px",
+          height: "40px",
+          background: "rgba(37, 99, 235, 0.7)",
+          borderRadius: "50%",
+          color: "#fff",
+          textAlign: "center",
+          lineHeight: "40px",
+          fontSize: "14px",
+          fontWeight: "bold",
+        },
+      ],
     });
     clustererRef.current = clusterer;
 
