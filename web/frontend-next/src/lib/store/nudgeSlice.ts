@@ -22,6 +22,7 @@ export type NudgeSlice = {
   fetchDefaultWeights: () => Promise<void>;
   scoreApartments: () => Promise<void>;
   setRankContext: (ctx: RankContext | null) => void;
+  clearSelectedNudges: () => void;
 };
 
 export const createNudgeSlice: StateCreator<NudgeSlice> = (set) => ({
@@ -91,4 +92,5 @@ export const createNudgeSlice: StateCreator<NudgeSlice> = (set) => ({
     }
   },
   setRankContext: (ctx) => set({ rankContext: ctx }),
+  clearSelectedNudges: () => set({ selectedNudges: [] }),
 });
