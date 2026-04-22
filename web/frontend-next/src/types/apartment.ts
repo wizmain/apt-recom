@@ -96,6 +96,60 @@ export interface SchoolZone {
   edu_district?: string | null;
 }
 
+/** safety: 상세 API 에서 반환되는 안전 관련 복합 객체. */
+export interface SafetyData {
+  safety_score?: number | null;
+  score_version?: number;
+  crime_safety_score?: number | null;
+  crime_detail?: {
+    murder?: number;
+    robbery?: number;
+    sexual_assault?: number;
+    theft?: number;
+    violence?: number;
+    total_crime?: number;
+    resident_pop?: number;
+    effective_pop?: number;
+    crime_rate?: number | null;
+  } | null;
+  police_nearest_m?: number | null;
+  fire_nearest_m?: number | null;
+  fire_center_nearest_m?: number | null;
+  hospital_nearest_m?: number | null;
+  nudge_safety_score?: number | null;
+  v3?: Record<string, unknown> | null;
+  regional_grades?: Record<string, unknown> | null;
+  kapt_security?: unknown;
+}
+
+/** population: 시군구 단위 인구 통계. */
+export interface PopulationData {
+  sigungu_name?: string | null;
+  total_pop?: number | null;
+  male_pop?: number | null;
+  female_pop?: number | null;
+  age_groups?: Array<{
+    age_group?: string;
+    total?: number | null;
+    male?: number | null;
+    female?: number | null;
+  }> | null;
+}
+
+/** K-APT 단지 정보 — null 일 수 있음 */
+export interface KaptInfo {
+  builder?: string | null;
+  heat_type?: string | null;
+  structure?: string | null;
+  hall_type?: string | null;
+  parking_cnt?: number | null;
+  elevator_cnt?: number | null;
+  cctv_cnt?: number | null;
+  ev_charger_cnt?: number | null;
+  mgr_type?: string | null;
+  [key: string]: unknown;
+}
+
 export interface ApartmentDetail {
   basic: ApartmentBasic;
   scores?: Record<string, number>;
@@ -111,9 +165,9 @@ export interface ApartmentDetail {
   >;
   nearby_facilities?: unknown;
   school?: SchoolZone | null;
-  safety?: Record<string, unknown> | null;
-  population?: Record<string, unknown> | null;
-  kapt_info?: Record<string, unknown> | null;
+  safety?: SafetyData | null;
+  population?: PopulationData | null;
+  kapt_info?: KaptInfo | null;
   mgmt_cost?: Record<string, unknown> | null;
 }
 
