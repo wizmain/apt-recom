@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChat } from '@/hooks/useChat';
-import type { MapAction } from '@/hooks/useChat';
 import ChatInput from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
 import ChatMessage, { LoadingIndicator } from './ChatMessage';

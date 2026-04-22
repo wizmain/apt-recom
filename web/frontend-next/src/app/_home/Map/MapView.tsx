@@ -95,6 +95,7 @@ export function MapView(props: MapViewProps) {
     return () => {
       rankedOverlaysRef.current.forEach((o) => o.setMap(null));
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 는 매 렌더 생성되므로 제외 (안정적 참조 우회)
   }, [scoredApartments, ready, mapRef]);
 
   // 챗봇 하이라이트 마커
@@ -114,6 +115,7 @@ export function MapView(props: MapViewProps) {
     return () => {
       chatOverlaysRef.current.forEach((o) => o.setMap(null));
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [chatHighlights, ready, mapRef]);
 
   // 일반 아파트 마커 (스코어·챗봇이 없으면 기본 표시)
@@ -134,6 +136,7 @@ export function MapView(props: MapViewProps) {
     return () => {
       basicOverlaysRef.current.forEach((o) => o.setMap(null));
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [apartments, scoredApartments.length, ready, mapRef]);
 
   // focus 이동
@@ -147,6 +150,7 @@ export function MapView(props: MapViewProps) {
       lat: focusPnu.lat,
       lng: focusPnu.lng,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [focusPnu, ready, mapRef]);
 
   return (

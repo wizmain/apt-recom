@@ -151,7 +151,6 @@ export default function Dashboard() {
   // 지역 검색 (debounce 200ms + AbortController로 stale 응답 덮어쓰기 방지)
   useEffect(() => {
     if (!regionQuery.trim()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear results on empty query
       setRegionResults([]);
       return;
     }
@@ -264,7 +263,6 @@ export default function Dashboard() {
 
   // 필터/타입 변경 시 로딩 + fetch (첫 로드 포함).
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading reset on filter change
     setLoading(true);
     fetchRef.current();
   }, [sggFilter, rankingType, recentType]);

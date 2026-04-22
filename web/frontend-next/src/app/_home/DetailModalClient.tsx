@@ -23,6 +23,7 @@ export function DetailModalClient({ pnu }: { pnu: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- pnu 변화 시 로딩 상태 리셋
     setLoading(true);
     setLoadError(false);
     Promise.all([

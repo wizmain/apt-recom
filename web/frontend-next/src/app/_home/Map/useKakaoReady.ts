@@ -15,6 +15,7 @@ export function useKakaoReady(): boolean {
     if (ready) return;
     // 이미 sdk 가 로드 + load callback 이 실행된 상태인지
     if (typeof window !== "undefined" && window.kakao?.maps?.LatLng) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 외부 SDK 준비 상태를 React state 로 동기화 (일회성)
       setReady(true);
       return;
     }
