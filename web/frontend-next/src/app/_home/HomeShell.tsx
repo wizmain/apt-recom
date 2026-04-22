@@ -21,6 +21,7 @@ import { DetailModalClient } from "./DetailModalClient";
 export function HomeShell() {
   // store state
   const apartments = useAppStore((s) => s.apartments);
+  const regionFitNonce = useAppStore((s) => s.regionFitNonce);
   const filters = useAppStore((s) => s.filters);
   const nudgeResults = useAppStore((s) => s.nudgeResults);
   const nudgeLoading = useAppStore((s) => s.nudgeLoading);
@@ -106,6 +107,7 @@ export function HomeShell() {
             scoredApartments={nudgeResults}
             chatHighlights={chatHighlights}
             focusPnu={focusPnu}
+            regionFitNonce={regionFitNonce}
             onBoundsChange={onBoundsChange}
             onDetailOpen={(pnu) => selectApartment(pnu)}
             onChatAnalyze={handleAnalyzeFromMap}

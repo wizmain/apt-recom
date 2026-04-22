@@ -18,6 +18,7 @@ export type MapViewProps = {
   scoredApartments: ScoredApartment[];
   chatHighlights: ChatHighlightApt[];
   focusPnu: FocusPnu | null;
+  regionFitNonce: number;
   onBoundsChange: (bounds: MapBounds) => void;
   onDetailOpen: (pnu: string) => void;
   onChatAnalyze: (name: string, pnu: string) => void;
@@ -30,6 +31,7 @@ export function MapView(props: MapViewProps) {
     scoredApartments,
     chatHighlights,
     focusPnu,
+    regionFitNonce,
     onBoundsChange,
     onDetailOpen,
     onChatAnalyze,
@@ -159,6 +161,24 @@ export function MapView(props: MapViewProps) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [focusPnu, ready, mapRef]);
+
+  // 지역 필터 선택 시 — nonce 증가를 키로 해당 지역 아파트 전체로 fitBounds (1회).
+  // apartments 는 nonce 와 함께 갱신되므로 최신값이 사용됨. 의존성에 포함하면
+  // 필터 변경 등 다른 이유로 apartments 가 바뀔 때도 fit 발생하므로 의도적으로 제외.
+  useEffect(() => {
+    if (!regionFitNonce || !mapRef.current || !ready) return;
+    const k = window.kakao!.maps;
+    const bounds = new k.LatLngBounds();
+    let count = 0;
+    for (const apt of apartments) {
+      if (apt.lat != null && apt.lng != null) {
+        bounds.extend(new k.LatLng(apt.lat, apt.lng));
+        count++;
+      }
+    }
+    if (count > 0) mapRef.current.setBounds(bounds, 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apartments 는 nonce 와 함께 갱신
+  }, [regionFitNonce]);
 
   return (
     <div ref={containerRef} className="w-full h-full">
