@@ -1,11 +1,4 @@
 // src/types/kakao-maps.d.ts
-export {};
-
-declare global {
-  interface Window {
-    kakao?: typeof kakao;
-  }
-}
 
 declare namespace kakao.maps {
   class LatLng {
@@ -112,4 +105,10 @@ declare namespace kakao.maps {
   }
 
   function load(callback: () => void): void;
+}
+
+declare global {
+  interface Window {
+    kakao?: typeof kakao;
+  }
 }
