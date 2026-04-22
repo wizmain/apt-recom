@@ -69,7 +69,7 @@ export const createSearchSlice: StateCreator<SearchSlice> = (set) => ({
       ...filters,
     };
     if (selectedRegion) {
-      params[selectedRegion.type === "sigungu" ? "sgg_code" : "bjd_code"] =
+      params[selectedRegion.type === "emd" ? "bjd_code" : "sigungu_code"] =
         selectedRegion.code;
     } else if (mapBounds) {
       params.sw_lat = mapBounds.sw.lat;
