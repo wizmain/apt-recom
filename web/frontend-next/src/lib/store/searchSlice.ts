@@ -1,5 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { Apartment, MapBounds, SelectedRegion } from "@/types/apartment";
+import { api } from "@/lib/api";
+import { useAppStore } from "./index";
 
 export type FilterState = {
   min_area?: number;
@@ -60,6 +62,27 @@ export const createSearchSlice: StateCreator<SearchSlice> = (set) => ({
   clearFilters: () => set({ filters: {} }),
   onBoundsChange: (bounds) => set({ mapBounds: bounds }),
   fetchApartments: async () => {
-    // Wave D Task 12 에서 구현
+    const { mapBounds, selectedRegion, filters } = useAppStore.getState() as SearchSlice;
+    if (!mapBounds && !selectedRegion) return;
+
+    const params: Record<string, string | number | undefined> = {
+      ...filters,
+    };
+    if (selectedRegion) {
+      params[selectedRegion.type === "sigungu" ? "sgg_code" : "bjd_code"] =
+        selectedRegion.code;
+    } else if (mapBounds) {
+      params.sw_lat = mapBounds.sw.lat;
+      params.sw_lng = mapBounds.sw.lng;
+      params.ne_lat = mapBounds.ne.lat;
+      params.ne_lng = mapBounds.ne.lng;
+    }
+
+    try {
+      const res = await api.get<Apartment[]>("/api/apartments", { params });
+      set({ apartments: res.data });
+    } catch (err) {
+      console.error("fetchApartments failed", err);
+    }
   },
 });
