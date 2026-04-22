@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* 집토리 글로벌 스타일 — 기존 Vite 프로젝트(index.css) 에서 이관.
+   Next.js App Router 는 #root 래퍼 없이 body 를 루트로 쓰므로,
+   iOS safe-area padding 을 body 에 직접 붙인다. */
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #111827; /* text-gray-900 기본 */
+  background: #ffffff;
+}
+
+/* 스크롤바 숨기기 — 카드 가로 스와이프·탭바 등에서 사용 */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 애니메이션 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+@keyframes bounce-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.animate-bounce-slow {
+  animation: bounce-slow 2s ease-in-out infinite;
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-slide-down {
+  animation: slide-down 0.2s ease-out;
+}

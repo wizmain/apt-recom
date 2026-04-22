@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 배경 원 -->
+  <circle cx="32" cy="32" r="30" fill="#f59e0b"/>
+  <circle cx="32" cy="32" r="28" fill="#fbbf24"/>
+
+  <!-- 집 지붕 -->
+  <path d="M32 16 L16 28 L48 28 Z" fill="#92400e"/>
+  <!-- 집 몸체 -->
+  <rect x="19" y="28" width="26" height="18" rx="1.5" fill="#fef3c7"/>
+  <rect x="19" y="28" width="26" height="18" rx="1.5" fill="none" stroke="#92400e" stroke-width="0.8"/>
+  <!-- 문 -->
+  <rect x="28" y="35" width="8" height="11" rx="1" fill="#92400e"/>
+  <circle cx="34" cy="41" r="0.8" fill="#fbbf24"/>
+  <!-- 창문 좌 -->
+  <rect x="21.5" y="31" width="5" height="5" rx="0.5" fill="#93c5fd" stroke="#92400e" stroke-width="0.5"/>
+  <line x1="24" y1="31" x2="24" y2="36" stroke="#92400e" stroke-width="0.4"/>
+  <line x1="21.5" y1="33.5" x2="26.5" y2="33.5" stroke="#92400e" stroke-width="0.4"/>
+  <!-- 창문 우 -->
+  <rect x="37.5" y="31" width="5" height="5" rx="0.5" fill="#93c5fd" stroke="#92400e" stroke-width="0.5"/>
+  <line x1="40" y1="31" x2="40" y2="36" stroke="#92400e" stroke-width="0.4"/>
+  <line x1="37.5" y1="33.5" x2="42.5" y2="33.5" stroke="#92400e" stroke-width="0.4"/>
+
+  <!-- 다람쥐 (지붕 위 오른쪽) -->
+  <!-- 꼬리 -->
+  <path d="M44 15 Q51 8 47 3 Q53 6 49 13" fill="#78350f" opacity="0.9"/>
+  <!-- 몸통 -->
+  <ellipse cx="41" cy="16" rx="4.5" ry="4" fill="#92400e"/>
+  <!-- 배 -->
+  <ellipse cx="40" cy="17" rx="2.5" ry="2.5" fill="#fde68a"/>
+  <!-- 머리 -->
+  <circle cx="36.5" cy="13" r="4.5" fill="#a16207"/>
+  <!-- 뺨 -->
+  <circle cx="34" cy="14.5" r="1.2" fill="#fde68a" opacity="0.6"/>
+  <circle cx="39" cy="14.5" r="1.2" fill="#fde68a" opacity="0.6"/>
+  <!-- 귀 왼쪽 -->
+  <ellipse cx="33.5" cy="9" rx="2" ry="2.5" fill="#a16207"/>
+  <ellipse cx="33.5" cy="9" rx="1.2" ry="1.5" fill="#fde68a"/>
+  <!-- 귀 오른쪽 -->
+  <ellipse cx="39.5" cy="9" rx="2" ry="2.5" fill="#a16207"/>
+  <ellipse cx="39.5" cy="9" rx="1.2" ry="1.5" fill="#fde68a"/>
+  <!-- 눈 왼쪽 -->
+  <circle cx="35" cy="12" r="1.5" fill="white"/>
+  <circle cx="35.3" cy="11.8" r="0.8" fill="#1e293b"/>
+  <circle cx="35.6" cy="11.4" r="0.3" fill="white"/>
+  <!-- 눈 오른쪽 -->
+  <circle cx="38.5" cy="12" r="1.5" fill="white"/>
+  <circle cx="38.8" cy="11.8" r="0.8" fill="#1e293b"/>
+  <circle cx="39.1" cy="11.4" r="0.3" fill="white"/>
+  <!-- 코 -->
+  <ellipse cx="36.8" cy="14" rx="0.8" ry="0.5" fill="#1e293b"/>
+  <!-- 입 -->
+  <path d="M35.8 15 Q36.8 16 37.8 15" fill="none" stroke="#78350f" stroke-width="0.4"/>
+</svg>
