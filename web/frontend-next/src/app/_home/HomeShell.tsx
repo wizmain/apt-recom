@@ -125,7 +125,8 @@ export function HomeShell() {
           />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto">
+        // 대시보드 — NudgeBar(fixed h-12 sm:h-14) 에 가려지지 않도록 상단 패딩
+        <div className="flex-1 overflow-y-auto pt-12 sm:pt-14">
           <Dashboard />
         </div>
       )}
