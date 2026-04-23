@@ -152,6 +152,9 @@ export function MapView(props: MapViewProps) {
   useEffect(() => {
     if (!mapRef.current || !ready || !focusPnu) return;
     const k = window.kakao!.maps;
+    // Vite 동일 동작 — setLevel(3) 으로 가까이 줌 후 panTo. 지도 전역 뷰에서
+    // 단일 아파트로 이동 시 pan 만으로는 시각 변화가 거의 없어 사용자 인지 불가.
+    mapRef.current.setLevel(3);
     mapRef.current.panTo(new k.LatLng(focusPnu.lat, focusPnu.lng));
     showInfo({
       pnu: focusPnu.pnu,
