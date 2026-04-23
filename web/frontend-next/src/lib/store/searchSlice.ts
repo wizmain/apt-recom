@@ -27,7 +27,7 @@ export type SearchSlice = {
   addKeyword: (keyword: string, label?: string) => void;
   removeKeyword: (keyword: string) => void;
   clearKeywords: () => void;
-  selectRegion: (region: SelectedRegion) => void;
+  selectRegion: (region: SelectedRegion) => Promise<void>;
   clearRegion: () => void;
   applyFilters: (filters: FilterState) => void;
   clearFilters: () => void;
@@ -58,8 +58,14 @@ export const createSearchSlice: StateCreator<SearchSlice> = (set) => ({
       searchKeywords: s.searchKeywords.filter((k) => k !== keyword),
     })),
   clearKeywords: () => set({ searchKeywords: [], keywordLabels: {} }),
-  selectRegion: (region) =>
-    set((s) => ({ selectedRegion: region, regionFitNonce: s.regionFitNonce + 1 })),
+  selectRegion: async (region) => {
+    // Vite 동일 순서 — region 세팅 + 데이터 fetch 완료 → nonce 증가.
+    // nonce 는 MapView fitBounds 트리거이므로 apartments 가 갱신된 뒤에 올려야
+    // 새 지역 좌표 범위로 정확히 fit 된다.
+    set({ selectedRegion: region });
+    await (useAppStore.getState() as SearchSlice).fetchApartments();
+    set((s) => ({ regionFitNonce: s.regionFitNonce + 1 }));
+  },
   clearRegion: () => set({ selectedRegion: null }),
   applyFilters: (filters) => set({ filters }),
   clearFilters: () => set({ filters: {} }),
