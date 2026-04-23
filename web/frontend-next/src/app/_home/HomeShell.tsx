@@ -132,11 +132,59 @@ export function HomeShell() {
 
       {selectedPnu ? <DetailModalClient pnu={selectedPnu} /> : null}
       {showChat ? <ChatModal /> : null}
+      {/* Compare bar — 비교 대상 1~2개 선택 시 하단 pill 노출 */}
+      {compareList.length > 0 ? (
+        <div
+          className={`fixed bottom-0 left-0 right-0 sm:left-1/2 sm:right-auto sm:-translate-x-1/2
+            ${hasResults ? "sm:bottom-32" : "sm:bottom-6"}
+            z-20 bg-white border-t sm:border border-gray-200 shadow-lg sm:rounded-full
+            px-4 py-3 sm:px-4 sm:py-2 flex items-center gap-2 sm:gap-3 sm:max-w-[95vw]`}
+        >
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {compareList.map((c) => (
+              <span
+                key={c.pnu}
+                className="inline-flex items-center gap-1 text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 rounded-full min-w-0"
+              >
+                <span className="truncate max-w-[120px] sm:max-w-none">{c.name}</span>
+                <button
+                  onClick={() => toggleCompare(c.pnu, c.name)}
+                  className="text-violet-400 hover:text-violet-700 flex-shrink-0"
+                  aria-label={`${c.name} 비교에서 제거`}
+                >
+                  &times;
+                </button>
+              </span>
+            ))}
+            {compareList.length < 2 ? (
+              <span className="text-xs text-gray-400 whitespace-nowrap">+ 1개 더 선택</span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {compareList.length === 2 ? (
+              <button
+                id="compare-btn"
+                className="text-xs bg-violet-600 text-white px-3 py-1.5 rounded-full hover:bg-violet-700 font-medium whitespace-nowrap"
+              >
+                비교하기
+              </button>
+            ) : null}
+            <button
+              onClick={clearCompare}
+              className="text-xs text-gray-400 hover:text-gray-600 whitespace-nowrap"
+            >
+              초기화
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {compareList.length === 2 ? (
         <CompareModal
           pnu1={compareList[0].pnu}
           pnu2={compareList[1].pnu}
           onClose={clearCompare}
+          triggerBtnId="compare-btn"
         />
       ) : null}
 
