@@ -1,0 +1,32 @@
+/**
+ * Cloudflare Workers 배포 설정 (OpenNext Cloudflare adapter).
+ *
+ * 워커 본체는 OpenNext 빌드 산출물 `.open-next/worker.js`.
+ * 정적 자산은 Workers Static Assets 바인딩(`ASSETS`)으로 서빙.
+ *
+ * 프로덕션 환경변수는 Cloudflare 대시보드 Secrets 로 설정 권장.
+ * 로컬 개발은 `.dev.vars` 사용 (git 미추적).
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "apt-recom-next",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  "vars": {
+    "NEXT_PUBLIC_API_URL": "https://api.apt-recom.kr",
+    "NEXT_PUBLIC_SITE_URL": "https://apt-recom.kr"
+    // NEXT_PUBLIC_KAKAO_MAPS_APPKEY 는 `wrangler secret put NEXT_PUBLIC_KAKAO_MAPS_APPKEY`
+    // 또는 대시보드에서 설정.
+  }
+}
