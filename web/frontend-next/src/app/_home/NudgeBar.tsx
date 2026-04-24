@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useCodes } from '@/hooks/useCodes';
 import type { RegionCandidate, SelectedRegion } from '@/types/apartment';
@@ -69,6 +70,7 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
           />
         )}
 
+        <GuideLink />
         <SiteInfo />
       </div>
 
@@ -455,10 +457,28 @@ function NudgeChip({
   );
 }
 
+function GuideLink() {
+  // 상단바 우측: 사용 가이드 / MCP 연결 안내 진입점. 맵·대시보드 모두 노출.
+  // ml-auto 로 우측 정렬 → SiteInfo (데스크톱 전용) 는 바로 옆에 붙어 표시.
+  return (
+    <Link
+      href="/guide"
+      title="사용 가이드"
+      aria-label="사용 가이드"
+      className="ml-auto inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
+                 text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
+                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0"
+    >
+      <span aria-hidden>❓</span>
+      <span className="hidden sm:inline">가이드</span>
+    </Link>
+  );
+}
+
 function SiteInfo() {
   // 상단바 우측 끝: 도메인 + 운영자 이메일 (데스크톱 전용 — 모바일은 공간 부족)
   return (
-    <div className="hidden lg:flex flex-col items-end leading-tight ml-auto text-[11px] text-gray-500 whitespace-nowrap flex-shrink-0">
+    <div className="hidden lg:flex flex-col items-end leading-tight text-[11px] text-gray-500 whitespace-nowrap flex-shrink-0">
       <a
         href="https://apt-recom.kr"
         target="_blank"
