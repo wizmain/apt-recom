@@ -22,6 +22,7 @@ export function HomeShell() {
   // store state
   const apartments = useAppStore((s) => s.apartments);
   const regionFitNonce = useAppStore((s) => s.regionFitNonce);
+  const scoredFitNonce = useAppStore((s) => s.scoredFitNonce);
   const filters = useAppStore((s) => s.filters);
   const nudgeResults = useAppStore((s) => s.nudgeResults);
   const nudgeLoading = useAppStore((s) => s.nudgeLoading);
@@ -108,6 +109,7 @@ export function HomeShell() {
             chatHighlights={chatHighlights}
             focusPnu={focusPnu}
             regionFitNonce={regionFitNonce}
+            scoredFitNonce={scoredFitNonce}
             onBoundsChange={onBoundsChange}
             onDetailOpen={(pnu) => selectApartment(pnu)}
             onChatAnalyze={handleAnalyzeFromMap}
