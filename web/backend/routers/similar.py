@@ -273,7 +273,7 @@ def _format_result(row: dict, score: float, score_key: str, sgg_names: dict[str,
 @router.get("/apartment/{pnu}/similar")
 def get_similar_apartments(
     pnu: str,
-    mode: str = Query("combined", regex="^(location|price|combined)$"),
+    mode: str = Query("combined", pattern="^(location|price|combined)$"),
     top_n: int = Query(5, ge=1, le=20),
     exclude_same_sigungu: bool = Query(False, description="같은 시군구 제외"),
     include_price: bool = Query(False, description="combined 모드에서 가격 벡터 포함"),
