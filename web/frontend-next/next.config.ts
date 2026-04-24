@@ -11,9 +11,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   typedRoutes: true,
 
-  // www → apex canonical redirect 는 `src/proxy.ts` 에서 처리.
-  // Next.js `redirects()` 의 `:path*` placeholder 치환이 OpenNext Cloudflare
-  // 런타임에서 literal 로 나가는 이슈가 있어 proxy (구 middleware) 방식으로 이관.
+  // www → apex canonical redirect 는 `src/middleware.ts` 에서 edge runtime 으로 처리.
+  // Next.js 16 의 `proxy` 파일 규약은 Node.js 런타임 전용이며 OpenNext Cloudflare
+  // 에서 지원되지 않아 `middleware.ts` 를 유지. 자세한 이유는 `src/middleware.ts`
+  // 상단 주석 참조.
 
   images: {
     remotePatterns: [
