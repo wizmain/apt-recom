@@ -1,0 +1,70 @@
+name: CI Frontend Next
+
+on:
+  pull_request:
+    paths:
+      - "web/frontend-next/**"
+      - ".github/workflows/ci-frontend-next.yml"
+  push:
+    branches: [main]
+    paths:
+      - "web/frontend-next/**"
+      - ".github/workflows/ci-frontend-next.yml"
+
+jobs:
+  typecheck-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web/frontend-next
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/frontend-next/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Next build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.apt-recom.kr
+          NEXT_PUBLIC_SITE_URL: https://apt-recom.kr
+          NEXT_PUBLIC_KAKAO_MAPS_APPKEY: ${{ secrets.KAKAO_MAPS_APPKEY }}
+
+  deploy:
+    needs: typecheck-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web/frontend-next
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/frontend-next/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: OpenNext Cloudflare build
+        run: npm run cf:build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.apt-recom.kr
+          NEXT_PUBLIC_SITE_URL: https://apt-recom.kr
+          NEXT_PUBLIC_KAKAO_MAPS_APPKEY: ${{ secrets.KAKAO_MAPS_APPKEY }}
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: web/frontend-next
+          command: deploy
