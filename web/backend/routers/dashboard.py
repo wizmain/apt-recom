@@ -327,7 +327,7 @@ def _ranking_from_raw(conn, type_: str, year: int, month: int):
 
 @router.get("/dashboard/ranking")
 def dashboard_ranking(
-    type: str = Query("trade", regex="^(trade|rent)$"),
+    type: str = Query("trade", pattern="^(trade|rent)$"),
 ):
     """이번 달 시군구별 거래량 랭킹 Top 10. dashboard_ranking_stats 기반."""
     conn = DictConnection()
@@ -355,7 +355,7 @@ def dashboard_ranking(
 
 @router.get("/dashboard/recent")
 def dashboard_recent(
-    type: str = Query("trade", regex="^(trade|rent)$"),
+    type: str = Query("trade", pattern="^(trade|rent)$"),
     limit: int = Query(20, ge=1, le=100),
     sigungu: str = Query("", description="시군구 코드 필터"),
 ):

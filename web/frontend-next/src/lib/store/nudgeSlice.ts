@@ -16,6 +16,14 @@ export type NudgeSlice = {
   nudgeResults: ScoredApartment[];
   nudgeLoading: boolean;
   rankContext: RankContext | null;
+  /**
+   * 스코어링 결과(top-N) 기준으로 지도 fitBounds 를 트리거하는 nonce.
+   *
+   * bump 조건: selectedRegion 이 존재한 상태에서 scoreApartments 가 성공적으로 끝났을 때.
+   * bounds 기반(지역 미선택) 스코어링은 지도 이동으로 반복 실행되므로 bump 하지 않음
+   * (자동 fit → 지도 튕김 피드백 루프 방지).
+   */
+  scoredFitNonce: number;
 
   toggleNudge: (nudgeId: string) => void;
   setCustomWeights: (w: Record<string, Record<string, number>> | null) => void;
@@ -32,6 +40,7 @@ export const createNudgeSlice: StateCreator<NudgeSlice> = (set) => ({
   nudgeResults: [],
   nudgeLoading: false,
   rankContext: null,
+  scoredFitNonce: 0,
 
   toggleNudge: (nudgeId) =>
     set((s) => ({
@@ -85,7 +94,13 @@ export const createNudgeSlice: StateCreator<NudgeSlice> = (set) => ({
       Object.assign(body, filters);
 
       const res = await api.post<ScoredApartment[]>("/api/nudge/score", body);
-      set({ nudgeResults: res.data, nudgeLoading: false });
+      // 지역 선택 상태에서만 fit nonce bump — bounds 기반 재스코어링 시 지도 튕김 방지.
+      const shouldFit = selectedRegion !== null && res.data.length > 0;
+      set((s) => ({
+        nudgeResults: res.data,
+        nudgeLoading: false,
+        scoredFitNonce: shouldFit ? s.scoredFitNonce + 1 : s.scoredFitNonce,
+      }));
     } catch (err) {
       console.error("scoreApartments failed", err);
       set({ nudgeLoading: false });

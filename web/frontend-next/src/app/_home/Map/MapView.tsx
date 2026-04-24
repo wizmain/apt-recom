@@ -19,6 +19,7 @@ export type MapViewProps = {
   chatHighlights: ChatHighlightApt[];
   focusPnu: FocusPnu | null;
   regionFitNonce: number;
+  scoredFitNonce: number;
   onBoundsChange: (bounds: MapBounds) => void;
   onDetailOpen: (pnu: string) => void;
   onChatAnalyze: (name: string, pnu: string) => void;
@@ -32,6 +33,7 @@ export function MapView(props: MapViewProps) {
     chatHighlights,
     focusPnu,
     regionFitNonce,
+    scoredFitNonce,
     onBoundsChange,
     onDetailOpen,
     onChatAnalyze,
@@ -182,6 +184,25 @@ export function MapView(props: MapViewProps) {
     if (count > 0) mapRef.current.setBounds(bounds, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- apartments 는 nonce 와 함께 갱신
   }, [regionFitNonce]);
+
+  // 넛지 스코어링 결과 기준 fitBounds — nonce 증가를 키로 top-N 단지 분포에 맞춰 줌.
+  // nudgeSlice.scoreApartments 는 selectedRegion 이 있는 경우에만 nonce 를 bump 하므로
+  // viewport(bounds) 기반 재스코어링 시에는 자동 fit 이 발생하지 않음.
+  useEffect(() => {
+    if (!scoredFitNonce || !mapRef.current || !ready) return;
+    if (scoredApartments.length === 0) return;
+    const k = window.kakao!.maps;
+    const bounds = new k.LatLngBounds();
+    let count = 0;
+    for (const apt of scoredApartments) {
+      if (apt.lat != null && apt.lng != null) {
+        bounds.extend(new k.LatLng(apt.lat, apt.lng));
+        count++;
+      }
+    }
+    if (count > 0) mapRef.current.setBounds(bounds, 80);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scoredApartments 는 nonce 와 함께 갱신
+  }, [scoredFitNonce]);
 
   return (
     <div ref={containerRef} className="w-full h-full">

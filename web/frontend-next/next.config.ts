@@ -11,9 +11,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   typedRoutes: true,
 
-  // www → apex canonical redirect 는 `src/middleware.ts` 에서 처리.
+  // www → apex canonical redirect 는 `src/proxy.ts` 에서 처리.
   // Next.js `redirects()` 의 `:path*` placeholder 치환이 OpenNext Cloudflare
-  // 런타임에서 literal 로 나가는 이슈가 있어 middleware 방식으로 이관.
+  // 런타임에서 literal 로 나가는 이슈가 있어 proxy (구 middleware) 방식으로 이관.
 
   images: {
     remotePatterns: [

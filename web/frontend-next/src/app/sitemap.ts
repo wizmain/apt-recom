@@ -60,7 +60,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // `/about` 같은 정적 페이지는 백엔드 sitemap 에 없으므로 수동 추가.
   // 홈 URL 은 이미 백엔드가 생성(=SITE_URL/)하지만, normalize 과정에서 정돈.
   const normalized = urls.map(normalizeToSiteHost);
-  const staticPages = [`${SITE_URL}/about`];
+  const staticPages = [`${SITE_URL}/about`, `${SITE_URL}/guide`];
 
   const seen = new Set<string>();
   const merged: MetadataRoute.Sitemap = [];
