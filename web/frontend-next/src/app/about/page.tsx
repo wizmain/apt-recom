@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { BRAND, SITE_URL } from "@/lib/site";
 
 /**
@@ -91,9 +92,9 @@ export default function AboutPage() {
       <Section title="주요 페이지·엔드포인트">
         <ul className="list-disc space-y-2 pl-6 text-gray-700">
           <li>
-            <a className="text-blue-600 hover:underline" href="/">
+            <Link className="text-blue-600 hover:underline" href="/">
               홈
-            </a>{" "}
+            </Link>{" "}
             — 지도·필터·라이프스타일 스코어링
           </li>
           <li>
