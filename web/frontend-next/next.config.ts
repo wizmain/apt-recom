@@ -11,17 +11,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   typedRoutes: true,
 
-  // AAO 관점: canonical 호스트 단일화. www/vercel 도메인 진입 시 apex 로 영구 이동.
-  async redirects() {
-    return [
-      {
-        source: "/:path*",
-        has: [{ type: "host", value: "www.apt-recom.kr" }],
-        destination: "https://apt-recom.kr/:path*",
-        permanent: true,
-      },
-    ];
-  },
+  // www → apex canonical redirect 는 `src/middleware.ts` 에서 처리.
+  // Next.js `redirects()` 의 `:path*` placeholder 치환이 OpenNext Cloudflare
+  // 런타임에서 literal 로 나가는 이슈가 있어 middleware 방식으로 이관.
 
   images: {
     remotePatterns: [
