@@ -1,7 +1,9 @@
 /**
  * 네트워크 상태 모니터링.
- * v1: 마운트 시 한 번 조회 후 OFFLINE 이면 콜백 실행 (Toast 등).
- * 지속 모니터링이 필요하면 SDK 의 이벤트 구독 API 추가 검토 (Phase 6+).
+ * v1: 마운트 시 한 번 조회.
+ *
+ * 방어 로직: getNetworkStatus 는 native bridge 기반이라 샌드박스 초기화 시점에
+ * undefined 또는 비-Promise 를 반환할 수 있다. Promise 가 아니면 무시.
  */
 
 import { useEffect, useState } from 'react';
@@ -12,13 +14,20 @@ export function useNetworkStatus(): NetworkStatus | null {
 
   useEffect(() => {
     let mounted = true;
-    getNetworkStatus()
-      .then((s) => {
-        if (mounted) setStatus(s);
-      })
-      .catch(() => {
-        // 무시 — 네트워크 상태 조회 실패는 사용자 경험에 영향 없음
-      });
+    try {
+      const result = getNetworkStatus?.();
+      if (result && typeof result.then === 'function') {
+        result
+          .then((s) => {
+            if (mounted) setStatus(s);
+          })
+          .catch(() => {
+            // 무시 — 네트워크 상태 조회 실패는 사용자 경험에 영향 없음
+          });
+      }
+    } catch {
+      // SDK bridge 미초기화 등 — 무시
+    }
     return () => {
       mounted = false;
     };

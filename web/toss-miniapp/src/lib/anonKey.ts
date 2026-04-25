@@ -26,31 +26,45 @@ export function getAnonKey(): string | null {
 /**
  * 1회만 실제 SDK 호출. 동시 호출은 같은 promise 를 공유한다.
  * 호출 종료 시 client 에 헤더가 설정된 상태가 보장된다.
+ *
+ * 방어 로직: Storage / getAnonymousKey 는 native bridge 기반.
+ * 샌드박스 초기화 미완료 시점에 함수 자체가 undefined 이거나 비-Promise 반환 가능.
  */
 export function initAnonKey(): Promise<string | null> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     try {
-      const stored = await Storage.getItem(STORAGE_KEY);
-      if (stored) {
+      const stored = await safeAwait(Storage?.getItem?.(STORAGE_KEY));
+      if (stored && typeof stored === 'string') {
         resolvedKey = stored;
         setAuthHeader(HEADER_NAME, stored);
         return stored;
       }
-      const result = await getAnonymousKey();
-      // SDK 미지원 / 오류 — 헤더 미주입 후 종료. 백엔드 no-op 처리.
+      const result = await safeAwait(getAnonymousKey?.());
       if (!result || result === 'ERROR' || result.type !== 'HASH') {
         return null;
       }
       const hash = result.hash;
-      await Storage.setItem(STORAGE_KEY, hash);
+      await safeAwait(Storage?.setItem?.(STORAGE_KEY, hash));
       resolvedKey = hash;
       setAuthHeader(HEADER_NAME, hash);
       return hash;
     } catch {
-      // Storage / SDK 오류: 익명 키 없이 진행. 백엔드 no-op.
       return null;
     }
   })();
   return initPromise;
+}
+
+// SDK 함수가 undefined 또는 비-Promise 를 반환해도 안전하게 풀어 주는 헬퍼.
+async function safeAwait<T>(maybe: T | Promise<T> | undefined): Promise<T | null> {
+  if (maybe == null) return null;
+  if (typeof (maybe as { then?: unknown }).then === 'function') {
+    try {
+      return await (maybe as Promise<T>);
+    } catch {
+      return null;
+    }
+  }
+  return maybe as T;
 }
