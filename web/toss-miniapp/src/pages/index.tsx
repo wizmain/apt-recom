@@ -15,6 +15,7 @@ import type {
   DashboardRecentTrade,
 } from '@apt-recom/shared/types/dashboard';
 import { useApi } from '../hooks/useApi';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { changeRate, formatPrice, timeAgo } from '../lib/format';
 
 export const Route = createRoute('/', {
@@ -26,6 +27,8 @@ export const Route = createRoute('/', {
 function HomePage() {
   const navigation = Route.useNavigation();
   const goSearch = () => navigation.navigate('/search', {});
+  const network = useNetworkStatus();
+  const offline = network === 'OFFLINE';
 
   // 4 카드 동시 페치. v1 은 전국 기준 — 지역 필터는 search 페이지에서 적용.
   const summary = useApi<DashboardSummary>(apiPaths.dashboardSummary());
@@ -38,6 +41,13 @@ function HomePage() {
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Text style={styles.title}>집토리</Text>
       <Text style={styles.subtitle}>실시간 아파트 가격 정보</Text>
+      {offline ? (
+        <View style={styles.offlineBar}>
+          <Text style={styles.offlineText}>
+            오프라인 상태예요. 데이터를 불러올 수 없어요.
+          </Text>
+        </View>
+      ) : null}
 
       <TouchableOpacity style={styles.cta} onPress={goSearch} activeOpacity={0.8}>
         <Text style={styles.ctaText}>지역으로 아파트 찾기</Text>
@@ -266,4 +276,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
+  offlineBar: {
+    backgroundColor: '#FFF6E5',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  offlineText: { color: '#B6791C', fontSize: 13 },
 });
