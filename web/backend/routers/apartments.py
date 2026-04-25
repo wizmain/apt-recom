@@ -3,6 +3,7 @@
 from fastapi import APIRouter, BackgroundTasks, Query, Request
 from database import DictConnection
 from services.activity_log import log_event
+from services.identity import get_user_identifier
 
 router = APIRouter()
 
@@ -23,7 +24,9 @@ def list_apartments(
     built_after: int | None = Query(None, description="준공연도 이후 (예: 2015)"),
     built_before: int | None = Query(None, description="준공연도 이전 (예: 2025)"),
     sigungu_code: str | None = Query(None, description="시군구 코드 (5자리)"),
-    bjd_code: str | None = Query(None, description="법정동 코드 (10자리, 시군구보다 우선 적용)"),
+    bjd_code: str | None = Query(
+        None, description="법정동 코드 (10자리, 시군구보다 우선 적용)"
+    ),
 ):
     """Return apartments with optional filters."""
     conn = DictConnection()
@@ -76,10 +79,14 @@ def list_apartments(
 
         # Price filter (최근 거래가 기준 — price_per_m2 * avg_area / 10000)
         if min_price is not None:
-            conditions.append("ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s")
+            conditions.append(
+                "ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s"
+            )
             params.append(min_price)
         if max_price is not None:
-            conditions.append("ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 <= %s")
+            conditions.append(
+                "ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 <= %s"
+            )
             params.append(max_price)
 
         # Floor filter
@@ -98,10 +105,14 @@ def list_apartments(
         # Built year — K-APT use_date 우선, 없으면 건축물대장 use_apr_day
         built_date_expr = "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day)"
         if built_after is not None:
-            conditions.append(f"{built_date_expr} ~ '^[0-9]{{4}}' AND LEFT({built_date_expr}, 4)::int >= %s")
+            conditions.append(
+                f"{built_date_expr} ~ '^[0-9]{{4}}' AND LEFT({built_date_expr}, 4)::int >= %s"
+            )
             params.append(built_after)
         if built_before is not None:
-            conditions.append(f"{built_date_expr} ~ '^[0-9]{{4}}' AND LEFT({built_date_expr}, 4)::int <= %s")
+            conditions.append(
+                f"{built_date_expr} ~ '^[0-9]{{4}}' AND LEFT({built_date_expr}, 4)::int <= %s"
+            )
             params.append(built_before)
 
         if conditions:
@@ -131,7 +142,7 @@ def search_apartments(
 
     background_tasks.add_task(
         log_event,
-        request.headers.get("x-device-id"),
+        get_user_identifier(request),
         "search",
         "keyword",
         {"keyword": q},

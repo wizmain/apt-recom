@@ -1,0 +1,13 @@
+{
+  "name": "@apt-recom/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared types and API path constants for apt-recom (web frontend + Toss mini-app).",
+  "type": "module",
+  "exports": {
+    "./types/apartment": "./types/apartment.ts",
+    "./types/feedback": "./types/feedback.ts",
+    "./types/dashboard": "./types/dashboard.ts",
+    "./api/paths": "./api/paths.ts"
+  }
+}

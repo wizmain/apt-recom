@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from services.activity_log import log_event
+from services.identity import get_user_identifier
 
 router = APIRouter()
 
@@ -32,6 +33,6 @@ def log_event_endpoint(body: LogEventRequest, request: Request):
 
     device_id 가 헤더에 없으면 no-op (opt-out 된 사용자). 응답은 항상 성공.
     """
-    device_id = request.headers.get("x-device-id")
+    device_id = get_user_identifier(request)
     log_event(device_id, body.event_type, body.event_name, body.payload)
     return {"ok": True}

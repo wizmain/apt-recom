@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from pydantic import BaseModel
 from database import DictConnection
 from services.activity_log import log_event
+from services.identity import get_user_identifier
 from services.scoring import (
     get_nudge_weights,
     get_region_profile,
@@ -41,14 +42,16 @@ class NudgeScoreRequest(BaseModel):
 
 
 @router.post("/nudge/score")
-def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: BackgroundTasks):
+def nudge_score(
+    req: NudgeScoreRequest, request: Request, background_tasks: BackgroundTasks
+):
     """Calculate nudge scores for apartments and return top_n.
 
     log_event 는 BackgroundTasks 로 비동기 기록.
     """
     background_tasks.add_task(
         log_event,
-        request.headers.get("x-device-id"),
+        get_user_identifier(request),
         "nudge_score",
         None,
         {
@@ -77,6 +80,7 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
 
         # 다중 키워드 지원 (keywords 우선, 없으면 keyword 단일 호환)
         import re
+
         kw_list: list[str] = []
         if req.keywords:
             kw_list = [k.strip() for k in req.keywords if k.strip()]
@@ -104,9 +108,11 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
             or_clauses = []
             for kw in kw_list:
                 pattern = f"%{kw}%"
-                norm_kw = re.sub(r'[\s()\-·]', '', kw)
+                norm_kw = re.sub(r"[\s()\-·]", "", kw)
                 norm_pattern = f"%{norm_kw}%"
-                or_clauses.append("(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)")
+                or_clauses.append(
+                    "(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
+                )
                 params.extend([pattern, pattern, pattern, norm_pattern])
             if sgg_code_list:
                 ph_sgg = ",".join(["%s"] * len(sgg_code_list))
@@ -129,10 +135,14 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
             conditions.append("ai.min_area <= %s")
             params.append(req.max_area)
         if req.min_price is not None:
-            conditions.append("ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s")
+            conditions.append(
+                "ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s"
+            )
             params.append(req.min_price)
         if req.max_price is not None:
-            conditions.append("ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 <= %s")
+            conditions.append(
+                "ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 <= %s"
+            )
             params.append(req.max_price)
         if req.min_floor is not None:
             conditions.append("a.max_floor >= %s")
@@ -144,10 +154,14 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
             conditions.append("a.total_hhld_cnt <= %s")
             params.append(req.max_hhld)
         if req.built_after is not None:
-            conditions.append("a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int >= %s")
+            conditions.append(
+                "a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int >= %s"
+            )
             params.append(req.built_after)
         if req.built_before is not None:
-            conditions.append("a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int <= %s")
+            conditions.append(
+                "a.use_apr_day ~ '^[0-9]{4}' AND LEFT(a.use_apr_day, 4)::int <= %s"
+            )
             params.append(req.built_before)
 
         if conditions:
@@ -182,7 +196,9 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
                 f"FROM apt_facility_summary "
                 f"WHERE pnu IN ({ph_pnu}) AND facility_subtype IN ({ph_sub})"
             )
-            summary_rows.extend(conn.execute(sql, chunk + list(all_subtypes)).fetchall())
+            summary_rows.extend(
+                conn.execute(sql, chunk + list(all_subtypes)).fetchall()
+            )
 
         # 4. Build per-apartment facility scores (거리 70% + 밀도 30% 블렌딩)
         pnu_profiles = {
@@ -216,7 +232,9 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
                     if pnu not in apt_facility_scores:
                         apt_facility_scores[pnu] = {}
                     apt_facility_scores[pnu]["score_price"] = row["price_score"] or 50.0
-                    apt_facility_scores[pnu]["score_jeonse"] = row["jeonse_ratio"] or 50.0
+                    apt_facility_scores[pnu]["score_jeonse"] = (
+                        row["jeonse_ratio"] or 50.0
+                    )
 
         # 4c. Safety scores
         safety_nudges = {"cost", "newlywed", "senior", "safety"}
@@ -233,7 +251,9 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
                         pnu = row["pnu"]
                         if pnu not in apt_facility_scores:
                             apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["score_safety"] = row["safety_score"] or 50.0
+                        apt_facility_scores[pnu]["score_safety"] = (
+                            row["safety_score"] or 50.0
+                        )
                 except Exception:
                     pass
 
@@ -242,14 +262,22 @@ def nudge_score(req: NudgeScoreRequest, request: Request, background_tasks: Back
         if crime_nudges & set(req.nudges):
             try:
                 # 시군구코드 → 범죄안전점수 로드
-                sgg_codes = list(set(apt_map[p].get("sigungu_code", "")[:5] for p in pnu_list if apt_map[p].get("sigungu_code")))
+                sgg_codes = list(
+                    set(
+                        apt_map[p].get("sigungu_code", "")[:5]
+                        for p in pnu_list
+                        if apt_map[p].get("sigungu_code")
+                    )
+                )
                 if sgg_codes:
                     ph = ",".join(["%s"] * len(sgg_codes))
                     crime_rows = conn.execute(
                         f"SELECT sigungu_code, crime_safety_score FROM sigungu_crime_score WHERE sigungu_code IN ({ph})",
                         sgg_codes,
                     ).fetchall()
-                    sgg_crime = {r["sigungu_code"]: r["crime_safety_score"] for r in crime_rows}
+                    sgg_crime = {
+                        r["sigungu_code"]: r["crime_safety_score"] for r in crime_rows
+                    }
                     for pnu in pnu_list:
                         sgg = (apt_map[pnu].get("sigungu_code") or "")[:5]
                         if sgg in sgg_crime:

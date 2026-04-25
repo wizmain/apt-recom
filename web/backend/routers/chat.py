@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.chat_engine import process_chat, process_chat_stream
+from services.identity import get_user_identifier
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request):
     """Process a chat message and return AI response with optional tool results."""
-    device_id = request.headers.get("x-device-id")
+    device_id = get_user_identifier(request)
     result = await process_chat(
         message=req.message,
         conversation=req.conversation,
@@ -49,7 +50,7 @@ async def chat_stream(req: ChatRequest, request: Request):
       - event: delta        data: {"content": "chunk of text"}
       - event: done         data: {"tool_calls": [...]}
     """
-    device_id = request.headers.get("x-device-id")
+    device_id = get_user_identifier(request)
 
     async def event_stream():
         try:

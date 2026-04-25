@@ -3,6 +3,7 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from database import DictConnection
 from services.activity_log import log_event
+from services.identity import get_user_identifier
 from services.mgmt_cost_calc import compute_by_area
 from services.scoring import (
     get_nudge_weights,
@@ -23,7 +24,7 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
     """
     background_tasks.add_task(
         log_event,
-        request.headers.get("x-device-id"),
+        get_user_identifier(request),
         "detail_view",
         None,
         {"pnu": pnu},
@@ -31,7 +32,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
 
     conn = DictConnection()
     try:
-        basic = conn.execute("SELECT * FROM apartments WHERE pnu = %s", [pnu]).fetchone()
+        basic = conn.execute(
+            "SELECT * FROM apartments WHERE pnu = %s", [pnu]
+        ).fetchone()
         if not basic:
             raise HTTPException(status_code=404, detail="Apartment not found")
         basic = dict(basic)
@@ -44,8 +47,14 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             [pnu],
         ).fetchone()
         if area_row:
-            for col in ("min_area", "max_area", "avg_area",
-                         "min_supply_area", "max_supply_area", "avg_supply_area"):
+            for col in (
+                "min_area",
+                "max_area",
+                "avg_area",
+                "min_supply_area",
+                "max_supply_area",
+                "avg_supply_area",
+            ):
                 basic[col] = area_row[col]
 
         # Facility summary
@@ -78,7 +87,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
 
         # Price/safety scores
         price_row = conn.execute(
-            "SELECT price_score, jeonse_ratio, price_per_m2 FROM apt_price_score WHERE pnu = %s", [pnu]
+            "SELECT price_score, jeonse_ratio, price_per_m2 FROM apt_price_score WHERE pnu = %s",
+            [pnu],
         ).fetchone()
         if price_row:
             facility_scores["score_price"] = price_row["price_score"] or 50.0
@@ -93,7 +103,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                 "complex_cctv_score, complex_security_score, complex_mgr_score, "
                 "complex_parking_score, regional_safety_score, crime_adjust_score, "
                 "complex_data_source, crime_safety_score "
-                "FROM apt_safety_score WHERE pnu = %s", [pnu]
+                "FROM apt_safety_score WHERE pnu = %s",
+                [pnu],
             ).fetchone()
         except Exception:
             pass
@@ -135,7 +146,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                             "lat": r["lat"],
                             "lng": r["lng"],
                         }
-                        for r in fac_rows if r["dist_m"] and r["dist_m"] <= 2000
+                        for r in fac_rows
+                        if r["dist_m"] and r["dist_m"] <= 2000
                     ]
                     if items:
                         nearby[subtype] = items
@@ -159,10 +171,13 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             # 범죄율 점수 + 상세
             crime_score = None
             crime_detail = None
-            sigungu = basic.get("sigungu_code", "")[:5] if basic.get("sigungu_code") else None
+            sigungu = (
+                basic.get("sigungu_code", "")[:5] if basic.get("sigungu_code") else None
+            )
             if sigungu:
                 crime_row = conn.execute(
-                    "SELECT * FROM sigungu_crime_detail WHERE sigungu_code = %s", [sigungu]
+                    "SELECT * FROM sigungu_crime_detail WHERE sigungu_code = %s",
+                    [sigungu],
                 ).fetchone()
                 if crime_row:
                     crime_score = crime_row["crime_safety_score"]
@@ -180,15 +195,22 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                     }
                 else:
                     score_row = conn.execute(
-                        "SELECT crime_safety_score FROM sigungu_crime_score WHERE sigungu_code = %s", [sigungu]
+                        "SELECT crime_safety_score FROM sigungu_crime_score WHERE sigungu_code = %s",
+                        [sigungu],
                     ).fetchone()
                     if score_row:
                         crime_score = score_row["crime_safety_score"]
 
             police_dist = facility_summary.get("police", {}).get("nearest_distance_m")
-            fire_dist = facility_summary.get("fire_station", {}).get("nearest_distance_m")
-            fire_center_dist = facility_summary.get("fire_center", {}).get("nearest_distance_m")
-            hospital_dist = facility_summary.get("hospital", {}).get("nearest_distance_m")
+            fire_dist = facility_summary.get("fire_station", {}).get(
+                "nearest_distance_m"
+            )
+            fire_center_dist = facility_summary.get("fire_center", {}).get(
+                "nearest_distance_m"
+            )
+            hospital_dist = facility_summary.get("hospital", {}).get(
+                "nearest_distance_m"
+            )
 
             # v3 세부 점수
             v3_scores = None
@@ -224,7 +246,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                     "c.extra || ' ' || c.name AS region_name "
                     "FROM sigungu_safety_index s "
                     "LEFT JOIN common_code c ON c.group_id = 'sigungu' AND c.code = %s "
-                    "WHERE s.sigungu_code = %s", [sigungu, sigungu]
+                    "WHERE s.sigungu_code = %s",
+                    [sigungu, sigungu],
                 ).fetchone()
                 if si_row:
                     regional_grades = {
@@ -239,16 +262,22 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             kapt_security = None
             try:
                 kapt_row = conn.execute(
-                    "SELECT cctv_cnt, parking_cnt, mgr_type FROM apt_kapt_info WHERE pnu = %s", [pnu]
+                    "SELECT cctv_cnt, parking_cnt, mgr_type FROM apt_kapt_info WHERE pnu = %s",
+                    [pnu],
                 ).fetchone()
                 if kapt_row:
                     hhld_row = conn.execute(
                         "SELECT total_hhld_cnt FROM apartments WHERE pnu = %s", [pnu]
                     ).fetchone()
-                    hhld = hhld_row["total_hhld_cnt"] if hhld_row and hhld_row["total_hhld_cnt"] else None
+                    hhld = (
+                        hhld_row["total_hhld_cnt"]
+                        if hhld_row and hhld_row["total_hhld_cnt"]
+                        else None
+                    )
                     # 최신 경비비
                     mgmt_row = conn.execute(
-                        "SELECT detail FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 1", [pnu]
+                        "SELECT detail FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 1",
+                        [pnu],
                     ).fetchone()
                     security_cost = None
                     if mgmt_row and mgmt_row.get("detail"):
@@ -260,7 +289,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                         "parking_cnt": kapt_row.get("parking_cnt"),
                         "mgr_type": kapt_row.get("mgr_type"),
                         "total_hhld_cnt": hhld,
-                        "security_cost_per_unit": round(int(security_cost) / hhld) if security_cost and hhld else None,
+                        "security_cost_per_unit": round(int(security_cost) / hhld)
+                        if security_cost and hhld
+                        else None,
                     }
             except Exception:
                 pass
@@ -287,17 +318,23 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
         try:
             sigungu = basic.get("sigungu_code")
             if sigungu:
-                pop_rows = conn.execute("""
+                pop_rows = conn.execute(
+                    """
                     SELECT age_group, total_pop, male_pop, female_pop
                     FROM population_by_district
                     WHERE sigungu_code = %s AND age_group != '계'
                     ORDER BY age_group
-                """, [sigungu]).fetchall()
-                pop_total_row = conn.execute("""
+                """,
+                    [sigungu],
+                ).fetchall()
+                pop_total_row = conn.execute(
+                    """
                     SELECT total_pop, male_pop, female_pop, sigungu_name
                     FROM population_by_district
                     WHERE sigungu_code = %s AND age_group = '계'
-                """, [sigungu]).fetchone()
+                """,
+                    [sigungu],
+                ).fetchone()
                 if pop_rows and pop_total_row:
                     total = pop_total_row["total_pop"] or 1
                     population = {
@@ -321,7 +358,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
 
         # K-APT 상세정보
         kapt_info = None
-        kapt_row = conn.execute("SELECT * FROM apt_kapt_info WHERE pnu = %s", [pnu]).fetchone()
+        kapt_row = conn.execute(
+            "SELECT * FROM apt_kapt_info WHERE pnu = %s", [pnu]
+        ).fetchone()
         if kapt_row:
             kapt_info = dict(kapt_row)
             kapt_info.pop("updated_at", None)
@@ -352,7 +391,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             #   - cost_per_unit = total_cost: 분모=1 등 fallback 오류
             #   - cost_per_unit < 10,000 또는 total_cost < 100,000: K-APT 엑셀 오입력
             #     (예: 총액 268원 같은 극저 단지가 median 을 끌어내림)
-            avg_row = conn.execute("""
+            avg_row = conn.execute(
+                """
                 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_unit) as median_per_unit
                 FROM apt_mgmt_cost m
                 JOIN apt_kapt_info k ON m.pnu = k.pnu
@@ -361,7 +401,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                   AND m.cost_per_unit >= 10000
                   AND m.total_cost >= 100000
                   AND m.cost_per_unit != m.total_cost
-            """, [sgg, latest_ym]).fetchone()
+            """,
+                [sgg, latest_ym],
+            ).fetchone()
 
             # 주택형별 관리비 (공식 B: 공용+장충금은 전용면적 비례, 개별은 평균)
             # 정수 면적(=평형) 그룹화는 compute_by_area 에서 처리.
@@ -383,7 +425,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                     cost_per_m2 = round(cost_rows[0]["total_cost"] / mgmt_area)
 
             # 단위면적당 지역 median — 같은 시군구·같은 월에서 관리비부과면적 있는 단지 기준
-            region_avg_per_m2_row = conn.execute("""
+            region_avg_per_m2_row = conn.execute(
+                """
                 SELECT percentile_cont(0.5) WITHIN GROUP (
                     ORDER BY m.total_cost::float / at.mgmt_area_total
                 ) AS median_per_m2
@@ -399,7 +442,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                   AND m.cost_per_unit >= 10000
                   AND m.total_cost >= 100000
                   AND m.cost_per_unit != m.total_cost
-            """, [sgg, latest_ym]).fetchone()
+            """,
+                [sgg, latest_ym],
+            ).fetchone()
             region_avg_per_m2 = (
                 round(region_avg_per_m2_row["median_per_m2"])
                 if region_avg_per_m2_row and region_avg_per_m2_row["median_per_m2"]
@@ -408,7 +453,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
 
             mgmt_cost = {
                 "months": [dict(r) for r in cost_rows],
-                "region_avg_per_unit": round(avg_row["median_per_unit"]) if avg_row and avg_row["median_per_unit"] else None,
+                "region_avg_per_unit": round(avg_row["median_per_unit"])
+                if avg_row and avg_row["median_per_unit"]
+                else None,
                 "by_area": by_area,
                 "cost_per_m2": cost_per_m2,
                 "region_avg_per_m2": region_avg_per_m2,
@@ -436,7 +483,8 @@ def apartment_trades(pnu: str):
     conn = DictConnection()
     try:
         mappings = conn.execute(
-            "SELECT apt_seq, apt_nm, sgg_cd FROM trade_apt_mapping WHERE pnu = %s", [pnu]
+            "SELECT apt_seq, apt_nm, sgg_cd FROM trade_apt_mapping WHERE pnu = %s",
+            [pnu],
         ).fetchall()
 
         trades = []
