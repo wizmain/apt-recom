@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { createRoute } from '@granite-js/react-native';
-import { apiPaths } from '@apt-recom/shared/api/paths';
+import { apiPaths } from '../shared/api/paths';
 import { useApi } from '../hooks/useApi';
 import { formatPrice } from '../lib/format';
 

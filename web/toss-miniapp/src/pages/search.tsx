@@ -9,8 +9,11 @@ import {
   View,
 } from 'react-native';
 import { createRoute } from '@granite-js/react-native';
-import { apiPaths } from '@apt-recom/shared/api/paths';
-import type { CommonCodeRow, ApartmentListItem } from '@apt-recom/shared/types/apartment-list';
+import { apiPaths } from '../shared/api/paths';
+import type {
+  CommonCodeRow,
+  ApartmentListItem,
+} from '../shared/types/apartment-list';
 import { useApi } from '../hooks/useApi';
 import { formatPrice } from '../lib/format';
 
