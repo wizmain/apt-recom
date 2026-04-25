@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./types/apartment": "./types/apartment.ts",
+    "./types/apartment-list": "./types/apartment-list.ts",
     "./types/feedback": "./types/feedback.ts",
     "./types/dashboard": "./types/dashboard.ts",
     "./api/paths": "./api/paths.ts"
