@@ -168,11 +168,14 @@ export function useApartments() {
     }, delay);
   }, [refetch]);
 
-  /** 지역 필터 선택 */
+  /** 지역 필터 선택 — 새 검색 컨텍스트로 전환 (단지명 키워드 자동 해제) */
   const selectRegion = useCallback(async (region: SelectedRegion) => {
     setSelectedRegion(region);
     selectedRegionRef.current = region;
-    await refetch(filtersRef.current, region, boundsRef.current, keywordsRef.current);
+    // 지역 검색은 새 컨텍스트 — 기존 단지명 키워드/캐시를 함께 비운다
+    keywordsRef.current = [];
+    searchResultsRef.current = [];
+    await refetch(filtersRef.current, region, boundsRef.current, []);
     // apartments 업데이트 후 Map이 fitBounds 하도록 nonce 증가
     setRegionFitNonce(n => n + 1);
   }, [refetch]);
@@ -184,11 +187,14 @@ export function useApartments() {
     refetch(filtersRef.current, null, boundsRef.current, keywordsRef.current);
   }, [refetch]);
 
-  /** 단지명 키워드 추가 */
+  /** 단지명 키워드 추가 — 새 검색 컨텍스트로 전환 (지역 필터 자동 해제) */
   const addKeyword = useCallback((kw: string) => {
+    // 단지명 검색은 새 컨텍스트 — 기존 지역 필터를 함께 해제한다
+    setSelectedRegion(null);
+    selectedRegionRef.current = null;
     keywordsRef.current = [kw];
     searchResultsRef.current = [];
-    refetch(filtersRef.current, selectedRegionRef.current, boundsRef.current, [kw]);
+    refetch(filtersRef.current, null, boundsRef.current, [kw]);
   }, [refetch]);
 
   /** 단지명 키워드 제거 */

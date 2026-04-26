@@ -14,7 +14,7 @@ import { API_BASE } from './config';
 import { api } from './lib/api';
 import { useApartments, countActiveFilters } from './hooks/useApartments';
 import { useNudge } from './hooks/useNudge';
-import type { MapBounds } from './types/apartment';
+import type { MapBounds, SelectedRegion } from './types/apartment';
 import type { MapAction } from './hooks/useChat';
 import { parseAptPnuFromPath, buildAptPath, DEFAULT_DOCUMENT_TITLE } from './lib/route';
 
@@ -146,9 +146,17 @@ function App() {
   const handleAddKeyword = useCallback((keyword: string, label?: string) => {
     setSearchKeywords([keyword]);
     setKeywordLabels(label ? { [keyword]: label } : {});
-    clearKeywords();
+    // addKeyword 내부에서 selectedRegion(useApartments)도 함께 해제됨
     addKeyword(keyword);
-  }, [addKeyword, clearKeywords]);
+  }, [addKeyword]);
+
+  // 새 지역 검색은 기존 단지명 태그(App-level 표시 상태)도 함께 비운다
+  // useApartments.selectRegion 은 내부 ref 만 비우므로, 화면 태그는 여기서 정리
+  const handleSelectRegion = useCallback((region: SelectedRegion) => {
+    setSearchKeywords([]);
+    setKeywordLabels({});
+    selectRegion(region);
+  }, [selectRegion]);
 
   const handleRemoveKeyword = useCallback((keyword: string) => {
     setSearchKeywords(prev => {
@@ -226,7 +234,7 @@ function App() {
         onAddKeyword={handleAddKeyword}
         onRemoveKeyword={handleRemoveKeyword}
         onClearAll={handleClearAllKeywords}
-        onSelectRegion={selectRegion}
+        onSelectRegion={handleSelectRegion}
         onClearRegion={() => {
           clearRegion();
           if (searchKeywords.length === 0) setSelectedNudges([]);
