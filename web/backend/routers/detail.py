@@ -357,24 +357,39 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             pass
 
         # K-APT 상세정보
+        # 같은 PNU 에 분양/임대가 별도 K-APT 행으로 등록된 단지(예: 청구e편한세상)는
+        # 호수/동수 등 가산 가능한 컬럼만 합산하여 통합 마스터 정보로 노출한다.
+        # 단일 행만 매핑된 단지는 합산값이 자기 자신과 같아 동작 변화 없음.
         kapt_info = None
-        kapt_row = conn.execute(
-            "SELECT * FROM apt_kapt_info WHERE pnu = %s", [pnu]
-        ).fetchone()
-        if kapt_row:
-            kapt_info = dict(kapt_row)
+        kapt_rows = conn.execute(
+            "SELECT * FROM apt_kapt_info WHERE pnu = %s ORDER BY kapt_code", [pnu]
+        ).fetchall()
+        if kapt_rows:
+            kapt_info = dict(kapt_rows[0])
             kapt_info.pop("updated_at", None)
-            # K-APT 값이 있으면 기본정보를 K-APT로 override
+            # 가산 가능한 카운트 컬럼은 SUM 으로 통합 (분양 + 임대)
+            sum_cols = (
+                "ho_cnt", "dong_cnt",
+                "sale_ho_cnt", "rent_ho_cnt", "rent_public_cnt", "rent_private_cnt",
+            )
+            for c in sum_cols:
+                kapt_info[c] = sum((row[c] or 0) for row in kapt_rows)
+            # K-APT 값이 있으면 기본정보를 K-APT 값으로 override.
             # (건축물대장은 주차/부속동까지 세어 dong_count 부풀려지는 등 정확도 낮음)
-            kapt_overrides = {
-                "total_hhld_cnt": kapt_info.get("ho_cnt"),
-                "dong_count": kapt_info.get("dong_cnt"),
-                "max_floor": kapt_info.get("top_floor"),
-                "use_apr_day": kapt_info.get("use_date"),
-            }
-            for k, v in kapt_overrides.items():
-                if v is not None:
-                    basic[k] = v
+            # 단, 호수/동수는 apartments 정정값(분양+임대 통합 마스터 값)이 더 큰 경우
+            # apartments 를 신뢰한다 (K-APT 가 임대 단지만 PNU 매핑된 케이스 대응).
+            apt_hhld = basic.get("total_hhld_cnt") or 0
+            apt_dong = basic.get("dong_count") or 0
+            kapt_ho = kapt_info.get("ho_cnt") or 0
+            kapt_dong = kapt_info.get("dong_cnt") or 0
+            if max(apt_hhld, kapt_ho):
+                basic["total_hhld_cnt"] = max(apt_hhld, kapt_ho)
+            if max(apt_dong, kapt_dong):
+                basic["dong_count"] = max(apt_dong, kapt_dong)
+            if kapt_info.get("top_floor"):
+                basic["max_floor"] = kapt_info["top_floor"]
+            if kapt_info.get("use_date"):
+                basic["use_apr_day"] = kapt_info["use_date"]
 
         # 관리비 (최근 3개월 + 지역 평균)
         mgmt_cost = None
