@@ -34,11 +34,18 @@ def list_apartments(
         # Base query with LEFT JOIN for area/price/K-APT info
         # 세대수/최고층/사용승인일은 K-APT가 있으면 K-APT 값 우선 (건축물대장은 여러 건물을
         # 합산해 과대 집계되는 문제가 있음)
+        # 최고층 우선순위: K-APT 공식값(top_floor_official) > K-APT 평균값(top_floor) > 건축물대장(max_floor)
+        # K-APT 원본의 top_floor 컬럼은 일부 단지에서 1·2·0 등으로 오염된 값이 들어있어
+        # top_floor_official 을 우선 사용한다 (≤3 인 비정상값은 NULLIF 로 무시).
         sql = """
             SELECT a.pnu, a.bld_nm, a.lat, a.lng,
                    COALESCE(k.ho_cnt, a.total_hhld_cnt) AS total_hhld_cnt,
                    a.sigungu_code,
-                   COALESCE(k.top_floor, a.max_floor) AS max_floor,
+                   COALESCE(
+                       NULLIF(k.top_floor_official, 0),
+                       CASE WHEN k.top_floor > 3 THEN k.top_floor END,
+                       a.max_floor
+                   ) AS max_floor,
                    COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) AS use_apr_day,
                    ai.min_area as area_min, ai.max_area as area_max, ai.avg_area,
                    ps.price_per_m2, ps.jeonse_ratio
@@ -89,9 +96,15 @@ def list_apartments(
             )
             params.append(max_price)
 
-        # Floor filter
+        # Floor filter — SELECT 절과 동일한 우선순위(top_floor_official > top_floor > max_floor)
         if min_floor is not None:
-            conditions.append("COALESCE(k.top_floor, a.max_floor) >= %s")
+            conditions.append(
+                "COALESCE("
+                "NULLIF(k.top_floor_official, 0), "
+                "CASE WHEN k.top_floor > 3 THEN k.top_floor END, "
+                "a.max_floor"
+                ") >= %s"
+            )
             params.append(min_floor)
 
         # Household count
