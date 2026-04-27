@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -23,6 +23,14 @@ export const Route = createRoute('/search', {
   component: SearchPage,
 });
 
+// 단지명 정규화 — 백엔드 services/search_engine.py 의 normalize_apt_name 과 동일 규칙.
+// 사용자가 "래미안 아파트" 처럼 입력해도 DB 의 "래미안퍼스티지" 등에 매칭되도록 한다.
+const NAME_STRIP = /[\s()\-·]/g;
+const NAME_TRAILING_SUFFIX = /(아파트|단지)$/;
+function normalizeAptName(name: string): string {
+  return name.replace(NAME_STRIP, '').replace(NAME_TRAILING_SUFFIX, '');
+}
+
 function SearchPage() {
   const navigation = Route.useNavigation();
   const [keyword, setKeyword] = useState('');
@@ -33,8 +41,8 @@ function SearchPage() {
 
   const sigunguList = useApi<CommonCodeRow[]>(apiPaths.codeGroup('sigungu'));
 
-  // 키워드 필터: 시·도(extra) 또는 시·군·구 이름에 매칭.
-  const filtered = useMemo(() => {
+  // 키워드 필터: 시·도(extra) 또는 시·군·구 이름에 매칭. (지역 미선택 모드)
+  const filteredRegions = useMemo(() => {
     const rows = sigunguList.data ?? [];
     if (!keyword.trim()) return rows.slice(0, 30);
     const k = keyword.trim();
@@ -52,13 +60,41 @@ function SearchPage() {
     selected ? { sigungu_code: selected.code } : undefined
   );
 
+  // 단지명 필터: 선택된 지역 내 단지를 정규화 키워드로 부분 일치.
+  const filteredApts = useMemo(() => {
+    const data = apts.data ?? [];
+    if (!keyword.trim()) return data;
+    const k = normalizeAptName(keyword);
+    if (!k) return data;
+    return data.filter((a) => normalizeAptName(a.bld_nm).includes(k));
+  }, [apts.data, keyword]);
+
+  // 지역 선택/해제 시 검색어를 초기화 — 지역 검색어가 단지명 모드로 흘러들지 않도록.
+  const handleSelectRegion = useCallback((row: CommonCodeRow) => {
+    setKeyword('');
+    setSelected({
+      code: row.code,
+      label: `${row.extra ?? ''} ${row.name}`.trim(),
+    });
+  }, []);
+  const handleUnselectRegion = useCallback(() => {
+    setKeyword('');
+    setSelected(null);
+  }, []);
+
   return (
     <View style={styles.root}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>지역 검색</Text>
+        <Text style={styles.headerTitle}>
+          {selected ? '단지 검색' : '지역 검색'}
+        </Text>
         <TextInput
           style={styles.search}
-          placeholder="시·도 또는 시·군·구 (예: 강남, 서울)"
+          placeholder={
+            selected
+              ? '단지명 (예: 래미안, 푸르지오)'
+              : '시·도 또는 시·군·구 (예: 강남, 서울)'
+          }
           placeholderTextColor="#A2A8B4"
           value={keyword}
           onChangeText={setKeyword}
@@ -68,7 +104,7 @@ function SearchPage() {
         {selected ? (
           <TouchableOpacity
             style={styles.selectedChip}
-            onPress={() => setSelected(null)}
+            onPress={handleUnselectRegion}
             activeOpacity={0.8}
           >
             <Text style={styles.selectedChipText}>
@@ -81,19 +117,16 @@ function SearchPage() {
       {selected ? (
         <AptList
           state={apts}
+          rows={filteredApts}
           regionLabel={selected.label}
+          keyword={keyword.trim()}
           onTap={(pnu, name) => navigation.navigate('/apt', { pnu, name })}
         />
       ) : (
         <RegionList
           state={sigunguList}
-          rows={filtered}
-          onSelect={(row) =>
-            setSelected({
-              code: row.code,
-              label: `${row.extra ?? ''} ${row.name}`.trim(),
-            })
-          }
+          rows={filteredRegions}
+          onSelect={handleSelectRegion}
         />
       )}
     </View>
@@ -145,11 +178,15 @@ function RegionList({
 
 function AptList({
   state,
+  rows,
   regionLabel,
+  keyword,
   onTap,
 }: {
   state: ReturnType<typeof useApi<ApartmentListItem[]>>;
+  rows: ApartmentListItem[];
   regionLabel: string;
+  keyword: string;
   onTap: (pnu: string, name: string) => void;
 }) {
   if (state.loading) {
@@ -164,18 +201,23 @@ function AptList({
       </Centered>
     );
   }
-  const rows = state.data ?? [];
   if (rows.length === 0) {
     return (
       <Centered>
-        <Text style={styles.empty}>{regionLabel}에 표시할 아파트가 없어요.</Text>
+        <Text style={styles.empty}>
+          {keyword
+            ? `'${keyword}'에 해당하는 단지가 없어요.`
+            : `${regionLabel}에 표시할 아파트가 없어요.`}
+        </Text>
       </Centered>
     );
   }
   return (
     <ScrollView contentContainerStyle={styles.listPad}>
       <Text style={styles.subheader}>
-        {regionLabel} · {rows.length.toLocaleString()}개
+        {keyword
+          ? `${regionLabel} · '${keyword}' → ${rows.length.toLocaleString()}개`
+          : `${regionLabel} · ${rows.length.toLocaleString()}개`}
       </Text>
       {rows.map((a) => (
         <TouchableOpacity
