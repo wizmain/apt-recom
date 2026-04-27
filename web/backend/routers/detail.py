@@ -386,8 +386,14 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                 basic["total_hhld_cnt"] = max(apt_hhld, kapt_ho)
             if max(apt_dong, kapt_dong):
                 basic["dong_count"] = max(apt_dong, kapt_dong)
-            if kapt_info.get("top_floor"):
-                basic["max_floor"] = kapt_info["top_floor"]
+            # 최고층 우선순위: top_floor_official > top_floor(>3 일 때) > 건축물대장 max_floor
+            # K-APT 원본의 top_floor 가 일부 단지에서 1·2·0 등으로 오염된 케이스 대응.
+            kapt_top_official = kapt_info.get("top_floor_official") or 0
+            kapt_top = kapt_info.get("top_floor") or 0
+            if kapt_top_official > 0:
+                basic["max_floor"] = kapt_top_official
+            elif kapt_top > 3:
+                basic["max_floor"] = kapt_top
             if kapt_info.get("use_date"):
                 basic["use_apr_day"] = kapt_info["use_date"]
 
