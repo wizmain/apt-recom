@@ -1,6 +1,6 @@
 """대시보드 API — 수도권 아파트 거래 동향."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from database import DictConnection
 from datetime import datetime
 
@@ -513,49 +513,147 @@ def dashboard_recent(
     return result
 
 
+def _resolve_pnu_to_apt_keys(conn, pnu: str) -> tuple[list[int], str | None, str | None]:
+    """pnu → 같은 group_pnu 단지의 apt_seq 목록 + 표시용 (bld_nm, sigungu_code).
+
+    apartments.bld_nm 과 trade_history.apt_nm 의 표기 차이가 약 60% 에 달해
+    PNU 기반 진입은 apt_seq 매핑을 통해 거래내역을 특정한다. group_pnu 단위로
+    묶어 분리 등록된 동의 거래까지 포함.
+    """
+    rows = conn.execute(
+        """
+        WITH target AS (
+            SELECT pnu FROM apartments
+            WHERE group_pnu = (SELECT group_pnu FROM apartments WHERE pnu = %s)
+        )
+        SELECT DISTINCT m.apt_seq
+        FROM trade_apt_mapping m
+        WHERE m.pnu IN (SELECT pnu FROM target)
+        """,
+        [pnu],
+    ).fetchall()
+    seqs = [r["apt_seq"] for r in rows]
+
+    label = conn.execute(
+        "SELECT bld_nm, sigungu_code FROM apartments WHERE pnu = %s",
+        [pnu],
+    ).fetchone()
+    bld_nm = label["bld_nm"] if label else None
+    sigungu_code = label["sigungu_code"] if label else None
+    return seqs, bld_nm, sigungu_code
+
+
 @router.get("/dashboard/trades")
 def dashboard_trades(
-    apt_nm: str = Query(..., description="아파트명"),
-    sgg_cd: str = Query(..., description="시군구 코드"),
+    pnu: str | None = Query(None, description="PNU (우선) — 정확한 단지 특정"),
+    apt_nm: str | None = Query(None, description="아파트명 (pnu 미제공 시 fallback)"),
+    sgg_cd: str | None = Query(None, description="시군구 코드 (pnu 미제공 시 fallback)"),
     area: float | None = Query(None, description="기준 면적 (±5㎡ 필터)"),
 ):
-    """특정 아파트의 매매 + 전월세 이력 조회. area 지정 시 비슷한 면적만."""
+    """특정 아파트의 매매 + 전월세 이력 조회.
+
+    조회 키 우선순위:
+      1) pnu → group_pnu 단위로 묶어 trade_apt_mapping → apt_seq 기반 정확 매칭
+      2) (apt_nm, sgg_cd) → 기존 fallback (Dashboard 거래행 클릭 흐름)
+
+    apartments.bld_nm 과 trade_history.apt_nm 표기가 다른 케이스가 약 60% 에
+    달해, PNU 기반 진입은 반드시 1) 경로를 사용해야 한다.
+    """
+    if not pnu and not (apt_nm and sgg_cd):
+        raise HTTPException(
+            status_code=400,
+            detail="pnu 또는 (apt_nm + sgg_cd) 중 하나는 필수입니다.",
+        )
+
     conn = DictConnection()
+    try:
+        # 1) PNU 경로 — apt_seq 기반 정확 매칭 (group_pnu 단위)
+        if pnu:
+            seqs, bld_nm, sigungu_code = _resolve_pnu_to_apt_keys(conn, pnu)
+            if not seqs:
+                # 단지는 있으나 거래 매핑이 없는 케이스 (신축·미거래 단지 등)
+                return {
+                    "apt_nm": bld_nm or "",
+                    "sigungu": _get_sgg_names(conn).get(sigungu_code, sigungu_code or ""),
+                    "trades": [],
+                    "rents": [],
+                }
 
-    area_filter = ""
-    params_trade: list = [apt_nm, sgg_cd]
-    params_rent: list = [apt_nm, sgg_cd]
-    if area is not None:
-        area_filter = "AND exclu_use_ar BETWEEN %s AND %s"
-        params_trade.extend([area - 5, area + 5])
-        params_rent.extend([area - 5, area + 5])
+            seq_ph = ",".join(["%s"] * len(seqs))
+            area_filter = ""
+            extra_params: list = []
+            if area is not None:
+                area_filter = "AND exclu_use_ar BETWEEN %s AND %s"
+                extra_params = [area - 5, area + 5]
 
-    trades = conn.execute(
-        f"""
-        SELECT deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day
-        FROM trade_history
-        WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
-        ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
-    """,
-        params_trade,
-    ).fetchall()
+            trades = conn.execute(
+                f"""
+                SELECT DISTINCT ON (id)
+                       id, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day
+                FROM trade_history
+                WHERE apt_seq IN ({seq_ph}) {area_filter}
+                ORDER BY id, deal_year DESC, deal_month DESC, deal_day DESC
+                """,
+                seqs + extra_params,
+            ).fetchall()
+            rents = conn.execute(
+                f"""
+                SELECT DISTINCT ON (id)
+                       id, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day
+                FROM rent_history
+                WHERE apt_seq IN ({seq_ph}) {area_filter}
+                ORDER BY id, deal_year DESC, deal_month DESC, deal_day DESC
+                """,
+                seqs + extra_params,
+            ).fetchall()
+            # DISTINCT ON (id) 가 id 순 정렬을 강제하므로 표시용으로 다시 날짜 정렬.
+            trades.sort(
+                key=lambda r: (r["deal_year"], r["deal_month"], r["deal_day"]),
+                reverse=True,
+            )
+            rents.sort(
+                key=lambda r: (r["deal_year"], r["deal_month"], r["deal_day"]),
+                reverse=True,
+            )
+            display_apt_nm = bld_nm or ""
+            display_sgg_cd = sigungu_code or ""
 
-    rents = conn.execute(
-        f"""
-        SELECT deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day
-        FROM rent_history
-        WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
-        ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
-    """,
-        params_rent,
-    ).fetchall()
+        # 2) (apt_nm, sgg_cd) fallback — Dashboard 거래행 클릭 흐름 호환
+        else:
+            area_filter = ""
+            params: list = [apt_nm, sgg_cd]
+            if area is not None:
+                area_filter = "AND exclu_use_ar BETWEEN %s AND %s"
+                params.extend([area - 5, area + 5])
 
-    sgg_names = _get_sgg_names(conn)
-    conn.close()
+            trades = conn.execute(
+                f"""
+                SELECT deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day
+                FROM trade_history
+                WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
+                ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
+                """,
+                params,
+            ).fetchall()
+            rents = conn.execute(
+                f"""
+                SELECT deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day
+                FROM rent_history
+                WHERE apt_nm = %s AND sgg_cd = %s {area_filter}
+                ORDER BY deal_year DESC, deal_month DESC, deal_day DESC
+                """,
+                params,
+            ).fetchall()
+            display_apt_nm = apt_nm or ""
+            display_sgg_cd = sgg_cd or ""
+
+        sgg_names = _get_sgg_names(conn)
+    finally:
+        conn.close()
 
     return {
-        "apt_nm": apt_nm,
-        "sigungu": sgg_names.get(sgg_cd, sgg_cd),
+        "apt_nm": display_apt_nm,
+        "sigungu": sgg_names.get(display_sgg_cd, display_sgg_cd),
         "trades": [
             {
                 "date": f"{r['deal_year']}.{r['deal_month']:02d}.{r['deal_day']:02d}",
