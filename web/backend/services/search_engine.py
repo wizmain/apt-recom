@@ -5,7 +5,12 @@
 
 import re
 
-APT_COLS = "pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc"
+APT_COLS = "pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc, group_pnu"
+
+# 같은 group_pnu(분리 등록된 동들의 단지 그룹) 는 검색에 1건만 노출.
+# 대표 행은 group_pnu == pnu(자기 자신이 마스터) 우선, 다음 total_hhld_cnt 큰 순.
+DEDUP = "DISTINCT ON (group_pnu)"
+DEDUP_ORDER = "group_pnu, (group_pnu = pnu) DESC, total_hhld_cnt DESC NULLS LAST"
 # 기본 필터: 좌표·세대수·준공일이 모두 있는 아파트만 조회
 APT_BASE_FILTER = "pnu NOT LIKE 'TRADE_%%' AND lat IS NOT NULL AND total_hhld_cnt > 0 AND use_apr_day IS NOT NULL AND use_apr_day != ''"
 _STRIP_SIDO = re.compile(r"(특별자치도|광역시|특별시|특별자치시)")
@@ -148,8 +153,9 @@ def _fetch_region(conn, codes: list[str], region_type: str, label: str) -> list[
 
     if region_type == "sigungu":
         rows = conn.execute(f"""
-            SELECT {APT_COLS} FROM apartments
+            SELECT {DEDUP} {APT_COLS} FROM apartments
             WHERE {APT_BASE_FILTER} AND sigungu_code IN ({ph})
+            ORDER BY {DEDUP_ORDER}
             LIMIT 100
         """, codes).fetchall()
         # 시군구별 라벨 매핑 (동일 검색어가 여러 시군구에 매칭될 때 각 시군구별 정확한 라벨 부여)
@@ -164,8 +170,9 @@ def _fetch_region(conn, codes: list[str], region_type: str, label: str) -> list[
 
     elif region_type == "emd":
         rows = conn.execute(f"""
-            SELECT {APT_COLS}, bjd_code FROM apartments
+            SELECT {DEDUP} {APT_COLS}, bjd_code FROM apartments
             WHERE {APT_BASE_FILTER} AND bjd_code IN ({ph})
+            ORDER BY {DEDUP_ORDER}
             LIMIT 100
         """, codes).fetchall()
         # 읍면동별 라벨 매핑
@@ -189,9 +196,10 @@ def _fetch_region_with_name(conn, codes: list[str], region_type: str, label: str
     code_col = "sigungu_code" if region_type == "sigungu" else "bjd_code"
 
     rows = conn.execute(f"""
-        SELECT {APT_COLS} FROM apartments
+        SELECT {DEDUP} {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER} AND {code_col} IN ({ph})
           AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
+        ORDER BY {DEDUP_ORDER}
         LIMIT 100
     """, [*codes, f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
     return [{**dict(r), "match_type": "name", "region_label": label} for r in rows]
@@ -202,9 +210,10 @@ def _fetch_name(conn, keyword: str) -> list[dict]:
     norm = re.sub(r"[\s()\-·]", "", keyword)
     norm_stripped = normalize_apt_name(keyword)
     rows = conn.execute(f"""
-        SELECT {APT_COLS} FROM apartments
+        SELECT {DEDUP} {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER}
           AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
+        ORDER BY {DEDUP_ORDER}
         LIMIT 100
     """, [f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
     return [{**dict(r), "match_type": "name"} for r in rows]
@@ -216,10 +225,11 @@ def _fetch_fallback(conn, query: str) -> list[dict]:
     norm = re.sub(r"[\s()\-·]", "", query)
     norm_stripped = normalize_apt_name(query)
     rows = conn.execute(f"""
-        SELECT {APT_COLS} FROM apartments
+        SELECT {DEDUP} {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER}
           AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s
                OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
+        ORDER BY {DEDUP_ORDER}
         LIMIT 100
     """, [pattern, pattern, pattern, f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
     results = []
