@@ -50,7 +50,7 @@ KST = timezone(timedelta(hours=9))
 ALLOWED_TABLES: dict[str, list[str]] = {
     "apartments": [
         "pnu",
-        "bld_nm",
+        "display_name",
         "total_hhld_cnt",
         "max_floor",
         "use_apr_day",
@@ -1319,15 +1319,18 @@ def log_analytics_overview(
             for combo, cnt in nudge_counter.most_common(3)
         ]
 
-        # 상세조회 Top 5 (apartments.bld_nm 조인)
+        # 상세조회 Top 5 (apartments 표시명 조인)
         top_apt_rows = conn.execute(
-            "SELECT ue.payload->>'pnu' AS pnu, a.bld_nm, COUNT(*) AS count "
+            "SELECT ue.payload->>'pnu' AS pnu, "
+            "       COALESCE(a.display_name, a.bld_nm) AS bld_nm, "
+            "       COUNT(*) AS count "
             "FROM user_event ue "
             "LEFT JOIN apartments a ON a.pnu = ue.payload->>'pnu' "
             "WHERE ue.event_type = 'detail_view' "
             "  AND ue.payload ? 'pnu' "
             "  AND ue.created_at BETWEEN %s AND %s AND ue.device_id IS NOT NULL "
-            "GROUP BY ue.payload->>'pnu', a.bld_nm ORDER BY count DESC LIMIT 5",
+            "GROUP BY ue.payload->>'pnu', COALESCE(a.display_name, a.bld_nm) "
+            "ORDER BY count DESC LIMIT 5",
             [frm, to],
         ).fetchall()
 

@@ -412,7 +412,7 @@ def phase2_fix_name_coord(dry_run: bool = False):
     last_pnu = _load_checkpoint(cur, "fix_name_coord")
 
     cur.execute("""
-        SELECT pnu, bld_nm, plat_plc, new_plat_plc, sigungu_code, lat, lng
+        SELECT pnu, bld_nm, display_name, plat_plc, new_plat_plc, sigungu_code, lat, lng
         FROM apartments
         WHERE group_pnu = pnu
           AND (
@@ -448,13 +448,15 @@ def phase2_fix_name_coord(dry_run: bool = False):
         updates = []
         params = []
 
-        # 이름 업데이트: keyword 검증 통과한 경우만
-        if kw_result and kw_result["name"] != apt["bld_nm"]:
-            updates.append("bld_nm = %s")
+        # 표시명(display_name) 업데이트: keyword 검증 통과한 경우만
+        # bld_nm 은 K-APT 원본 보존 — 더 이상 갱신하지 않음.
+        current_display = apt.get("display_name") or apt["bld_nm"]
+        if kw_result and kw_result["name"] != current_display:
+            updates.append("display_name = %s")
             params.append(kw_result["name"])
             name_fixed += 1
             if name_fixed <= 5 or name_fixed % 500 == 0:
-                logger.info(f"  명칭: {apt['bld_nm']} → {kw_result['name']} (sim={kw_result['sim']:.2f})")
+                logger.info(f"  표시명: {current_display} → {kw_result['name']} (sim={kw_result['sim']:.2f})")
 
         # 좌표 업데이트: keyword 우선, 없으면 address
         if kw_result:

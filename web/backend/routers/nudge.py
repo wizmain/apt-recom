@@ -66,7 +66,7 @@ def nudge_score(
     conn = DictConnection()
     try:
         # 1. Get apartments (keyword, bounds, and property filters)
-        apt_sql = """SELECT a.pnu, a.bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc, a.sigungu_code
+        apt_sql = """SELECT a.pnu, COALESCE(a.display_name, a.bld_nm) AS bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc, a.sigungu_code
             FROM apartments a
             LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu"""
@@ -111,9 +111,9 @@ def nudge_score(
                 norm_kw = re.sub(r"[\s()\-·]", "", kw)
                 norm_pattern = f"%{norm_kw}%"
                 or_clauses.append(
-                    "(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s)"
+                    "(a.new_plat_plc LIKE %s OR a.plat_plc LIKE %s OR a.bld_nm LIKE %s OR a.bld_nm_norm LIKE %s OR a.display_name LIKE %s)"
                 )
-                params.extend([pattern, pattern, pattern, norm_pattern])
+                params.extend([pattern, pattern, pattern, norm_pattern, pattern])
             if sgg_code_list:
                 ph_sgg = ",".join(["%s"] * len(sgg_code_list))
                 or_clauses.append(f"a.sigungu_code IN ({ph_sgg})")

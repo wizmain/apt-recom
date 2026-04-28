@@ -195,6 +195,7 @@ def create_tables(conn) -> None:
         CREATE TABLE IF NOT EXISTS apartments (
             pnu TEXT PRIMARY KEY,
             bld_nm TEXT,
+            display_name TEXT,
             total_hhld_cnt INTEGER,
             dong_count INTEGER,
             max_floor INTEGER,
@@ -425,6 +426,7 @@ def create_tables(conn) -> None:
             last_refreshed TIMESTAMPTZ
         );
         -- 기존 레거시 테이블에 누락 컬럼 추가
+        ALTER TABLE apartments ADD COLUMN IF NOT EXISTS display_name TEXT;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS source TEXT;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS last_refreshed TIMESTAMPTZ;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS min_supply_area DOUBLE PRECISION;
@@ -582,6 +584,26 @@ def create_tables(conn) -> None:
             refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             PRIMARY KEY (type, deal_year, deal_month, sgg_cd)
         );
+
+        -- apartments.display_name 자동 보완 트리거
+        -- 다양한 INSERT 사이트(enrich_apartments, backfill_trades 등)에서 display_name을
+        -- 명시하지 않았을 때 K-APT 명칭(bld_nm)으로 자동 채움. UPDATE에는 적용하지 않아
+        -- 운영자/배치의 명시적 display_name 갱신을 보호한다.
+        CREATE OR REPLACE FUNCTION apartments_fill_display_name()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF NEW.display_name IS NULL OR NEW.display_name = '' THEN
+                NEW.display_name := NEW.bld_nm;
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        DROP TRIGGER IF EXISTS apartments_display_name_default ON apartments;
+        CREATE TRIGGER apartments_display_name_default
+        BEFORE INSERT ON apartments
+        FOR EACH ROW
+        EXECUTE FUNCTION apartments_fill_display_name();
     """)
     conn.commit()
     print("Tables created.")

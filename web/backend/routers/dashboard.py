@@ -535,7 +535,7 @@ def _resolve_pnu_to_apt_keys(conn, pnu: str) -> tuple[list[int], str | None, str
     seqs = [r["apt_seq"] for r in rows]
 
     label = conn.execute(
-        "SELECT bld_nm, sigungu_code FROM apartments WHERE pnu = %s",
+        "SELECT COALESCE(display_name, bld_nm) AS bld_nm, sigungu_code FROM apartments WHERE pnu = %s",
         [pnu],
     ).fetchone()
     bld_nm = label["bld_nm"] if label else None
