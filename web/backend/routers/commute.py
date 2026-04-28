@@ -132,7 +132,8 @@ async def search_commute(req: CommuteRequest):
     conn = DictConnection()
     try:
         apt = conn.execute(
-            "SELECT bld_nm, lat, lng FROM apartments WHERE pnu = %s", [req.pnu]
+            "SELECT COALESCE(display_name, bld_nm) AS bld_nm, lat, lng FROM apartments WHERE pnu = %s",
+            [req.pnu],
         ).fetchone()
     finally:
         conn.close()

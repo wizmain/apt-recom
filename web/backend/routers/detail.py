@@ -524,10 +524,12 @@ def apartment_trades(pnu: str):
             ).fetchall()
         else:
             apt = conn.execute(
-                "SELECT bld_nm, sigungu_code FROM apartments WHERE pnu = %s", [pnu]
+                "SELECT bld_nm, display_name, sigungu_code FROM apartments WHERE pnu = %s",
+                [pnu],
             ).fetchone()
-            if apt and apt["bld_nm"]:
-                name_pattern = f"%{apt['bld_nm']}%"
+            label = (apt and (apt["display_name"] or apt["bld_nm"])) if apt else None
+            if label:
+                name_pattern = f"%{label}%"
                 sgg = apt["sigungu_code"][:5] if apt["sigungu_code"] else None
                 if sgg:
                     trades = conn.execute(

@@ -38,7 +38,7 @@ def list_apartments(
         # K-APT 원본의 top_floor 컬럼은 일부 단지에서 1·2·0 등으로 오염된 값이 들어있어
         # top_floor_official 을 우선 사용한다 (≤3 인 비정상값은 NULLIF 로 무시).
         sql = """
-            SELECT a.pnu, a.bld_nm, a.lat, a.lng,
+            SELECT a.pnu, COALESCE(a.display_name, a.bld_nm) AS bld_nm, a.lat, a.lng,
                    COALESCE(k.ho_cnt, a.total_hhld_cnt) AS total_hhld_cnt,
                    a.sigungu_code,
                    COALESCE(

@@ -128,7 +128,7 @@ def _fetch_target_info(conn, pnu: str) -> dict:
     row = conn.execute(
         """
         SELECT v.pnu, v.vec_basic, v.vec_price, v.vec_facility, v.vec_safety,
-               a.bld_nm, a.sigungu_code, a.lat, a.lng,
+               COALESCE(a.display_name, a.bld_nm) AS bld_nm, a.sigungu_code, a.lat, a.lng,
                a.total_hhld_cnt, a.use_apr_day, a.group_pnu,
                ai.avg_area,
                p.price_per_m2
@@ -185,7 +185,7 @@ def _fetch_candidates(
 
         sql = f"""
             SELECT v.pnu, v.vec_basic, v.vec_price, v.vec_facility, v.vec_safety,
-                   a.bld_nm, a.sigungu_code, a.lat, a.lng,
+                   COALESCE(a.display_name, a.bld_nm) AS bld_nm, a.sigungu_code, a.lat, a.lng,
                    a.total_hhld_cnt, a.use_apr_day,
                    ai.avg_area,
                    p.price_per_m2

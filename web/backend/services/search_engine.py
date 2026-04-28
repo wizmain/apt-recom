@@ -5,7 +5,10 @@
 
 import re
 
-APT_COLS = "pnu, bld_nm, lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc, group_pnu"
+APT_COLS = (
+    "pnu, COALESCE(display_name, bld_nm) AS bld_nm, "
+    "lat, lng, total_hhld_cnt, sigungu_code, new_plat_plc, group_pnu"
+)
 
 # 같은 group_pnu(분리 등록된 동들의 단지 그룹) 는 검색에 1건만 노출.
 # 대표 행은 group_pnu == pnu(자기 자신이 마스터) 우선, 다음 total_hhld_cnt 큰 순.
@@ -198,10 +201,10 @@ def _fetch_region_with_name(conn, codes: list[str], region_type: str, label: str
     rows = conn.execute(f"""
         SELECT {DEDUP} {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER} AND {code_col} IN ({ph})
-          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
+          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s OR display_name LIKE %s)
         ORDER BY {DEDUP_ORDER}
         LIMIT 100
-    """, [*codes, f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
+    """, [*codes, f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%", f"%{keyword}%"]).fetchall()
     return [{**dict(r), "match_type": "name", "region_label": label} for r in rows]
 
 
@@ -212,10 +215,10 @@ def _fetch_name(conn, keyword: str) -> list[dict]:
     rows = conn.execute(f"""
         SELECT {DEDUP} {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER}
-          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
+          AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s OR display_name LIKE %s)
         ORDER BY {DEDUP_ORDER}
         LIMIT 100
-    """, [f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
+    """, [f"%{keyword}%", f"%{norm}%", f"%{norm_stripped}%", f"%{keyword}%"]).fetchall()
     return [{**dict(r), "match_type": "name"} for r in rows]
 
 
@@ -228,10 +231,10 @@ def _fetch_fallback(conn, query: str) -> list[dict]:
         SELECT {DEDUP} {APT_COLS} FROM apartments
         WHERE {APT_BASE_FILTER}
           AND (new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s
-               OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s)
+               OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s OR display_name LIKE %s)
         ORDER BY {DEDUP_ORDER}
         LIMIT 100
-    """, [pattern, pattern, pattern, f"%{norm}%", f"%{norm_stripped}%"]).fetchall()
+    """, [pattern, pattern, pattern, f"%{norm}%", f"%{norm_stripped}%", pattern]).fetchall()
     results = []
     for r in rows:
         addr = r.get("new_plat_plc") or r.get("plat_plc") or ""

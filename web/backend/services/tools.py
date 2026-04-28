@@ -491,8 +491,8 @@ async def get_apartment_detail(query: str) -> str:
             norm_stripped = normalize_apt_name(query)
             rows = conn.execute(
                 "SELECT * FROM apartments WHERE pnu NOT LIKE 'TRADE_%%' "
-                "AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 5",
-                [f"%{query}%", f"%{norm_q}%", f"%{norm_stripped}%"],
+                "AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR bld_nm_norm LIKE %s OR display_name LIKE %s) LIMIT 5",
+                [f"%{query}%", f"%{norm_q}%", f"%{norm_stripped}%", f"%{query}%"],
             ).fetchall()
             if not rows:
                 return json.dumps(
@@ -586,7 +586,7 @@ async def get_apartment_detail(query: str) -> str:
         # 데이터가 없는 필드 자체를 숨김으로써, 모델이 "없는 정보"를 "있다고 환각"하는 위험도 줄인다.
         basic = _drop_empty({
             "pnu": apt["pnu"],
-            "name": apt["bld_nm"],
+            "name": apt.get("display_name") or apt["bld_nm"],
             "address": address,
             "total_households": apt["total_hhld_cnt"],
             "dong_count": apt["dong_count"],
@@ -758,8 +758,10 @@ async def get_school_info(query: str) -> str:
             import re as _re3
             norm_sq = _re3.sub(r'[\s()\-·]', '', query)
             apt = conn.execute(
-                "SELECT pnu, bld_nm FROM apartments WHERE pnu NOT LIKE 'TRADE_%%' AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 5",
-                [f"%{query}%", f"%{norm_sq}%"],
+                "SELECT pnu, COALESCE(display_name, bld_nm) AS bld_nm FROM apartments "
+                "WHERE pnu NOT LIKE 'TRADE_%%' "
+                "AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR display_name LIKE %s) LIMIT 5",
+                [f"%{query}%", f"%{norm_sq}%", f"%{query}%"],
             ).fetchall()
             if not apt:
                 return json.dumps(
@@ -836,7 +838,8 @@ async def search_commute(pnu: str, destination: str) -> str:
     conn = _get_conn()
     try:
         apt = conn.execute(
-            "SELECT bld_nm, lat, lng FROM apartments WHERE pnu = %s", [pnu]
+            "SELECT COALESCE(display_name, bld_nm) AS bld_nm, lat, lng FROM apartments WHERE pnu = %s",
+            [pnu],
         ).fetchone()
     finally:
         conn.close()
@@ -1028,8 +1031,10 @@ async def get_similar_apartments(
     if not apt:
         norm = _re.sub(r'[\s()\-·]', '', query)
         rows = conn.execute(
-            "SELECT pnu, bld_nm FROM apartments WHERE pnu NOT LIKE 'TRADE_%%' AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s) LIMIT 1",
-            [f"%{query}%", f"%{norm}%"]
+            "SELECT pnu, COALESCE(display_name, bld_nm) AS bld_nm FROM apartments "
+            "WHERE pnu NOT LIKE 'TRADE_%%' "
+            "AND (bld_nm LIKE %s OR bld_nm_norm LIKE %s OR display_name LIKE %s) LIMIT 1",
+            [f"%{query}%", f"%{norm}%", f"%{query}%"]
         ).fetchall()
         if not rows:
             conn.close()
@@ -1041,7 +1046,7 @@ async def get_similar_apartments(
     # 대상 벡터
     target_row = conn.execute("""
         SELECT v.vec_basic, v.vec_price, v.vec_facility, v.vec_safety,
-               a.bld_nm, a.sigungu_code
+               COALESCE(a.display_name, a.bld_nm) AS bld_nm, a.sigungu_code
         FROM apt_vectors v
         JOIN apartments a ON v.pnu = a.pnu
         WHERE v.pnu = %s
@@ -1057,7 +1062,7 @@ async def get_similar_apartments(
     # 후보 조회
     rows = conn.execute("""
         SELECT v.pnu, v.vec_basic, v.vec_price, v.vec_facility, v.vec_safety,
-               a.bld_nm, a.sigungu_code, p.price_per_m2
+               COALESCE(a.display_name, a.bld_nm) AS bld_nm, a.sigungu_code, p.price_per_m2
         FROM apt_vectors v
         JOIN apartments a ON v.pnu = a.pnu
         LEFT JOIN apt_price_score p ON v.pnu = p.pnu

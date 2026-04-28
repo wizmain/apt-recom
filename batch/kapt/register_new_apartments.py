@@ -81,8 +81,13 @@ def _kakao_get(url, params, headers):
 
 
 def geocode_address(address, name, headers):
-    """주소 → {pnu, lat, lng, bjd_code, sigungu_code, plat_plc, new_plat_plc} 또는 None."""
+    """주소 → {pnu, lat, lng, bjd_code, sigungu_code, plat_plc, new_plat_plc, kakao_name} 또는 None.
+
+    kakao_name 은 keyword 검색이 성공했을 때 카카오의 place_name(사용자 친화 표기).
+    address API fallback 으로 좌표만 얻은 경우에는 None.
+    """
     lat, lng, new_plat, plat = None, None, None, None
+    kakao_name = None
 
     # 1. 키워드 검색
     query = f"{address} {name} 아파트" if name else address
@@ -96,6 +101,7 @@ def geocode_address(address, name, headers):
             plat = doc.get("address_name") or None
             lat = float(doc["y"]) if doc.get("y") else None
             lng = float(doc["x"]) if doc.get("x") else None
+            kakao_name = doc.get("place_name") or None
 
     # fallback: 주소 검색
     if not lat:
@@ -153,6 +159,7 @@ def geocode_address(address, name, headers):
         "sigungu_code": sigungu,
         "plat_plc": plat,
         "new_plat_plc": new_plat,
+        "kakao_name": kakao_name,
     }
 
 
@@ -282,18 +289,20 @@ def main():
 
         cur.execute(
             """INSERT INTO apartments
-               (pnu, bld_nm, total_hhld_cnt, dong_count, max_floor,
+               (pnu, bld_nm, display_name, total_hhld_cnt, dong_count, max_floor,
                 use_apr_day, plat_plc, new_plat_plc, bjd_code,
                 sigungu_code, lat, lng, group_pnu)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (pnu) DO UPDATE SET
                  bld_nm = COALESCE(NULLIF(EXCLUDED.bld_nm,''), apartments.bld_nm),
+                 display_name = COALESCE(NULLIF(EXCLUDED.display_name,''), apartments.display_name),
                  total_hhld_cnt = COALESCE(NULLIF(EXCLUDED.total_hhld_cnt,0), apartments.total_hhld_cnt),
                  lat = COALESCE(EXCLUDED.lat, apartments.lat),
                  lng = COALESCE(EXCLUDED.lng, apartments.lng)""",
             [
                 pnu,
                 name,
+                geo.get("kakao_name") or name,
                 hhld,
                 dong,
                 max_floor,
