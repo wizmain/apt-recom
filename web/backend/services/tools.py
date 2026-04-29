@@ -144,20 +144,6 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="search_knowledge",
-        description="부동산 관련 지식 검색 (RAG). 부동산 용어, 정책, 세금 등에 대한 질문에 답변합니다.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "검색할 질문 또는 키워드",
-                },
-            },
-            "required": ["query"],
-        },
-    ),
-    Tool(
         name="search_commute",
         description=(
             "아파트에서 목적지까지 대중교통 출퇴근 시간을 조회합니다. "
@@ -790,42 +776,6 @@ async def get_school_info(query: str) -> str:
         conn.close()
 
 
-async def search_knowledge(query: str) -> str:
-    """RAG 검색 — ChromaDB에서 관련 문서를 검색합니다."""
-    from services.rag import search_knowledge_rag
-
-    try:
-        result = await search_knowledge_rag(query)
-        # If we got passages, return formatted answer with sources
-        if result.get("passages"):
-            return json.dumps(
-                {
-                    "answer": result["answer"],
-                    "sources": result.get("sources", []),
-                },
-                ensure_ascii=False,
-            )
-        else:
-            return json.dumps(
-                {
-                    "message": result.get(
-                        "message",
-                        "관련 문서를 찾을 수 없습니다. 현재는 내장된 부동산 데이터를 기반으로 답변드리겠습니다.",
-                    ),
-                    "query": query,
-                },
-                ensure_ascii=False,
-            )
-    except Exception as e:
-        return json.dumps(
-            {
-                "message": f"지식 검색 중 오류가 발생했습니다: {str(e)}. 내장된 부동산 데이터를 기반으로 답변드리겠습니다.",
-                "query": query,
-            },
-            ensure_ascii=False,
-        )
-
-
 async def search_commute(pnu: str, destination: str) -> str:
     """ODSay API로 아파트→목적지 대중교통 출퇴근 시간 조회."""
     import os
@@ -1115,7 +1065,6 @@ TOOL_EXECUTORS = {
     "compare_apartments": compare_apartments,
     "get_market_trend": get_market_trend,
     "get_school_info": get_school_info,
-    "search_knowledge": search_knowledge,
     "search_commute": search_commute,
     "get_dashboard_info": get_dashboard_info,
     "get_similar_apartments": get_similar_apartments,

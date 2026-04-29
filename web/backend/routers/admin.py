@@ -7,7 +7,6 @@
 import logging
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -861,60 +860,6 @@ async def update_scoring_weights(req: WeightUpdateRequest):
         raise HTTPException(500, f"가중치 수정 실패: {e}")
     finally:
         conn.close()
-
-
-# ── Knowledge (Phase 3) ──────────────────────────────────────
-
-_UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploaded_pdfs"
-_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-
-@router.get("/knowledge/list")
-async def admin_knowledge_list():
-    """관리자 전용 문서 목록."""
-    from services.knowledge_manager import list_documents
-
-    docs = list_documents()
-    return {"documents": docs, "total": len(docs)}
-
-
-@router.post("/knowledge/upload")
-async def admin_knowledge_upload(
-    file: UploadFile = File(...),
-    category: str = Form("general"),
-):
-    """관리자 전용 PDF 업로드."""
-    from services.knowledge_manager import upload_pdf
-
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "PDF 파일만 업로드 가능합니다.")
-
-    dest = _UPLOAD_DIR / file.filename
-    try:
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-    except Exception as e:
-        raise HTTPException(500, f"파일 저장 실패: {e}")
-
-    try:
-        result = await upload_pdf(str(dest), category=category)
-        logger.info(f"Admin: knowledge uploaded {file.filename}")
-        return {"status": "ok", **result}
-    except Exception as e:
-        raise HTTPException(500, f"PDF 처리 실패: {e}")
-
-
-@router.delete("/knowledge/{doc_id}")
-async def admin_knowledge_delete(doc_id: str):
-    """관리자 전용 문서 삭제."""
-    from services.knowledge_manager import delete_document
-
-    try:
-        result = delete_document(doc_id)
-        logger.info(f"Admin: knowledge deleted {doc_id}")
-        return {"status": "ok", **result}
-    except Exception as e:
-        raise HTTPException(500, f"문서 삭제 실패: {e}")
 
 
 # ── Batch Trigger (Phase 4) ──────────────────────────────────
