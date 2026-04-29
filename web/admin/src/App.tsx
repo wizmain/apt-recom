@@ -8,7 +8,6 @@ import { BatchMonitor } from "./pages/BatchMonitor";
 import { Feedback } from "./pages/Feedback";
 import { Logs } from "./pages/Logs";
 import { Scoring } from "./pages/Scoring";
-import { Knowledge } from "./pages/Knowledge";
 import { CommonCode } from "./pages/CommonCode";
 import { MgmtCost } from "./pages/MgmtCost";
 
@@ -31,7 +30,6 @@ function App() {
             <Route path="/feedback" element={<Feedback />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/scoring" element={<Scoring />} />
-            <Route path="/knowledge" element={<Knowledge />} />
             <Route path="/codes" element={<CommonCode />} />
             <Route path="/mgmt-cost" element={<MgmtCost />} />
           </Routes>

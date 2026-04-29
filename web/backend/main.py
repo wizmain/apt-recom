@@ -41,7 +41,7 @@ from database import (
     init_pool,
     close_pool,
 )
-from routers import apartments, nudge, detail, chat, knowledge, commute, feedback, dashboard, codes, similar, admin, log, sitemap
+from routers import apartments, nudge, detail, chat, commute, feedback, dashboard, codes, similar, admin, log, sitemap
 from mcp_server import mcp as _mcp, mcp_asgi_app
 
 
@@ -93,7 +93,6 @@ app.include_router(apartments.router, prefix="/api")
 app.include_router(nudge.router, prefix="/api")
 app.include_router(detail.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
-app.include_router(knowledge.router, prefix="/api")
 app.include_router(commute.router, prefix="/api")
 app.include_router(feedback.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
