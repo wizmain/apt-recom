@@ -16,6 +16,8 @@ const AGENT_DISCOVERY_LINK = [
   '<https://api.apt-recom.kr/openapi.json>; rel="service-desc"; type="application/json"',
   '<https://api.apt-recom.kr/docs>; rel="service-doc"',
   '</.well-known/llms.txt>; rel="describedby"; type="text/plain"',
+  // RFC 9727 §3 — Publisher 의 API catalog 위치 광고
+  '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
 ].join(", ");
 
 const nextConfig: NextConfig = {
