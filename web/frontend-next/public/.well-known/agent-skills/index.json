@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "apt-recom",
+      "type": "skill-md",
+      "description": "대한민국 아파트 단지 검색·상세·비교·시세동향·학군 조회. 라이프스타일 키워드(출퇴근/교육/안전/반려동물 등) 기반 NUDGE 스코어링과 실거래가·K-APT 관리비·CCTV 안전지수를 활용하려 할 때 사용.",
+      "url": "/.well-known/agent-skills/apt-recom/SKILL.md",
+      "digest": "sha256:0d3eb30062e37161aafbe601c0c7ecc2e84da1d059edb7494d44bd3543a11106"
+    }
+  ]
+}
