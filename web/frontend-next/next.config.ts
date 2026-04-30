@@ -6,7 +6,17 @@ import type { NextConfig } from "next";
  * - `typedRoutes`: Next.js 16 에서 타입 안전 라우팅 (실험적 아님, 권장).
  * - `redirects`: www.apt-recom.kr → apt-recom.kr 301 (canonical 단일화).
  * - `images`: Kakao CDN 도메인 허용 (추후 단지 사진 도입 시).
+ * - `headers`: 홈페이지 `/` 응답에 RFC 8288 Link 헤더를 부착해 agent 가
+ *   OpenAPI 스펙·Swagger 문서·llms.txt 를 자동 발견하게 한다.
  */
+
+// RFC 8288 Link header — IANA registered relation types 만 사용.
+// 다중 Link 헤더 대신 단일 헤더 + 콤마 결합 (OpenNext 헤더 직렬화 호환).
+const AGENT_DISCOVERY_LINK = [
+  '<https://api.apt-recom.kr/openapi.json>; rel="service-desc"; type="application/json"',
+  '<https://api.apt-recom.kr/docs>; rel="service-doc"',
+  '</.well-known/llms.txt>; rel="describedby"; type="text/plain"',
+].join(", ");
 
 const nextConfig: NextConfig = {
   typedRoutes: true,
@@ -22,6 +32,15 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.daumcdn.net" },
       { protocol: "https", hostname: "**.kakaocdn.net" },
     ],
+  },
+
+  async headers() {
+    return [
+      {
+        source: "/",
+        headers: [{ key: "Link", value: AGENT_DISCOVERY_LINK }],
+      },
+    ];
   },
 };
 
