@@ -42,6 +42,18 @@ const nextConfig: NextConfig = {
         source: "/",
         headers: [{ key: "Link", value: AGENT_DISCOVERY_LINK }],
       },
+      {
+        // SEP-2127 MCP Server Card — agent 발견 용 정적 JSON.
+        // browser-based 클라이언트의 fetch 를 위해 CORS 와 Content-Type 명시.
+        source: "/.well-known/mcp/server-card.json",
+        headers: [
+          { key: "Content-Type", value: "application/json; charset=utf-8" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Access-Control-Allow-Headers", value: "Content-Type" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
     ];
   },
 };

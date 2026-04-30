@@ -1,0 +1,57 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "name": "kr.apt-recom/mcp",
+  "version": "0.1.0",
+  "title": "집토리 (apt-recom)",
+  "description": "대한민국 아파트 데이터(국토부 실거래가, K-APT 관리비/시설, CCTV 안전지수, 학군 배정)를 라이프스타일 키워드 기반으로 검색·상세조회·비교·추천하는 MCP 서버. 모든 응답은 한국어 JSON, 금액은 만원 단위, 면적은 ㎡.",
+  "websiteUrl": "https://apt-recom.kr",
+  "repository": {
+    "url": "https://github.com/wizmain/apt-recom",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.apt-recom.kr/mcp/",
+      "supportedProtocolVersions": ["2025-06-18"]
+    }
+  ],
+  "serverInfo": {
+    "name": "apt-recom",
+    "version": "0.1.0"
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "name": "search_apartments",
+        "description": "라이프스타일 키워드 기반 아파트 검색·NUDGE 스코어링."
+      },
+      {
+        "name": "get_apartment_detail",
+        "description": "특정 아파트의 상세 정보 (기본·점수·시설·학군·거래이력 요약)."
+      },
+      {
+        "name": "compare_apartments",
+        "description": "2~5개 아파트를 나란히 비교 (기본정보·점수·시설 매트릭스)."
+      },
+      {
+        "name": "get_similar_apartments",
+        "description": "특정 아파트와 유사한 단지 추천 (location/price/lifestyle/combined)."
+      },
+      {
+        "name": "get_market_trend",
+        "description": "지역(시군구) 시세 동향 — 월별 거래량·평균가."
+      },
+      {
+        "name": "get_school_info",
+        "description": "아파트의 초·중·고 학군 배정 정보."
+      },
+      {
+        "name": "get_dashboard_info",
+        "description": "시군구 거래 동향 대시보드 — 이번 달 요약 + 랭킹 + 최근 N개월 추이."
+      }
+    ],
+    "resources": [],
+    "prompts": []
+  }
+}
