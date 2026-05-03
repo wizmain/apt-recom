@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useAppStore } from "@/lib/store";
 import { useApartments, countActiveFilters } from "@/hooks/useApartments";
 import { useNudge } from "@/hooks/useNudge";
@@ -16,7 +17,16 @@ import ChatModal from "./ChatModal";
 import CompareModal from "./CompareModal";
 import WeightDrawer from "./WeightDrawer";
 import Dashboard from "./Dashboard";
-import { DetailModalClient } from "./DetailModalClient";
+
+// recharts(차트 라이브러리)와 detail 모달 자체 코드를 별도 chunk 로 분리.
+// 모달이 처음 열릴 때만 다운로드 → 초기 페이지 번들 사이즈 감소.
+const DetailModalClient = dynamic(
+  () =>
+    import("./DetailModalClient").then((mod) => ({
+      default: mod.DetailModalClient,
+    })),
+  { ssr: false },
+);
 
 export function HomeShell() {
   // store state
