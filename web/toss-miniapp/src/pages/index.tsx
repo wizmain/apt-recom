@@ -28,6 +28,8 @@ function HomePage() {
   const navigation = Route.useNavigation();
   const goSearch = () => navigation.navigate('/search', {});
   const goTrades = () => navigation.navigate('/trades', {});
+  const goApt = (pnu: string, name: string) =>
+    navigation.navigate('/apt', { pnu, name });
   const network = useNetworkStatus();
   const offline = network === 'OFFLINE';
 
@@ -70,7 +72,7 @@ function HomePage() {
         </TouchableOpacity>
       </View>
 
-      <RecentCard state={recent} />
+      <RecentCard state={recent} onTap={goApt} />
       <SummaryCard state={summary} />
       <RankingCard state={ranking} />
 
@@ -83,33 +85,48 @@ function HomePage() {
 
 function RecentCard({
   state,
+  onTap,
 }: {
   state: ReturnType<typeof useApi<DashboardRecentTrade[]>>;
+  onTap: (pnu: string, name: string) => void;
 }) {
   return (
     <Card title="최근 거래">
       <CardBody state={state}>
         {(d) => (
           <View>
-            {d.slice(0, 5).map((t, i) => (
-              <View key={`${t.pnu ?? t.apt_nm}-${i}`} style={styles.recentRow}>
-                <View style={styles.recentTop}>
-                  <Text style={styles.recentName} numberOfLines={1}>
-                    {t.apt_nm}
+            {d.slice(0, 5).map((t, i) => {
+              // pnu 매핑이 있는 거래만 단지 상세로 이동 가능. 없으면 정적 표시.
+              const Wrap = t.pnu ? TouchableOpacity : View;
+              return (
+                <Wrap
+                  key={`${t.pnu ?? t.apt_nm}-${i}`}
+                  style={styles.recentRow}
+                  {...(t.pnu
+                    ? {
+                        onPress: () => onTap(t.pnu as string, t.apt_nm),
+                        activeOpacity: 0.7,
+                      }
+                    : {})}
+                >
+                  <View style={styles.recentTop}>
+                    <Text style={styles.recentName} numberOfLines={1}>
+                      {t.apt_nm}
+                    </Text>
+                    <Text style={styles.recentPrice}>
+                      {t.price ? `${formatPrice(t.price)}만원` : '-'}
+                    </Text>
+                  </View>
+                  <Text style={styles.recentMeta}>
+                    {t.sigungu}
+                    {t.area ? ` · ${t.area.toFixed(0)}㎡` : ''}
+                    {t.floor != null ? ` · ${t.floor}층` : ''}
+                    {' · '}
+                    {t.date}
                   </Text>
-                  <Text style={styles.recentPrice}>
-                    {t.price ? `${formatPrice(t.price)}만원` : '-'}
-                  </Text>
-                </View>
-                <Text style={styles.recentMeta}>
-                  {t.sigungu}
-                  {t.area ? ` · ${t.area.toFixed(0)}㎡` : ''}
-                  {t.floor != null ? ` · ${t.floor}층` : ''}
-                  {' · '}
-                  {t.date}
-                </Text>
-              </View>
-            ))}
+                </Wrap>
+              );
+            })}
             {d.length === 0 ? <Empty /> : null}
           </View>
         )}
