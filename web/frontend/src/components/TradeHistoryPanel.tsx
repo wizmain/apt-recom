@@ -32,8 +32,6 @@ interface TradeHistoryPanelProps {
   onGoToMap?: (aptName: string, sggCd: string, pnu: string) => void;
 }
 
-const METRO_PREFIXES = ['11', '41', '28']; // 서울, 경기, 인천
-
 function formatPrice(val: number): string {
   if (val >= 10000) {
     const eok = Math.floor(val / 10000);
@@ -44,7 +42,7 @@ function formatPrice(val: number): string {
 }
 
 export default function TradeHistoryPanel({ aptName, sggCd, area, pnu, onClose, onGoToMap }: TradeHistoryPanelProps) {
-  const showMapBtn = !!pnu && METRO_PREFIXES.some(p => sggCd.startsWith(p));
+  const showMapBtn = !!pnu;
   const [data, setData] = useState<TradesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'trade' | 'rent'>('trade');
