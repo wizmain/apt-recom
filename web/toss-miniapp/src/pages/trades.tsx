@@ -13,7 +13,7 @@ import { apiPaths } from '../shared/api/paths';
 import type { CommonCodeRow } from '../shared/types/apartment-list';
 import type { DashboardRecentTrade } from '../shared/types/dashboard';
 import { useApi } from '../hooks/useApi';
-import { formatPrice } from '../lib/format';
+import TradeCard from '../components/TradeCard';
 
 export const Route = createRoute('/trades', {
   validateParams: (_params: Readonly<object | undefined>) =>
@@ -181,36 +181,14 @@ function TradeList({
       <Text style={styles.subheader}>
         {regionLabel} · 최근 거래 {rows.length.toLocaleString()}건
       </Text>
-      {rows.map((t, i) => {
-        const Card = t.pnu ? TouchableOpacity : View;
-        return (
-          <Card
-            key={`${t.pnu ?? t.apt_nm}-${i}`}
-            style={styles.tradeCard}
-            {...(t.pnu
-              ? {
-                  onPress: () => onTap(t.pnu as string, t.apt_nm),
-                  activeOpacity: 0.7,
-                }
-              : {})}
-          >
-            <View style={styles.tradeTop}>
-              <Text style={styles.tradeName} numberOfLines={1}>
-                {t.apt_nm}
-              </Text>
-              <Text style={styles.tradePrice}>
-                {t.price ? `${formatPrice(t.price)}만원` : '-'}
-              </Text>
-            </View>
-            <Text style={styles.tradeMeta}>
-              {t.area ? `${t.area.toFixed(0)}㎡` : '-'}
-              {t.floor != null ? ` · ${t.floor}층` : ''}
-              {' · '}
-              {t.date}
-            </Text>
-          </Card>
-        );
-      })}
+      {rows.map((t, i) => (
+        <TradeCard
+          key={`${t.pnu ?? t.apt_nm}-${i}`}
+          item={t}
+          onPress={onTap}
+          showSigungu={false}
+        />
+      ))}
     </ScrollView>
   );
 }
@@ -263,30 +241,6 @@ const styles = StyleSheet.create({
   },
   regionExtra: { fontSize: 12, color: '#A2A8B4', width: 56 },
   regionName: { fontSize: 16, color: '#202632', fontWeight: '600' },
-  tradeCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-  },
-  tradeTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-  },
-  tradeName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#202632',
-    flex: 1,
-    marginRight: 12,
-  },
-  tradePrice: {
-    fontSize: 16,
-    color: '#3182F6',
-    fontWeight: '800',
-  },
-  tradeMeta: { fontSize: 12, color: '#6B7684', marginTop: 4 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   error: { color: '#E84A4A', fontSize: 13, textAlign: 'center', padding: 16 },
   empty: { color: '#A2A8B4', fontSize: 13 },
