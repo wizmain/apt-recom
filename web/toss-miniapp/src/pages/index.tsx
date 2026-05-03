@@ -28,6 +28,14 @@ function HomePage() {
   const navigation = Route.useNavigation();
   const goSearch = () => navigation.navigate('/search', {});
   const goTrades = () => navigation.navigate('/trades', {});
+  const goRecent = () =>
+    navigation.navigate('/recent-trades', {
+      preset: '1m',
+      from: '',
+      to: '',
+      sigungu: '',
+      sigunguName: '',
+    });
   const goApt = (pnu: string, name: string) =>
     navigation.navigate('/apt', { pnu, name });
   const network = useNetworkStatus();
@@ -71,6 +79,14 @@ function HomePage() {
           <Text style={styles.ctaTextSecondary}>지역별 아파트 검색</Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity
+        style={styles.ctaWide}
+        onPress={goRecent}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.ctaTextSecondary}>기간별 최근 거래내역</Text>
+      </TouchableOpacity>
 
       <RecentCard state={recent} onTap={goApt} />
       <SummaryCard state={summary} />
@@ -259,6 +275,15 @@ const styles = StyleSheet.create({
   },
   ctaText: { color: 'white', fontSize: 15, fontWeight: '700' },
   ctaTextSecondary: { color: '#202632', fontSize: 15, fontWeight: '700' },
+  ctaWide: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#D1D6DB',
+    marginBottom: 20,
+  },
   card: {
     backgroundColor: 'white',
     borderRadius: 16,

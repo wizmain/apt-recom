@@ -3,6 +3,7 @@
 // (granite dev/build 가 다음 실행 시 자동 재생성)
 import { Route as _AptRoute } from '../pages/apt';
 import { Route as _IndexRoute } from '../pages/';
+import { Route as _RecentTradesRoute } from '../pages/recent-trades';
 import { Route as _SearchRoute } from '../pages/search';
 import { Route as _TradesRoute } from '../pages/trades';
 
@@ -10,6 +11,7 @@ declare module '@granite-js/react-native' {
   interface RegisterScreenInput {
     '/apt': (typeof _AptRoute)['_inputType'];
     '/': (typeof _IndexRoute)['_inputType'];
+    '/recent-trades': (typeof _RecentTradesRoute)['_inputType'];
     '/search': (typeof _SearchRoute)['_inputType'];
     '/trades': (typeof _TradesRoute)['_inputType'];
   }
@@ -17,6 +19,7 @@ declare module '@granite-js/react-native' {
   interface RegisterScreen {
     '/apt': (typeof _AptRoute)['_outputType'];
     '/': (typeof _IndexRoute)['_outputType'];
+    '/recent-trades': (typeof _RecentTradesRoute)['_outputType'];
     '/search': (typeof _SearchRoute)['_outputType'];
     '/trades': (typeof _TradesRoute)['_outputType'];
   }

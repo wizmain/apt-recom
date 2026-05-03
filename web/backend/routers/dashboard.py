@@ -449,15 +449,52 @@ def dashboard_recent(
     type: str = Query("trade", pattern="^(trade|rent)$"),
     limit: int = Query(20, ge=1, le=100),
     sigungu: str = Query("", description="시군구 코드 필터"),
+    from_date: str = Query(
+        "", pattern=r"^(\d{8})?$", description="시작일 YYYYMMDD (포함, 선택)"
+    ),
+    to_date: str = Query(
+        "", pattern=r"^(\d{8})?$", description="종료일 YYYYMMDD (포함, 선택)"
+    ),
 ):
-    """최근 거래 내역 목록."""
-    conn = DictConnection()
+    """최근 거래 내역 목록.
 
-    sgg_filter = ""
+    선택 필터:
+    - sigungu: 시군구 코드 5자리
+    - from_date / to_date: 거래일 기준 날짜 범위 (포함). 둘 중 하나만 지정 가능.
+      범위 366일 초과 시 400.
+    """
+    from_d = (
+        datetime.strptime(from_date, "%Y%m%d").date() if from_date else None
+    )
+    to_d = datetime.strptime(to_date, "%Y%m%d").date() if to_date else None
+    if from_d and to_d:
+        if from_d > to_d:
+            raise HTTPException(
+                status_code=400, detail="from_date must be <= to_date"
+            )
+        if (to_d - from_d).days > 366:
+            raise HTTPException(
+                status_code=400, detail="date range must be within 366 days"
+            )
+
+    where_parts: list[str] = []
     params: list = []
     if sigungu:
-        sgg_filter = "WHERE t.sgg_cd = %s"
+        where_parts.append("t.sgg_cd = %s")
         params.append(sigungu)
+    if from_d is not None:
+        where_parts.append(
+            "make_date(t.deal_year, t.deal_month, t.deal_day) >= %s"
+        )
+        params.append(from_d)
+    if to_d is not None:
+        where_parts.append(
+            "make_date(t.deal_year, t.deal_month, t.deal_day) <= %s"
+        )
+        params.append(to_d)
+    where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+    conn = DictConnection()
 
     if type == "trade":
         rows = conn.execute(
@@ -466,7 +503,7 @@ def dashboard_recent(
                    t.deal_year, t.deal_month, t.deal_day, m.pnu
             FROM trade_history t
             LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
-            {sgg_filter}
+            {where_sql}
             ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deal_amount DESC
             LIMIT %s
         """,
@@ -479,7 +516,7 @@ def dashboard_recent(
                    t.deal_year, t.deal_month, t.deal_day, m.pnu
             FROM rent_history t
             LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
-            {sgg_filter}
+            {where_sql}
             ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deposit DESC
             LIMIT %s
         """,
