@@ -25,39 +25,56 @@ _MGMT_PCT_LOCK = threading.Lock()
 
 
 def _mgmt_percentiles(conn, sgg: str, ym: str) -> dict[str, float | None]:
-    """시군구·월 단위 관리비 median (per_unit, per_m2) 캐시 조회/계산."""
+    """시군구·월 단위 관리비 median (per_unit, per_m2) 조회.
+
+    조회 우선순위:
+      1) process-lifetime in-memory cache
+      2) sigungu_mgmt_cost_stats 캐시 테이블 (batch.compute_mgmt_cost_stats 가 갱신)
+      3) raw 집계 fallback (캐시 테이블 미반영 신규 시군구·월)
+    """
     key = (sgg, ym)
     cached = _MGMT_PCT_CACHE.get(key)
     if cached is not None:
         return cached
+
+    # 1) 캐시 테이블 lookup
     row = conn.execute(
-        """
-        WITH eligible AS (
-            SELECT m.pnu, m.total_cost, m.cost_per_unit
-            FROM apt_mgmt_cost m
-            JOIN apartments a ON m.pnu = a.pnu
-            WHERE a.sigungu_code = %s
-              AND m.year_month = %s
-              AND m.cost_per_unit >= 10000
-              AND m.total_cost >= 100000
-              AND m.cost_per_unit != m.total_cost
-        ),
-        with_area AS (
-            SELECT e.total_cost::float / at.mgmt_area_total AS per_m2
-            FROM eligible e
-            JOIN (
-                SELECT pnu, MAX(mgmt_area_total) AS mgmt_area_total
-                FROM apt_area_type
-                WHERE mgmt_area_total > 0
-                GROUP BY pnu
-            ) at ON e.pnu = at.pnu
-        )
-        SELECT
-            (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_unit) FROM eligible) AS median_per_unit,
-            (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY per_m2) FROM with_area) AS median_per_m2
-        """,
+        "SELECT median_per_unit, median_per_m2 "
+        "FROM sigungu_mgmt_cost_stats WHERE sigungu_code = %s AND year_month = %s",
         [sgg, ym],
     ).fetchone()
+
+    if row is None:
+        # 2) fallback: 캐시 미스 시 직접 계산 (신규 시군구·월 또는 batch 미실행 환경)
+        row = conn.execute(
+            """
+            WITH eligible AS (
+                SELECT m.pnu, m.total_cost, m.cost_per_unit
+                FROM apt_mgmt_cost m
+                JOIN apartments a ON m.pnu = a.pnu
+                WHERE a.sigungu_code = %s
+                  AND m.year_month = %s
+                  AND m.cost_per_unit >= 10000
+                  AND m.total_cost >= 100000
+                  AND m.cost_per_unit != m.total_cost
+            ),
+            with_area AS (
+                SELECT e.total_cost::float / at.mgmt_area_total AS per_m2
+                FROM eligible e
+                JOIN (
+                    SELECT pnu, MAX(mgmt_area_total) AS mgmt_area_total
+                    FROM apt_area_type
+                    WHERE mgmt_area_total > 0
+                    GROUP BY pnu
+                ) at ON e.pnu = at.pnu
+            )
+            SELECT
+                (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_unit) FROM eligible) AS median_per_unit,
+                (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY per_m2) FROM with_area) AS median_per_m2
+            """,
+            [sgg, ym],
+        ).fetchone()
+
     result = {
         "per_unit": float(row["median_per_unit"]) if row and row["median_per_unit"] else None,
         "per_m2": float(row["median_per_m2"]) if row and row["median_per_m2"] else None,
@@ -217,6 +234,18 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             school = dict(exact if exact else school_rows[0])
             school["estimated"] = exact is None
 
+        # 아래 두 fetch 는 safety.kapt_security 와 kapt_info / mgmt_cost 처리에서
+        # 동일하게 재사용. 매 영역에서 별도로 쿼리하던 것을 한 번으로 통합.
+        kapt_rows = conn.execute(
+            "SELECT * FROM apt_kapt_info WHERE pnu = %s ORDER BY kapt_code", [pnu]
+        ).fetchall()
+        cost_rows = conn.execute(
+            "SELECT year_month, common_cost, individual_cost, repair_fund, "
+            "total_cost, cost_per_unit, detail "
+            "FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 6",
+            [pnu],
+        ).fetchall()
+
         # CCTV/safety info + crime score
         safety_info = None
         try:
@@ -312,24 +341,16 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                         "region_name": si_row["region_name"],
                     }
 
-            # K-APT 단지 보안 현황
+            # K-APT 단지 보안 현황 — 위에서 미리 fetch 한 kapt_rows / cost_rows 재사용
             kapt_security = None
             try:
-                kapt_row = conn.execute(
-                    "SELECT cctv_cnt, parking_cnt, mgr_type FROM apt_kapt_info WHERE pnu = %s",
-                    [pnu],
-                ).fetchone()
+                kapt_row = kapt_rows[0] if kapt_rows else None
                 if kapt_row:
-                    # 중복 fetch 제거 — basic 의 total_hhld_cnt 재사용.
                     hhld = basic.get("total_hhld_cnt") or None
-                    # 최신 경비비
-                    mgmt_row = conn.execute(
-                        "SELECT detail FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 1",
-                        [pnu],
-                    ).fetchone()
+                    # 최신 경비비 — cost_rows[0] 가 가장 최근 월
                     security_cost = None
-                    if mgmt_row and mgmt_row.get("detail"):
-                        detail = mgmt_row["detail"]
+                    if cost_rows and cost_rows[0].get("detail"):
+                        detail = cost_rows[0]["detail"]
                         security_cost = detail.get("경비비") or detail.get("security")
 
                     kapt_security = {
@@ -404,14 +425,11 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
         except Exception:
             pass
 
-        # K-APT 상세정보
+        # K-APT 상세정보 — 위에서 미리 fetch 한 kapt_rows 재사용.
         # 같은 PNU 에 분양/임대가 별도 K-APT 행으로 등록된 단지(예: 청구e편한세상)는
         # 호수/동수 등 가산 가능한 컬럼만 합산하여 통합 마스터 정보로 노출한다.
         # 단일 행만 매핑된 단지는 합산값이 자기 자신과 같아 동작 변화 없음.
         kapt_info = None
-        kapt_rows = conn.execute(
-            "SELECT * FROM apt_kapt_info WHERE pnu = %s ORDER BY kapt_code", [pnu]
-        ).fetchall()
         if kapt_rows:
             kapt_info = dict(kapt_rows[0])
             kapt_info.pop("updated_at", None)
@@ -445,13 +463,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             if kapt_info.get("use_date"):
                 basic["use_apr_day"] = kapt_info["use_date"]
 
-        # 관리비 (최근 3개월 + 지역 평균)
+        # 관리비 (최근 3개월 + 지역 평균) — 위에서 미리 fetch 한 cost_rows 재사용.
         mgmt_cost = None
-        cost_rows = conn.execute(
-            "SELECT year_month, common_cost, individual_cost, repair_fund, total_cost, cost_per_unit, detail "
-            "FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 6",
-            [pnu],
-        ).fetchall()
         if cost_rows:
             # 지역 평균 (같은 시군구, 같은 월) — 두 percentile 한 번에, process-cache.
             sgg = basic.get("sigungu_code", "")[:5]

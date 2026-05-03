@@ -20,12 +20,22 @@ import Dashboard from "./Dashboard";
 
 // recharts(차트 라이브러리)와 detail 모달 자체 코드를 별도 chunk 로 분리.
 // 모달이 처음 열릴 때만 다운로드 → 초기 페이지 번들 사이즈 감소.
+// loading 으로 chunk 다운로드 동안 사용자에게 즉각 피드백.
 const DetailModalClient = dynamic(
   () =>
     import("./DetailModalClient").then((mod) => ({
       default: mod.DetailModalClient,
     })),
-  { ssr: false },
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+        <div className="px-6 py-4 bg-white rounded-xl shadow-xl text-sm text-gray-500">
+          불러오는 중...
+        </div>
+      </div>
+    ),
+  },
 );
 
 export function HomeShell() {
