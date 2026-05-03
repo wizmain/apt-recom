@@ -463,6 +463,19 @@ def create_tables(conn) -> None:
             PRIMARY KEY (pnu, year_month)
         );
 
+        -- detail.py 의 시군구·월별 관리비 percentile 캐시.
+        -- batch.compute_mgmt_cost_stats 가 일배치로 갱신.
+        -- detail 핸들러는 매 호출마다 percentile_cont 재계산하지 않고 이 테이블만 lookup.
+        CREATE TABLE IF NOT EXISTS sigungu_mgmt_cost_stats (
+            sigungu_code TEXT NOT NULL,
+            year_month TEXT NOT NULL,
+            median_per_unit DOUBLE PRECISION,
+            median_per_m2 DOUBLE PRECISION,
+            sample_size INTEGER NOT NULL DEFAULT 0,
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (sigungu_code, year_month)
+        );
+
         CREATE TABLE IF NOT EXISTS population_by_district (
             sigungu_code TEXT,
             sigungu_name TEXT,
