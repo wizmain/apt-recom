@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { SITE_URL, ORGANIZATION_JSON_LD, WEBSITE_JSON_LD } from "@/lib/site";
+import WebMcpRegistry from "@/components/WebMcpRegistry";
 
 /**
  * 루트 Metadata — 모든 페이지의 기본값. 개별 페이지에서 override 가능.
@@ -76,6 +77,10 @@ export default function RootLayout({
             strategy="afterInteractive"
           />
         ) : null}
+
+        {/* WebMCP — navigator.modelContext.registerTool() 로 사이트 핵심 액션을
+            AI 에이전트에 노출. 미지원 브라우저에서는 no-op. */}
+        <WebMcpRegistry />
 
         {children}
       </body>
