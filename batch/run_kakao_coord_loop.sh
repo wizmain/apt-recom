@@ -2,10 +2,22 @@
 # kakao_poi_coord_pipeline 사이클 자동 반복 (D안: Local generate → Railway 복제).
 # Kakao API 호출은 Local 한 번만, Railway candidates는 Local 결과 그대로 복제.
 # 양쪽 dry-run이 다르면 중단. 양쪽 0이면 정상 종료.
+#
+# 사용:
+#   bash batch/run_kakao_coord_loop.sh                # 기본 sources=vworld
+#   bash batch/run_kakao_coord_loop.sh kakao_address  # 특정 출처만 보정
+#   bash batch/run_kakao_coord_loop.sh vworld,kakao_address  # 콤마 구분 다중
 
 set -u
 PY=".venv/bin/python"
 PIPE="batch.kakao_poi_coord_pipeline"
+SOURCES="${1:-vworld}"
+NO_PROGRESS_LIMIT="${NO_PROGRESS_LIMIT:-3}"
+export SOURCES_FILTER="$SOURCES"
+echo "## Sources to correct: $SOURCES"
+echo "## Auto-stop after $NO_PROGRESS_LIMIT consecutive cycles with 0 auto_approved"
+
+no_progress=0
 
 cycle=0
 while true; do
@@ -13,16 +25,17 @@ while true; do
   echo ""
   echo "########## Cycle $cycle start $(date '+%Y-%m-%d %H:%M:%S') ##########"
 
-  echo "[1/5] local generate"
-  if ! $PY -m $PIPE generate --target local --limit 1000 --sources vworld 2>&1 | tail -3; then
+  echo "[1/5] local generate (sources=$SOURCES)"
+  if ! $PY -m $PIPE generate --target local --limit 1000 --sources "$SOURCES" 2>&1 | tail -3; then
     echo "ABORT: local generate failed"; exit 1
   fi
 
-  echo "[2/5] replicate local vworld candidates -> railway"
+  echo "[2/5] replicate local pending candidates -> railway"
   if ! $PY - <<'PYEOF'
 import os, psycopg2, psycopg2.extras
 from dotenv import load_dotenv
 load_dotenv('.env')
+sources = [s.strip() for s in os.environ.get('SOURCES_FILTER', 'vworld').split(',') if s.strip()]
 local = psycopg2.connect(os.getenv('DATABASE_URL'))
 rail = psycopg2.connect(os.getenv('RAILWAY_DATABASE_URL'))
 lcur = local.cursor()
@@ -33,10 +46,10 @@ lcur.execute("""
            c.name_score, c.address_score, c.total_score, c.match_status, c.reason, c.coord_source
     FROM apt_coord_candidates c
     JOIN apartments a ON a.pnu = c.pnu
-    WHERE a.coord_source = 'vworld'
-""")
+    WHERE a.coord_source = ANY(%s)
+""", (sources,))
 rows = lcur.fetchall()
-print(f"  rows from local (vworld pending): {len(rows)}")
+print(f"  rows from local (pending in {sources}): {len(rows)}")
 if rows:
     psycopg2.extras.execute_values(rcur, """
         INSERT INTO apt_coord_candidates (
@@ -79,8 +92,14 @@ PYEOF
     if ! $PY -m $PIPE apply --target both 2>&1 | tail -3; then
       echo "ABORT: apply both failed"; exit 1
     fi
+    no_progress=0
   else
-    echo "[4/5] apply skipped (no auto_approved rows this cycle)"
+    no_progress=$((no_progress + 1))
+    echo "[4/5] apply skipped (no auto_approved this cycle; consecutive=$no_progress/$NO_PROGRESS_LIMIT)"
+    if [ "$no_progress" -ge "$NO_PROGRESS_LIMIT" ]; then
+      echo "STOP: $no_progress consecutive cycles produced 0 auto_approved — likely API quota exhausted or remaining targets are unprocessable. Halting to avoid wasted calls."
+      break
+    fi
   fi
 
   echo "[5/5] verify + check generate targets remaining"
@@ -88,22 +107,31 @@ PYEOF
 import os, psycopg2
 from dotenv import load_dotenv
 load_dotenv('.env')
+sources = [s.strip() for s in os.environ.get('SOURCES_FILTER', 'vworld').split(',') if s.strip()]
 remaining_local = 0
 for dbname, var in [('local', 'DATABASE_URL'), ('railway', 'RAILWAY_DATABASE_URL')]:
     conn = psycopg2.connect(os.getenv(var))
     cur = conn.cursor()
-    cur.execute("SELECT count(*) FROM apartments WHERE coord_source='vworld'")
-    vw = cur.fetchone()[0]
-    cur.execute("SELECT coord_source, count(*) FROM apartments WHERE coord_source IN ('kakao_apt_poi_auto','kakao_place_poi_auto') GROUP BY coord_source ORDER BY coord_source")
+    cur.execute(
+        "SELECT count(*) FROM apartments WHERE coord_source = ANY(%s)",
+        (sources,),
+    )
+    pending = cur.fetchone()[0]
+    cur.execute(
+        "SELECT coord_source, count(*) FROM apartments "
+        "WHERE coord_source IN ('kakao_apt_poi_auto','kakao_place_poi_auto') "
+        "GROUP BY coord_source ORDER BY coord_source"
+    )
     rows = cur.fetchall()
-    print(f"  {dbname}: vworld={vw}  " + "  ".join(f"{s}={n}" for s, n in rows))
+    label = "+".join(sources)
+    print(f"  {dbname}: pending({label})={pending}  " + "  ".join(f"{s}={n}" for s, n in rows))
     if dbname == 'local':
         cur.execute("""
             SELECT count(*) FROM apartments a
-            WHERE a.coord_source='vworld' AND NOT EXISTS (
+            WHERE a.coord_source = ANY(%s) AND NOT EXISTS (
                 SELECT 1 FROM apt_coord_candidates c WHERE c.pnu = a.pnu
             )
-        """)
+        """, (sources,))
         remaining_local = cur.fetchone()[0]
         print(f"  local generate targets remaining: {remaining_local}")
     conn.close()
@@ -116,7 +144,7 @@ PYEOF
     echo "ABORT: cannot read remaining count"; exit 1
   fi
   if [ "$REMAINING" = "0" ]; then
-    echo "All vworld apartments have candidates. Pipeline drained."
+    echo "All target apartments have candidates. Pipeline drained."
     break
   fi
 
