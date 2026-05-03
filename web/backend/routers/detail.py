@@ -1,6 +1,8 @@
 """Apartment detail + trade history API."""
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+import threading
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from database import DictConnection
 from services.activity_log import log_event
 from services.identity import get_user_identifier
@@ -13,6 +15,56 @@ from services.scoring import (
 )
 
 router = APIRouter()
+
+
+# 시군구·월 단위 관리비 percentile 결과 캐시 (process-lifetime).
+# detail 호출마다 시군구 전 단지를 percentile_cont 로 집계하던 것을 첫 1회만 계산.
+# K-APT 관리비는 월 단위로만 갱신되므로 stale 위험 매우 낮음.
+_MGMT_PCT_CACHE: dict[tuple[str, str], dict[str, float | None]] = {}
+_MGMT_PCT_LOCK = threading.Lock()
+
+
+def _mgmt_percentiles(conn, sgg: str, ym: str) -> dict[str, float | None]:
+    """시군구·월 단위 관리비 median (per_unit, per_m2) 캐시 조회/계산."""
+    key = (sgg, ym)
+    cached = _MGMT_PCT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    row = conn.execute(
+        """
+        WITH eligible AS (
+            SELECT m.pnu, m.total_cost, m.cost_per_unit
+            FROM apt_mgmt_cost m
+            JOIN apartments a ON m.pnu = a.pnu
+            WHERE a.sigungu_code = %s
+              AND m.year_month = %s
+              AND m.cost_per_unit >= 10000
+              AND m.total_cost >= 100000
+              AND m.cost_per_unit != m.total_cost
+        ),
+        with_area AS (
+            SELECT e.total_cost::float / at.mgmt_area_total AS per_m2
+            FROM eligible e
+            JOIN (
+                SELECT pnu, MAX(mgmt_area_total) AS mgmt_area_total
+                FROM apt_area_type
+                WHERE mgmt_area_total > 0
+                GROUP BY pnu
+            ) at ON e.pnu = at.pnu
+        )
+        SELECT
+            (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_unit) FROM eligible) AS median_per_unit,
+            (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY per_m2) FROM with_area) AS median_per_m2
+        """,
+        [sgg, ym],
+    ).fetchone()
+    result = {
+        "per_unit": float(row["median_per_unit"]) if row and row["median_per_unit"] else None,
+        "per_m2": float(row["median_per_m2"]) if row and row["median_per_m2"] else None,
+    }
+    with _MGMT_PCT_LOCK:
+        _MGMT_PCT_CACHE[key] = result
+    return result
 
 
 @router.get("/apartment/{pnu}")
@@ -116,42 +168,44 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             for nid in get_nudge_weights()
         }
 
-        # Nearby facilities — 아파트 좌표 기반으로 시설 유형별 최근접 3개 조회
+        # Nearby facilities — 아파트 좌표 기반으로 시설 유형별 최근접 3개 조회.
+        # subtype 별 N+1 쿼리(17회) 를 LATERAL JOIN 단일 쿼리로 통합 (~95ms → ~10ms).
         nearby: dict[str, list] = {}
-        if basic.get("lat") and basic.get("lng"):
+        if basic.get("lat") and basic.get("lng") and summary_rows:
             apt_lat, apt_lng = basic["lat"], basic["lng"]
             subtypes = [r["facility_subtype"] for r in summary_rows]
-            for subtype in subtypes:
-                fac_rows = conn.execute(
-                    """
-                    SELECT name, lat, lng,
-                           (6371000 * acos(
-                               cos(radians(%s)) * cos(radians(lat)) *
-                               cos(radians(lng) - radians(%s)) +
-                               sin(radians(%s)) * sin(radians(lat))
-                           )) as dist_m
+            fac_rows = conn.execute(
+                """
+                SELECT s.facility_subtype AS subtype,
+                       f.name, f.lat, f.lng,
+                       (6371000 * acos(
+                           cos(radians(%s)) * cos(radians(f.lat)) *
+                           cos(radians(f.lng) - radians(%s)) +
+                           sin(radians(%s)) * sin(radians(f.lat))
+                       )) AS dist_m
+                FROM unnest(%s::text[]) AS s(facility_subtype)
+                CROSS JOIN LATERAL (
+                    SELECT name, lat, lng
                     FROM facilities
-                    WHERE facility_subtype = %s AND lat IS NOT NULL
+                    WHERE facility_subtype = s.facility_subtype AND lat IS NOT NULL
                     ORDER BY (lat - %s)^2 + (lng - %s)^2
                     LIMIT 3
-                    """,
-                    [apt_lat, apt_lng, apt_lat, subtype, apt_lat, apt_lng],
-                ).fetchall()
-                if fac_rows:
-                    items = [
-                        {
-                            "subtype": subtype,
-                            "name": r["name"],
-                            "distance_m": round(r["dist_m"], 1),
-                            "lat": r["lat"],
-                            "lng": r["lng"],
-                        }
-                        for r in fac_rows
-                        if r["dist_m"] and r["dist_m"] <= 2000
-                    ]
-                    if items:
-                        nearby[subtype] = items
-
+                ) f
+                """,
+                [apt_lat, apt_lng, apt_lat, subtypes, apt_lat, apt_lng],
+            ).fetchall()
+            for r in fac_rows:
+                if not r["dist_m"] or r["dist_m"] > 2000:
+                    continue
+                nearby.setdefault(r["subtype"], []).append(
+                    {
+                        "subtype": r["subtype"],
+                        "name": r["name"],
+                        "distance_m": round(r["dist_m"], 1),
+                        "lat": r["lat"],
+                        "lng": r["lng"],
+                    }
+                )
         # School zone — 법정동 LIKE로 1회 조회 후 PNU 비교
         school = None
         bjd = basic.get("bjd_code") or pnu[:10]
@@ -266,14 +320,8 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                     [pnu],
                 ).fetchone()
                 if kapt_row:
-                    hhld_row = conn.execute(
-                        "SELECT total_hhld_cnt FROM apartments WHERE pnu = %s", [pnu]
-                    ).fetchone()
-                    hhld = (
-                        hhld_row["total_hhld_cnt"]
-                        if hhld_row and hhld_row["total_hhld_cnt"]
-                        else None
-                    )
+                    # 중복 fetch 제거 — basic 의 total_hhld_cnt 재사용.
+                    hhld = basic.get("total_hhld_cnt") or None
                     # 최신 경비비
                     mgmt_row = conn.execute(
                         "SELECT detail FROM apt_mgmt_cost WHERE pnu = %s ORDER BY year_month DESC LIMIT 1",
@@ -405,26 +453,16 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             [pnu],
         ).fetchall()
         if cost_rows:
-            # 지역 평균 (같은 시군구, 같은 월)
+            # 지역 평균 (같은 시군구, 같은 월) — 두 percentile 한 번에, process-cache.
             sgg = basic.get("sigungu_code", "")[:5]
             latest_ym = cost_rows[0]["year_month"]
-            # 지역 median 계산 시 비정상 row 제외:
-            #   - cost_per_unit = total_cost: 분모=1 등 fallback 오류
-            #   - cost_per_unit < 10,000 또는 total_cost < 100,000: K-APT 엑셀 오입력
-            #     (예: 총액 268원 같은 극저 단지가 median 을 끌어내림)
-            avg_row = conn.execute(
-                """
-                SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_unit) as median_per_unit
-                FROM apt_mgmt_cost m
-                JOIN apt_kapt_info k ON m.pnu = k.pnu
-                JOIN apartments a ON m.pnu = a.pnu
-                WHERE a.sigungu_code = %s AND m.year_month = %s
-                  AND m.cost_per_unit >= 10000
-                  AND m.total_cost >= 100000
-                  AND m.cost_per_unit != m.total_cost
-            """,
-                [sgg, latest_ym],
-            ).fetchone()
+            percentiles = _mgmt_percentiles(conn, sgg, latest_ym)
+            region_avg_per_unit = (
+                round(percentiles["per_unit"]) if percentiles["per_unit"] else None
+            )
+            region_avg_per_m2 = (
+                round(percentiles["per_m2"]) if percentiles["per_m2"] else None
+            )
 
             # 주택형별 관리비 (공식 B: 공용+장충금은 전용면적 비례, 개별은 평균)
             # 정수 면적(=평형) 그룹화는 compute_by_area 에서 처리.
@@ -445,38 +483,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                 if mgmt_area > 0:
                     cost_per_m2 = round(cost_rows[0]["total_cost"] / mgmt_area)
 
-            # 단위면적당 지역 median — 같은 시군구·같은 월에서 관리비부과면적 있는 단지 기준
-            region_avg_per_m2_row = conn.execute(
-                """
-                SELECT percentile_cont(0.5) WITHIN GROUP (
-                    ORDER BY m.total_cost::float / at.mgmt_area_total
-                ) AS median_per_m2
-                FROM apt_mgmt_cost m
-                JOIN apartments a ON m.pnu = a.pnu
-                JOIN (
-                    SELECT pnu, MAX(mgmt_area_total) AS mgmt_area_total
-                    FROM apt_area_type
-                    WHERE mgmt_area_total > 0
-                    GROUP BY pnu
-                ) at ON m.pnu = at.pnu
-                WHERE a.sigungu_code = %s AND m.year_month = %s
-                  AND m.cost_per_unit >= 10000
-                  AND m.total_cost >= 100000
-                  AND m.cost_per_unit != m.total_cost
-            """,
-                [sgg, latest_ym],
-            ).fetchone()
-            region_avg_per_m2 = (
-                round(region_avg_per_m2_row["median_per_m2"])
-                if region_avg_per_m2_row and region_avg_per_m2_row["median_per_m2"]
-                else None
-            )
-
             mgmt_cost = {
                 "months": [dict(r) for r in cost_rows],
-                "region_avg_per_unit": round(avg_row["median_per_unit"])
-                if avg_row and avg_row["median_per_unit"]
-                else None,
+                "region_avg_per_unit": region_avg_per_unit,
                 "by_area": by_area,
                 "cost_per_m2": cost_per_m2,
                 "region_avg_per_m2": region_avg_per_m2,
@@ -499,8 +508,21 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
 
 
 @router.get("/apartment/{pnu}/trades")
-def apartment_trades(pnu: str):
-    """Return trade and rent history for an apartment."""
+def apartment_trades(
+    pnu: str,
+    limit: int = Query(
+        100,
+        ge=1,
+        le=1000,
+        description="trade/rent 각각 반환할 최근 N건 (기본 100, 최대 1000)",
+    ),
+):
+    """Return trade and rent history for an apartment.
+
+    응답 사이즈 제어를 위해 trade·rent 각각 최근 limit 건만 반환.
+    DetailModal 의 차트는 100건이면 충분하며, 광장 같은 대형 단지에서
+    1.8MB 응답이 50KB 수준으로 줄어 모바일 체감 로딩이 크게 개선된다.
+    """
     conn = DictConnection()
     try:
         mappings = conn.execute(
@@ -515,12 +537,14 @@ def apartment_trades(pnu: str):
             apt_seqs = [m["apt_seq"] for m in mappings]
             ph = ",".join(["%s"] * len(apt_seqs))
             trades = conn.execute(
-                f"SELECT * FROM trade_history WHERE apt_seq IN ({ph}) ORDER BY deal_year DESC, deal_month DESC, deal_day DESC",
-                apt_seqs,
+                f"SELECT * FROM trade_history WHERE apt_seq IN ({ph}) "
+                "ORDER BY deal_year DESC, deal_month DESC, deal_day DESC LIMIT %s",
+                apt_seqs + [limit],
             ).fetchall()
             rents = conn.execute(
-                f"SELECT * FROM rent_history WHERE apt_seq IN ({ph}) ORDER BY deal_year DESC, deal_month DESC, deal_day DESC",
-                apt_seqs,
+                f"SELECT * FROM rent_history WHERE apt_seq IN ({ph}) "
+                "ORDER BY deal_year DESC, deal_month DESC, deal_day DESC LIMIT %s",
+                apt_seqs + [limit],
             ).fetchall()
         else:
             apt = conn.execute(
@@ -533,12 +557,14 @@ def apartment_trades(pnu: str):
                 sgg = apt["sigungu_code"][:5] if apt["sigungu_code"] else None
                 if sgg:
                     trades = conn.execute(
-                        "SELECT * FROM trade_history WHERE sgg_cd = %s AND apt_nm LIKE %s ORDER BY deal_year DESC, deal_month DESC, deal_day DESC",
-                        [sgg, name_pattern],
+                        "SELECT * FROM trade_history WHERE sgg_cd = %s AND apt_nm LIKE %s "
+                        "ORDER BY deal_year DESC, deal_month DESC, deal_day DESC LIMIT %s",
+                        [sgg, name_pattern, limit],
                     ).fetchall()
                     rents = conn.execute(
-                        "SELECT * FROM rent_history WHERE sgg_cd = %s AND apt_nm LIKE %s ORDER BY deal_year DESC, deal_month DESC, deal_day DESC",
-                        [sgg, name_pattern],
+                        "SELECT * FROM rent_history WHERE sgg_cd = %s AND apt_nm LIKE %s "
+                        "ORDER BY deal_year DESC, deal_month DESC, deal_day DESC LIMIT %s",
+                        [sgg, name_pattern, limit],
                     ).fetchall()
 
         return {"trades": [dict(r) for r in trades], "rents": [dict(r) for r in rents]}
