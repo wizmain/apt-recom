@@ -3,15 +3,21 @@
 사용법:
   python -m batch.kapt.collect_mgmt_cost                          # API 전월 수집
   python -m batch.kapt.collect_mgmt_cost --source api --date 202502 --limit 10
-  python -m batch.kapt.collect_mgmt_cost --source xlsx            # 엑셀 적재
+  python -m batch.kapt.collect_mgmt_cost --source xlsx            # 엑셀 적재 (기본 파일)
+  python -m batch.kapt.collect_mgmt_cost --source xlsx \\
+      --cost-file apt_eda/data/k-apt/20260501_단지_관리비정보.xlsx \\
+      --area-file apt_eda/data/k-apt/20260417_단지_면적정보.xlsx \\
+      --target both
 """
 
 import argparse
 import json
+import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import psycopg2
 import requests
 
 from batch.config import DATA_GO_KR_API_KEY, DATA_GO_KR_RATE
@@ -171,29 +177,54 @@ def collect_from_api(conn=None, logger=None, search_date=None, dry_run=False, li
 
 # ── 엑셀 적재 ──
 
-def collect_from_xlsx():
-    """엑셀 파일 → apt_mgmt_cost 적재."""
+
+def _db_url(target: str) -> str:
+    if target == "local":
+        url = os.getenv("DATABASE_URL")
+    elif target == "railway":
+        url = os.getenv("RAILWAY_DATABASE_URL")
+    else:
+        raise ValueError(f"unknown target: {target}")
+    if not url:
+        raise ValueError(f"{target} DB URL 미설정")
+    return url
+
+
+def collect_from_xlsx(target: str = "local", cost_files=None, area_xlsx=None):
+    """엑셀 파일 → apt_mgmt_cost 적재.
+
+    Args:
+        target: 'local' | 'railway' (기본 local). 양쪽 모두 적재하려면 'both' 는
+            CLI 레벨에서 분리 호출.
+        cost_files: 관리비 엑셀 경로 리스트. None 이면 모듈 기본값(``COST_FILES``).
+        area_xlsx: 면적 엑셀 경로. None 이면 모듈 기본값(``AREA_XLSX``).
+    """
     import pandas as pd
 
-    logger = setup_logger("mgmt_cost")
+    logger = setup_logger(f"mgmt_cost_xlsx_{target}")
 
-    if not AREA_XLSX.exists():
-        logger.error(f"면적 엑셀 없음: {AREA_XLSX}")
+    cost_paths = [Path(p) for p in (cost_files or COST_FILES)]
+    area_path = Path(area_xlsx) if area_xlsx else AREA_XLSX
+
+    if not area_path.exists():
+        logger.error(f"면적 엑셀 없음: {area_path}")
         return
 
     # 1. 엑셀 로드 (여러 파일 병합)
-    logger.info("엑셀 로드 중...")
+    logger.info(f"[{target}] 엑셀 로드 중... area={area_path.name}")
     dfs = []
-    for f in COST_FILES:
+    for f in cost_paths:
         if f.exists():
             df = pd.read_excel(f, header=1)
             dfs.append(df)
             logger.info(f"  {f.name}: {len(df):,}건")
+        else:
+            logger.warning(f"  파일 없음 — skip: {f}")
     if not dfs:
         logger.error("관리비 엑셀 파일 없음")
         return
     df_cost = pd.concat(dfs, ignore_index=True)
-    df_area = pd.read_excel(AREA_XLSX, header=1)
+    df_area = pd.read_excel(area_path, header=1)
     logger.info(f"  관리비 합계: {len(df_cost):,}건, 면적: {len(df_area):,}건")
 
     # 면적 단지별 집약 (관리비부과면적, 세대수)
@@ -205,7 +236,8 @@ def collect_from_xlsx():
     area_map = area_agg.set_index("단지코드").to_dict("index")
 
     # 2. DB 연결 + kapt_code → (pnu, K-APT 세대수, apts 세대수) 매핑
-    conn = get_connection()
+    conn = psycopg2.connect(_db_url(target))
+    conn.autocommit = False
     cur = get_dict_cursor(conn)
 
     kapt_pnu: dict[str, tuple[str, int, int]] = {}
@@ -284,7 +316,9 @@ def collect_from_xlsx():
     conn.commit()
 
     cnt = query_all(conn, "SELECT COUNT(*) as cnt FROM apt_mgmt_cost")[0]["cnt"]
-    logger.info(f"관리비 적재 완료: {loaded:,}건 (스킵 {skipped:,}, 총 {cnt:,}건)")
+    logger.info(
+        f"[{target}] 관리비 적재 완료: {loaded:,}건 (스킵 {skipped:,}, 총 {cnt:,}건)"
+    )
     conn.close()
 
 
@@ -295,9 +329,20 @@ if __name__ == "__main__":
     parser.add_argument("--date", help="수집 대상 년월 YYYYMM (기본: 전월)")
     parser.add_argument("--limit", type=int, default=0,
                         help="테스트용 최대 수집 건수 (0=전체)")
+    parser.add_argument("--target", choices=["local", "railway", "both"],
+                        default="local",
+                        help="xlsx 적재 대상 DB (기본 local)")
+    parser.add_argument("--cost-file", action="append", default=None,
+                        help="xlsx 관리비 파일 경로 (반복 가능). 미지정 시 기본 파일 사용")
+    parser.add_argument("--area-file", default=None,
+                        help="xlsx 면적 파일 경로. 미지정 시 기본 파일 사용")
     args = parser.parse_args()
 
     if args.source == "xlsx":
-        collect_from_xlsx()
+        targets = ["local", "railway"] if args.target == "both" else [args.target]
+        for t in targets:
+            collect_from_xlsx(
+                target=t, cost_files=args.cost_file, area_xlsx=args.area_file
+            )
     else:
         collect_from_api(search_date=args.date, limit=args.limit)
