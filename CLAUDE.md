@@ -53,6 +53,8 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 | **배치 실행 (거래)** | `.venv/bin/python -m batch.run --type trade` |
 | **배치 실행 (quarterly)** | `.venv/bin/python -m batch.run --type quarterly` |
 | **배치 실행 (annual)** | `.venv/bin/python -m batch.run --type annual` |
+| **거래 이력 N년 보관 정리 (수동)** | `.venv/bin/python -m batch.purge_old_trades --target both --dry-run` (실행은 `--dry-run` 제거) |
+| **사장된 PNU 정리 (수동)** | `.venv/bin/python -m batch.purge_dead_apartments --target both --dry-run` (실행은 `--dry-run` 제거 + `--confirm` 필수) |
 
 ## 데이터베이스 규칙
 - **ORM 없음**: raw SQL + psycopg2. SQLAlchemy, Alembic 사용하지 않음.
