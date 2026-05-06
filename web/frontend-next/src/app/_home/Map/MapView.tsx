@@ -173,9 +173,12 @@ export function MapView(props: MapViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [focusPnu, ready, mapRef]);
 
-  // 지역 필터 선택 시 — nonce 증가를 키로 해당 지역 아파트 전체로 fitBounds (1회).
+  // 지역 필터 선택 시 — nonce 증가를 키로 해당 지역 아파트 전체로 fitBounds.
   // apartments 는 nonce 와 함께 갱신되므로 최신값이 사용됨. 의존성에 포함하면
   // 필터 변경 등 다른 이유로 apartments 가 바뀔 때도 fit 발생하므로 의도적으로 제외.
+  // ready/mapRef 는 deps 에 포함 — 대시보드 토글로 MapView 가 재마운트될 때
+  // 첫 effect 실행 시점엔 ready=false 라 noop 으로 끝나므로, ready 가 true 로
+  // 전이되는 시점에 재실행되어 직전 검색한 지역으로 다시 fit 되도록 한다.
   useEffect(() => {
     if (!regionFitNonce || !mapRef.current || !ready) return;
     const k = window.kakao!.maps;
@@ -189,11 +192,12 @@ export function MapView(props: MapViewProps) {
     }
     if (count > 0) mapRef.current.setBounds(bounds, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- apartments 는 nonce 와 함께 갱신
-  }, [regionFitNonce]);
+  }, [regionFitNonce, ready, mapRef]);
 
   // 넛지 스코어링 결과 기준 fitBounds — nonce 증가를 키로 top-N 단지 분포에 맞춰 줌.
   // nudgeSlice.scoreApartments 는 selectedRegion 이 있는 경우에만 nonce 를 bump 하므로
   // viewport(bounds) 기반 재스코어링 시에는 자동 fit 이 발생하지 않음.
+  // ready/mapRef deps 추가 사유는 위 regionFitNonce effect 와 동일.
   useEffect(() => {
     if (!scoredFitNonce || !mapRef.current || !ready) return;
     if (scoredApartments.length === 0) return;
@@ -208,7 +212,7 @@ export function MapView(props: MapViewProps) {
     }
     if (count > 0) mapRef.current.setBounds(bounds, 80);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scoredApartments 는 nonce 와 함께 갱신
-  }, [scoredFitNonce]);
+  }, [scoredFitNonce, ready, mapRef]);
 
   return (
     <div ref={containerRef} className="w-full h-full">

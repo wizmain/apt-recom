@@ -90,22 +90,14 @@ function timeAgo(iso: string | null): string {
 }
 
 export default function Dashboard() {
-  const clearKeywords = useAppStore((s) => s.clearKeywords);
-  const clearRegion = useAppStore((s) => s.clearRegion);
-  const clearSelectedNudges = useAppStore((s) => s.clearSelectedNudges);
   const selectApartment = useAppStore((s) => s.selectApartment);
-  const clearHighlights = useAppStore((s) => s.clearHighlights);
-  const setFocusApts = useAppStore((s) => s.setFocusApts);
   const focusApartment = useAppStore((s) => s.focusApartment);
   const switchView = useAppStore((s) => s.switchView);
 
+  // 지도 진입 시 사용자가 지도에 세팅해 둔 검색/필터/챗봇 결과는 유지한다.
+  // selectApartment(null) 만 호출해 이전 detail modal 과 새 focus 의 충돌을 방지.
   const handleGoToMap = useCallback(async (aptName: string, _sggCd: string, pnu: string) => {
-    clearKeywords();
-    clearRegion();
-    clearSelectedNudges();
     selectApartment(null);
-    clearHighlights();
-    setFocusApts([]);
     try {
       const res = await api.get<{ basic?: { lat?: number; lng?: number; bld_nm?: string } }>(
         `/api/apartment/${encodeURIComponent(pnu)}`,
@@ -119,7 +111,7 @@ export default function Dashboard() {
     } finally {
       switchView('map');
     }
-  }, [clearKeywords, clearRegion, clearSelectedNudges, selectApartment, clearHighlights, setFocusApts, focusApartment, switchView]);
+  }, [selectApartment, focusApartment, switchView]);
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
