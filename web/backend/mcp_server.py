@@ -26,6 +26,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from services import tools as tool_executors
+from services.mcp_logger import log_mcp_call, mcp_logging_middleware
 
 
 def _build_transport_security() -> TransportSecuritySettings:
@@ -69,6 +70,7 @@ mcp = FastMCP(
 
 
 @mcp.tool()
+@log_mcp_call
 async def search_apartments(
     keyword: str,
     nudges: list[str] | None = None,
@@ -120,6 +122,7 @@ async def search_apartments(
 
 
 @mcp.tool()
+@log_mcp_call
 async def get_apartment_detail(query: str) -> str:
     """특정 아파트의 상세 정보(기본·점수·시설·학군·거래이력 요약).
 
@@ -139,6 +142,7 @@ async def get_apartment_detail(query: str) -> str:
 
 
 @mcp.tool()
+@log_mcp_call
 async def compare_apartments(queries: list[str]) -> str:
     """2~5개 아파트를 나란히 비교.
 
@@ -157,6 +161,7 @@ async def compare_apartments(queries: list[str]) -> str:
 
 
 @mcp.tool()
+@log_mcp_call
 async def get_similar_apartments(
     query: str,
     mode: str = "combined",
@@ -188,6 +193,7 @@ async def get_similar_apartments(
 
 
 @mcp.tool()
+@log_mcp_call
 async def get_market_trend(region: str, period: str = "1y") -> str:
     """지역 시세 동향(월별 거래량·평균가).
 
@@ -205,6 +211,7 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
 
 
 @mcp.tool()
+@log_mcp_call
 async def get_school_info(query: str) -> str:
     """아파트의 초·중·고 학군 배정 정보.
 
@@ -224,6 +231,7 @@ async def get_school_info(query: str) -> str:
 
 
 @mcp.tool()
+@log_mcp_call
 async def get_dashboard_info(region: str = "", months: int = 6) -> str:
     """시군구 거래 동향 대시보드 — 이번 달 요약 + 랭킹 + 최근 N개월 추이.
 
@@ -246,4 +254,6 @@ async def get_dashboard_info(region: str = "", months: int = 6) -> str:
 
 # ── ASGI export ────────────────────────────────────────────────────────────
 # main.py 에서 `app.mount("/mcp", mcp_asgi_app)` 로 마운트.
-mcp_asgi_app = mcp.streamable_http_app()
+# mcp_logging_middleware 로 감싸 X-Forwarded-For / User-Agent 를 ContextVar 에
+# set 한 뒤 tool 데코레이터(@log_mcp_call) 가 읽어 mcp_call_log 에 적재한다.
+mcp_asgi_app = mcp_logging_middleware(mcp.streamable_http_app())

@@ -552,6 +552,23 @@ def create_tables(conn) -> None:
             created_at TIMESTAMPTZ DEFAULT NOW()
         );
 
+        -- MCP (Model Context Protocol) 호출 로그
+        -- Claude Desktop / Cursor 등 외부 MCP 클라이언트의 tool 호출 1건당 1행.
+        -- client_ip 는 X-Forwarded-For 첫 IP 의 /24 마스킹(예: '203.0.113.0/24').
+        -- 사용자 분석은 (client_kind, client_ip, created_at) 기준으로 수행한다.
+        CREATE TABLE IF NOT EXISTS mcp_call_log (
+            id BIGSERIAL PRIMARY KEY,
+            tool_name TEXT NOT NULL,
+            arguments JSONB,
+            client_ip TEXT,
+            user_agent TEXT,
+            client_kind TEXT,
+            duration_ms INTEGER,
+            success BOOLEAN NOT NULL DEFAULT TRUE,
+            error_message TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
         -- 대시보드 월별 집계 (trend 엔드포인트 전용)
         -- scope: 'ALL' 또는 sgg_cd 5자리. 최근 60개월 보관.
         CREATE TABLE IF NOT EXISTS dashboard_monthly_stats (
@@ -623,10 +640,10 @@ def create_tables(conn) -> None:
 
 
 def ensure_logging_indexes(conn) -> None:
-    """사용자 행동 로그·챗 로그 테이블의 인덱스를 보장.
+    """사용자 행동 로그·챗 로그·MCP 호출 로그 테이블의 인덱스를 보장.
 
-    server startup 에서 호출되어 user_event / chat_log 테이블에 필요한
-    인덱스가 항상 존재하도록 한다. IF NOT EXISTS 로 멱등.
+    server startup 에서 호출되어 user_event / chat_log / mcp_call_log 테이블에
+    필요한 인덱스가 항상 존재하도록 한다. IF NOT EXISTS 로 멱등.
     """
     cur = conn.cursor()
     indexes = [
@@ -636,6 +653,12 @@ def ensure_logging_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_user_event_payload_gin ON user_event USING gin(payload jsonb_path_ops)",
         "CREATE INDEX IF NOT EXISTS idx_chat_log_device_created ON chat_log(device_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_chat_log_created_brin ON chat_log USING brin(created_at)",
+        # MCP 호출 로그 — 일별 BRIN 회전 + (kind, ip, day) 사용자 카운트 + tool 별 집계 + arguments 분석
+        "CREATE INDEX IF NOT EXISTS idx_mcp_call_log_created_brin ON mcp_call_log USING brin(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_mcp_call_log_kind_created ON mcp_call_log(client_kind, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_mcp_call_log_tool_created ON mcp_call_log(tool_name, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_mcp_call_log_ip_created ON mcp_call_log(client_ip, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_mcp_call_log_args_gin ON mcp_call_log USING gin(arguments jsonb_path_ops)",
     ]
     for sql in indexes:
         cur.execute(sql)
