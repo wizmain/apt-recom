@@ -59,6 +59,7 @@ export function HomeShell() {
   const onBoundsChange = useAppStore((s) => s.onBoundsChange);
   const selectApartment = useAppStore((s) => s.selectApartment);
   const focusApartment = useAppStore((s) => s.focusApartment);
+  const clearFocus = useAppStore((s) => s.clearFocus);
   const toggleCompare = useAppStore((s) => s.toggleCompare);
   const clearCompare = useAppStore((s) => s.clearCompare);
   const setAnalyzeContext = useAppStore((s) => s.setAnalyzeContext);
@@ -134,6 +135,7 @@ export function HomeShell() {
             onDetailOpen={(pnu) => selectApartment(pnu)}
             onChatAnalyze={handleAnalyzeFromMap}
             onCompareToggle={toggleCompare}
+            onFocusConsumed={clearFocus}
           />
           <ResultCards
             results={nudgeResults}
