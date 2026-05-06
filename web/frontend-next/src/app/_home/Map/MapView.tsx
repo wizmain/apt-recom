@@ -24,6 +24,7 @@ export type MapViewProps = {
   onDetailOpen: (pnu: string) => void;
   onChatAnalyze: (name: string, pnu: string) => void;
   onCompareToggle: (pnu: string, name: string) => void;
+  onFocusConsumed: () => void;
 };
 
 export function MapView(props: MapViewProps) {
@@ -38,6 +39,7 @@ export function MapView(props: MapViewProps) {
     onDetailOpen,
     onChatAnalyze,
     onCompareToggle,
+    onFocusConsumed,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -150,7 +152,10 @@ export function MapView(props: MapViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [apartments, scoredApartments.length, ready, mapRef, clustererRef]);
 
-  // focus 이동 — panTo + InfoWindow
+  // focus 이동 — panTo + InfoWindow.
+  // 일회성 인터랙션이므로 적용 직후 store 의 focusPnu 를 소비(null)한다.
+  // 소비하지 않으면 viewMode 토글 등으로 MapView 가 재마운트될 때 ready 전이로
+  // effect 가 재발동해 의도치 않게 같은 아파트로 다시 포커스/InfoWindow 가 뜬다.
   useEffect(() => {
     if (!mapRef.current || !ready || !focusPnu) return;
     const k = window.kakao!.maps;
@@ -164,6 +169,7 @@ export function MapView(props: MapViewProps) {
       lat: focusPnu.lat,
       lng: focusPnu.lng,
     });
+    onFocusConsumed();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
   }, [focusPnu, ready, mapRef]);
 
