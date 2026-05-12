@@ -286,6 +286,58 @@ def _detect_candidates(results: list[dict]) -> list[dict]:
     return sorted(groups.values(), key=lambda g: -g["count"])
 
 
+def _count_apartments_in_region(conn, code: str, region_type: str) -> int:
+    """지역 코드(시군구 5자리 / 법정동 10자리)의 아파트 수 — 검색 기본 필터 기준."""
+    col = "sigungu_code" if region_type == "sigungu" else "bjd_code"
+    row = conn.execute(
+        f"SELECT COUNT(*) AS c FROM apartments WHERE {APT_BASE_FILTER} AND {col} = %s",
+        [code],
+    ).fetchone()
+    return row["c"]
+
+
+def _build_region_candidates(conn, codes: list[str], region_type: str) -> list[dict]:
+    """`_classify` 가 명시적으로 매칭한 지역 코드들로 후보 목록을 만든다.
+
+    `_detect_candidates` 와 달리 (LIMIT 100 으로 잘린) 결과 행이 아니라 매칭된 코드
+    전체를 권위 데이터로 사용한다 — "서울"이 25개 구, "중구"가 6개 시처럼 결과 100건이
+    한 지역에 몰려도 후보를 빠짐없이 노출하기 위함.
+
+    - 코드별 실제 아파트 수를 세고 0건 코드는 제외.
+    - 동일 label 이 여러 코드에 걸치면(예: 가평군 41800/41820) 1건으로 합산.
+    - 반환 길이가 1이면 단일 지역이므로 호출측이 후보 표시 없이 자동 선택해도 된다.
+
+    반환 항목: {type, code, sigungu_code, bjd_code, label, count}
+    """
+    group_id = "sigungu" if region_type == "sigungu" else "emd"
+    ph = ",".join(["%s"] * len(codes))
+    label_by_code = {
+        r["code"]: f"{r['extra']} {r['name']}"
+        for r in conn.execute(
+            f"SELECT code, name, extra FROM common_code WHERE group_id = %s AND code IN ({ph})",
+            [group_id, *codes],
+        ).fetchall()
+    }
+    merged: dict[str, dict] = {}
+    for code in codes:
+        count = _count_apartments_in_region(conn, code, region_type)
+        if count == 0:
+            continue
+        label = label_by_code.get(code, "")
+        if label in merged:
+            merged[label]["count"] += count
+            continue
+        merged[label] = {
+            "type": region_type,
+            "code": code,
+            "sigungu_code": code if region_type == "sigungu" else code[:5],
+            "bjd_code": code if region_type == "emd" else None,
+            "label": label,
+            "count": count,
+        }
+    return sorted(merged.values(), key=lambda g: -g["count"])
+
+
 # ── 메인 검색 ──
 
 def search(conn, query: str) -> dict:
@@ -293,7 +345,6 @@ def search(conn, query: str) -> dict:
     codes, rtype, label, name_kw = _classify(conn, query)
 
     results: list[dict] = []
-    region_pnus: set[str] = set()
 
     # 지역+단지명 동시 존재 → SQL에서 함께 필터
     if codes and name_kw:
@@ -313,36 +364,27 @@ def search(conn, query: str) -> dict:
                     "pnu": None, "bld_nm": None, "lat": None, "lng": None,
                     "total_hhld_cnt": None, "sigungu_code": None, "new_plat_plc": None}]
 
-    # 다중 지역 후보 감지
-    candidates = _detect_candidates(results)
-
-    # candidate 의 count 를 DB 실제 아파트 수로 갱신
-    # (_detect_candidates 는 LIMIT 100 결과 기반이라 실제 수와 다름)
-    if candidates:
-        for c in candidates:
-            if c["type"] == "sigungu":
-                row = conn.execute(
-                    f"SELECT COUNT(*) as c FROM apartments WHERE {APT_BASE_FILTER} AND sigungu_code = %s",
-                    [c["code"]],
-                ).fetchone()
-                c["count"] = row["c"]
-            elif c["type"] == "emd":
-                row = conn.execute(
-                    f"SELECT COUNT(*) as c FROM apartments WHERE {APT_BASE_FILTER} AND bjd_code = %s",
-                    [c["code"]],
-                ).fetchone()
-                c["count"] = row["c"]
-        # 같은 label 의 candidates 통합 (예: 가평군이 41800+41820 두 코드)
-        merged: dict[str, dict] = {}
-        for c in candidates:
-            label = c["label"]
-            if label in merged:
-                merged[label]["count"] += c["count"]
-            else:
-                merged[label] = c
-        candidates = sorted(merged.values(), key=lambda g: -g["count"])
+    # 다중 지역 후보
+    # - 명시적 지역 매칭(codes, region-only)이 있으면 그 코드 전체가 권위 데이터.
+    #   → "서울"(25개 구)·"중구"(6개 시)처럼 결과가 한 지역에 몰려도 후보를 모두 노출.
+    # - 그 외(주소 텍스트 기반 fallback 결과)는 결과에서 추론한 뒤 실제 수로 보정.
+    if codes and rtype in ("sigungu", "emd") and name_kw is None:
+        candidates = _build_region_candidates(conn, codes, rtype)
+    else:
+        candidates = _detect_candidates(results)
+        if candidates:
+            for c in candidates:
+                c["count"] = _count_apartments_in_region(conn, c["code"], c["type"])
+            # 같은 label 의 candidates 통합 (예: 가평군이 41800+41820 두 코드)
+            merged: dict[str, dict] = {}
+            for c in candidates:
+                if c["label"] in merged:
+                    merged[c["label"]]["count"] += c["count"]
+                else:
+                    merged[c["label"]] = c
+            candidates = sorted(merged.values(), key=lambda g: -g["count"])
 
     out: dict = {"results": results[:100]}
-    if candidates:
+    if len(candidates) >= 2:
         out["region_candidates"] = candidates
     return out
