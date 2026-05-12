@@ -182,6 +182,32 @@ def test_search_region():
     assert len(results) >= 10, f"자양동 검색 결과 {len(results)}건 (10건 이상 예상)"
 
 
+@test("검색: 시/도명('서울')은 자동선택 대신 region_candidates 반환")
+def test_search_sido_returns_candidates():
+    from database import DictConnection
+    from services.search_engine import search
+    conn = DictConnection()
+    try:
+        # '서울' → 25개 구를 후보로 반환해야 함 (첫 결과로 종로구 자동선택 금지)
+        res = search(conn, "서울")
+        cands = res.get("region_candidates")
+        assert cands and len(cands) >= 20, (
+            f"'서울' region_candidates {0 if not cands else len(cands)}개 "
+            "(서울 구 목록을 후보로 반환해야 함)"
+        )
+        assert all("서울" in c["label"] for c in cands), \
+            f"후보 label 에 '서울' 누락: {[c['label'] for c in cands][:5]}"
+        # '중구' 처럼 여러 시에 같은 이름이 있는 경우도 후보 분기
+        cands2 = search(conn, "중구").get("region_candidates")
+        assert cands2 and len(cands2) >= 2, f"'중구' region_candidates {0 if not cands2 else len(cands2)}개"
+        # 단일 시군구('강남구')는 후보 없이 결과만 반환 (자동선택 정상)
+        res3 = search(conn, "강남구")
+        assert not res3.get("region_candidates"), "'강남구'는 단일 지역이라 후보 분기 불필요"
+        assert len(res3["results"]) >= 1
+    finally:
+        conn.close()
+
+
 # ============================================================
 # 4. 챗봇 Tool 테스트
 # ============================================================
