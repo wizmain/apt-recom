@@ -41,7 +41,14 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
-function buildUrl(path: string, query?: RequestOptions['query']): string {
+/**
+ * 백엔드 절대 URL 조립. fetch 요청뿐 아니라 WebView source URI 등에도 재사용한다.
+ * (예: 단지 상세 페이지의 카카오맵 임베드 — /api/map?lat=..&lng=..)
+ */
+export function buildApiUrl(
+  path: string,
+  query?: RequestOptions['query']
+): string {
   const url = `${API_BASE}${path}`;
   if (!query) return url;
   const search = Object.entries(query)
@@ -58,7 +65,7 @@ export async function request<T>(
   options: RequestOptions = {}
 ): Promise<T> {
   const { method = 'GET', query, body, signal } = options;
-  const url = buildUrl(path, query);
+  const url = buildApiUrl(path, query);
   // RN 타입의 fetch 시그니처가 글로벌 AbortSignal 과 호환되지 않아 RequestInit 캐스팅.
   const init: RequestInit = {
     method,
