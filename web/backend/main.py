@@ -160,6 +160,36 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
     });
     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'mapReady' }));
 
+    /* 단일 핀 모드: URL 쿼리(lat,lng,label,level,interactive)로 자체 렌더링.
+       미니앱 단지 상세 페이지 등에서 사용. 풀맵 postMessage 프로토콜과 독립적으로 동작한다.
+       쿼리가 없으면 아무 것도 하지 않으므로 기존 풀맵 사용처에는 영향 없음. */
+    (function() {
+      var qs = new URLSearchParams(window.location.search);
+      var lat = parseFloat(qs.get('lat'));
+      var lng = parseFloat(qs.get('lng'));
+      if (isNaN(lat) || isNaN(lng)) return;
+      var level = parseInt(qs.get('level'), 10);
+      if (isNaN(level)) level = 4;
+      var pos = new kakao.maps.LatLng(lat, lng);
+      map.setLevel(level);
+      map.setCenter(pos);
+      var marker = new kakao.maps.Marker({ position: pos });
+      marker.setMap(map);
+      var label = qs.get('label');
+      if (label) {
+        var iw = new kakao.maps.InfoWindow({
+          content: '<div style="padding:5px 10px;font-size:12px;font-weight:bold;white-space:nowrap;">'
+            + label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>',
+          removable: false,
+        });
+        iw.open(map, marker);
+      }
+      if (qs.get('interactive') !== '1') {
+        map.setDraggable(false);
+        map.setZoomable(false);
+      }
+    })();
+
     var basicOverlays = [];
     var scoredOverlays = [];
     var infowindow = null;

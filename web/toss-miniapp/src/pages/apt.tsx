@@ -10,6 +10,7 @@ import { createRoute } from '@granite-js/react-native';
 import { apiPaths } from '../shared/api/paths';
 import { useApi } from '../hooks/useApi';
 import { formatPrice } from '../lib/format';
+import AptLocationMap from '../components/AptLocationMap';
 
 interface ApartmentDetail {
   basic: {
@@ -24,6 +25,8 @@ interface ApartmentDetail {
     max_area: number | null;
     avg_area: number | null;
     price_per_m2: number | null;
+    lat: number | null;
+    lng: number | null;
   };
   school?: {
     elementary_school_full_name?: string | null;
@@ -148,6 +151,12 @@ function AptDetailPage() {
         <Text style={styles.nameAlias}>건축물대장 · {showAlias}</Text>
       ) : null}
       <Text style={styles.addr}>{b.new_plat_plc ?? b.plat_plc ?? ''}</Text>
+
+      {b.lat != null && b.lng != null ? (
+        <Section title="위치">
+          <AptLocationMap lat={b.lat} lng={b.lng} name={primaryName} />
+        </Section>
+      ) : null}
 
       <Section title="기본 정보">
         <Row label="세대수" value={b.total_hhld_cnt ? `${b.total_hhld_cnt.toLocaleString()}세대` : '-'} />
