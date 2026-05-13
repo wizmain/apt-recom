@@ -136,10 +136,15 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
 <div id="map"></div>
 <div id="status">지도 로딩 중...</div>
 <script>
+  // RN WebView 브릿지로 메시지 전송. 브라우저 등 ReactNativeWebView 가 없는 환경에서도
+  // 안전하게 무시되도록 항상 이 헬퍼를 거친다 (직접 호출 시 TypeError 로 이후 코드가 중단됨).
+  window.rnPost = function(obj) {
+    try { window.ReactNativeWebView.postMessage(JSON.stringify(obj)); } catch(e) {}
+  };
   window.onerror = function(msg, url, line) {
     document.getElementById('status').innerText = 'JS Error: ' + msg;
     document.getElementById('status').style.color = '#EF4444';
-    try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', message: msg })); } catch(e) {}
+    window.rnPost({ type: 'error', message: String(msg) });
     return true;
   };
 </script>
@@ -158,7 +163,7 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
       center: new kakao.maps.LatLng(37.5665, 126.978),
       level: 8,
     });
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'mapReady' }));
+    window.rnPost({ type: 'mapReady' });
 
     /* 단일 핀 모드: URL 쿼리(lat,lng,label,level,interactive)로 자체 렌더링.
        미니앱 단지 상세 페이지 등에서 사용. 풀맵 postMessage 프로토콜과 독립적으로 동작한다.
@@ -231,7 +236,7 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
           });
           iw.open(map);
           infowindow = iw;
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'aptClick', pnu: apt.pnu }));
+          window.rnPost({ type: 'aptClick', pnu: apt.pnu });
         });
       });
       if (shouldFocus && apts.length > 0) {
@@ -262,7 +267,7 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
           });
           iw.open(map);
           infowindow = iw;
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'aptClick', pnu: apt.pnu }));
+          window.rnPost({ type: 'aptClick', pnu: apt.pnu });
         });
       });
       if (apts.length > 0) {
@@ -299,7 +304,7 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
         highlightOverlays.push(overlay);
         wrap.addEventListener('click', function() {
           if (infowindow) { infowindow.close(); infowindow = null; }
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'aptClick', pnu: apt.pnu }));
+          window.rnPost({ type: 'aptClick', pnu: apt.pnu });
         });
       });
       if (apts.length > 0) {
@@ -329,11 +334,11 @@ KAKAO_MAP_HTML = """<!DOCTYPE html>
       var b = map.getBounds();
       var sw = b.getSouthWest();
       var ne = b.getNorthEast();
-      window.ReactNativeWebView.postMessage(JSON.stringify({
+      window.rnPost({
         type: 'boundsChanged',
         sw: { lat: sw.getLat(), lng: sw.getLng() },
         ne: { lat: ne.getLat(), lng: ne.getLng() },
-      }));
+      });
     });
   });
   }
