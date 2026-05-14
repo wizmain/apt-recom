@@ -496,13 +496,18 @@ def dashboard_recent(
 
     conn = DictConnection()
 
+    # apartments JOIN — 프론트의 "지도로 이동" 즉시 focus 를 위해 좌표(lat/lng)
+    # 와 표시명(bld_nm) 을 함께 반환. 좌표가 없는 단지는 프론트에서 버튼을
+    # 비활성화 처리하므로, 조용한 실패(전환만 되고 panTo 미발동) 가 방지된다.
     if type == "trade":
         rows = conn.execute(
             f"""
             SELECT t.apt_nm, t.sgg_cd, t.deal_amount, t.exclu_use_ar, t.floor,
-                   t.deal_year, t.deal_month, t.deal_day, m.pnu
+                   t.deal_year, t.deal_month, t.deal_day, m.pnu,
+                   a.lat, a.lng, a.bld_nm
             FROM trade_history t
             LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
+            LEFT JOIN apartments a ON a.pnu = m.pnu
             {where_sql}
             ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deal_amount DESC
             LIMIT %s
@@ -513,9 +518,11 @@ def dashboard_recent(
         rows = conn.execute(
             f"""
             SELECT t.apt_nm, t.sgg_cd, t.deposit, t.monthly_rent, t.exclu_use_ar, t.floor,
-                   t.deal_year, t.deal_month, t.deal_day, m.pnu
+                   t.deal_year, t.deal_month, t.deal_day, m.pnu,
+                   a.lat, a.lng, a.bld_nm
             FROM rent_history t
             LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
+            LEFT JOIN apartments a ON a.pnu = m.pnu
             {where_sql}
             ORDER BY t.deal_year DESC, t.deal_month DESC, t.deal_day DESC, t.deposit DESC
             LIMIT %s
@@ -539,6 +546,9 @@ def dashboard_recent(
             if r.get("deal_day")
             else f"{r['deal_year']}.{r['deal_month']:02d}",
             "pnu": r.get("pnu"),
+            "lat": r.get("lat"),
+            "lng": r.get("lng"),
+            "bld_nm": r.get("bld_nm"),
         }
         if type == "trade":
             entry["price"] = r["deal_amount"]
