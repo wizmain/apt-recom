@@ -30,8 +30,11 @@ interface TradeHistoryPanelProps {
   sggCd: string;
   area: number | null;
   pnu?: string;
+  lat?: number | null;
+  lng?: number | null;
+  bldNm?: string | null;
   onClose: () => void;
-  onGoToMap?: (aptName: string, sggCd: string, pnu: string) => void;
+  onGoToMap?: (params: { pnu: string; lat: number; lng: number; name: string }) => void;
 }
 
 function formatPrice(val: number): string {
@@ -43,8 +46,12 @@ function formatPrice(val: number): string {
   return `${val.toLocaleString()}`;
 }
 
-export default function TradeHistoryPanel({ aptName, sggCd, area, pnu, onClose, onGoToMap }: TradeHistoryPanelProps) {
-  const showMapBtn = !!pnu;
+export default function TradeHistoryPanel({
+  aptName, sggCd, area, pnu, lat, lng, bldNm, onClose, onGoToMap,
+}: TradeHistoryPanelProps) {
+  // 좌표가 없는 단지는 지도 panTo 가 불가능하므로 버튼 자체를 비활성화.
+  // 7.8% 의 거래(매핑은 됐지만 apartments.lat/lng NULL) 가 해당.
+  const canGoToMap = !!pnu && lat != null && lng != null;
   const [data, setData] = useState<TradesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'trade' | 'rent'>('trade');
@@ -80,11 +87,18 @@ export default function TradeHistoryPanel({ aptName, sggCd, area, pnu, onClose, 
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {showMapBtn && onGoToMap && (
+            {onGoToMap && (
               <button
-                onClick={() => onGoToMap(aptName, sggCd, pnu!)}
+                disabled={!canGoToMap}
+                onClick={() => {
+                  if (!canGoToMap) return;
+                  onGoToMap({ pnu: pnu!, lat: lat!, lng: lng!, name: bldNm || aptName });
+                }}
+                title={canGoToMap ? '지도에서 이 단지를 보기' : '이 단지의 좌표 정보가 없습니다'}
                 className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200
-                           rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap"
+                           rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap
+                           disabled:text-gray-400 disabled:bg-gray-50 disabled:border-gray-200
+                           disabled:cursor-not-allowed disabled:hover:bg-gray-50"
               >
                 🗺 지도로 이동
               </button>

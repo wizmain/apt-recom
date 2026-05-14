@@ -53,6 +53,9 @@ interface RecentTrade {
   deposit?: number;
   monthly_rent?: number;
   pnu?: string;
+  lat?: number | null;
+  lng?: number | null;
+  bld_nm?: string | null;
 }
 
 interface RegionOption {
@@ -94,25 +97,6 @@ export default function Dashboard() {
   const focusApartment = useAppStore((s) => s.focusApartment);
   const switchView = useAppStore((s) => s.switchView);
 
-  // 지도 진입 시 사용자가 지도에 세팅해 둔 검색/필터/챗봇 결과는 유지한다.
-  // selectApartment(null) 만 호출해 이전 detail modal 과 새 focus 의 충돌을 방지.
-  const handleGoToMap = useCallback(async (aptName: string, _sggCd: string, pnu: string) => {
-    selectApartment(null);
-    try {
-      const res = await api.get<{ basic?: { lat?: number; lng?: number; bld_nm?: string } }>(
-        `/api/apartment/${encodeURIComponent(pnu)}`,
-      );
-      const b = res.data?.basic;
-      if (b?.lat && b?.lng) {
-        focusApartment({ pnu, lat: b.lat, lng: b.lng, name: b.bld_nm || aptName });
-      }
-    } catch {
-      // swallow — still switch to map
-    } finally {
-      switchView('map');
-    }
-  }, [selectApartment, focusApartment, switchView]);
-
   const [summary, setSummary] = useState<Summary | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
   const [ranking, setRanking] = useState<RankingItem[]>([]);
@@ -125,8 +109,27 @@ export default function Dashboard() {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [rankingType, setRankingType] = useState<'trade' | 'rent'>('trade');
   const [recentType, setRecentType] = useState<'trade' | 'rent'>('trade');
-  const [selectedApt, setSelectedApt] = useState<{ aptName: string; sggCd: string; area: number | null; pnu?: string } | null>(null);
+  const [selectedApt, setSelectedApt] = useState<{
+    aptName: string;
+    sggCd: string;
+    area: number | null;
+    pnu?: string;
+    lat?: number | null;
+    lng?: number | null;
+    bldNm?: string | null;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // 지도 진입 시 사용자가 지도에 세팅해 둔 검색/필터/챗봇 결과는 유지한다.
+  // selectApartment(null) 만 호출해 이전 detail modal 과 새 focus 의 충돌을 방지.
+  // 좌표는 /api/dashboard/recent 응답에 이미 포함되어 있어 추가 API 호출 불필요.
+  // 모달은 즉시 닫아 잔상 없이 지도 모드로 전환.
+  const handleGoToMap = useCallback((params: { pnu: string; lat: number; lng: number; name: string }) => {
+    setSelectedApt(null);
+    selectApartment(null);
+    focusApartment(params);
+    switchView('map');
+  }, [selectApartment, focusApartment, switchView]);
 
   // 바깥 클릭 시 드롭다운 닫기
   const regionRef = useRef<HTMLDivElement>(null);
@@ -402,7 +405,15 @@ export default function Dashboard() {
                   <tr
                     key={`${r.sgg_cd}-${r.date}-${r.apt_nm}-${r.area ?? ''}-${r.floor ?? ''}`}
                     className="hover:bg-blue-50 cursor-pointer transition-colors"
-                    onClick={() => setSelectedApt({ aptName: r.apt_nm, sggCd: r.sgg_cd, area: r.area, pnu: r.pnu })}
+                    onClick={() => setSelectedApt({
+                      aptName: r.apt_nm,
+                      sggCd: r.sgg_cd,
+                      area: r.area,
+                      pnu: r.pnu,
+                      lat: r.lat,
+                      lng: r.lng,
+                      bldNm: r.bld_nm,
+                    })}
                   >
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{r.date}</td>
                     <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{r.sigungu}</td>
@@ -434,6 +445,9 @@ export default function Dashboard() {
           sggCd={selectedApt.sggCd}
           area={selectedApt.area}
           pnu={selectedApt.pnu}
+          lat={selectedApt.lat}
+          lng={selectedApt.lng}
+          bldNm={selectedApt.bldNm}
           onClose={() => setSelectedApt(null)}
           onGoToMap={handleGoToMap}
         />
