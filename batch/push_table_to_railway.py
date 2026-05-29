@@ -78,6 +78,15 @@ TABLE_CONFIGS = {
             "updated_at",
         ],
     },
+    "sigungu_crime_detail": {
+        "pk": ["sigungu_code"],
+        "columns": [
+            "sigungu_code", "murder", "robbery", "sexual_assault",
+            "theft", "violence", "total_crime", "resident_pop",
+            "effective_pop", "crime_rate", "crime_safety_score",
+            "float_pop_ratio", "updated_year",
+        ],
+    },
 }
 
 BATCH_SIZE = 500
@@ -182,6 +191,18 @@ def _ensure_remote_schema(remote_conn, table: str) -> None:
         ]
         for col, typ in add_cols:
             cur.execute(f"ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS {col} {typ}")
+
+    elif table == "sigungu_crime_detail":
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sigungu_crime_detail (
+                sigungu_code TEXT PRIMARY KEY,
+                murder INTEGER, robbery INTEGER, sexual_assault INTEGER,
+                theft INTEGER, violence INTEGER, total_crime INTEGER,
+                resident_pop INTEGER, effective_pop INTEGER,
+                crime_rate DOUBLE PRECISION, crime_safety_score DOUBLE PRECISION,
+                float_pop_ratio DOUBLE PRECISION, updated_year INTEGER
+            )
+        """)
 
     remote_conn.commit()
 
