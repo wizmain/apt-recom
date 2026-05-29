@@ -943,7 +943,9 @@ if __name__ == "__main__":
     @test("대시보드 /recent: limit 이하 + 날짜 단조 감소")
     def test_dashboard_recent_ordering():
         from routers.dashboard import dashboard_recent
-        rows = dashboard_recent(type="trade", limit=20, sigungu="")
+        # 라우트 함수 직접 호출 — 선택 인자(from_date/to_date)는 Query 기본값 객체가
+        # 그대로 넘어가지 않도록 빈 문자열을 명시 전달 (HTTP 경로의 기본값과 동일).
+        rows = dashboard_recent(type="trade", limit=20, sigungu="", from_date="", to_date="")
         assert isinstance(rows, list)
         assert len(rows) <= 20, f"len={len(rows)} > 20"
         # date 문자열 'YYYY.MM.DD' 형식 → 단조 감소

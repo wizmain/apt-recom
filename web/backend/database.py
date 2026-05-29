@@ -501,6 +501,28 @@ def create_tables(conn) -> None:
             composite_score DOUBLE PRECISION
         );
 
+        CREATE TABLE IF NOT EXISTS sigungu_crime_detail (
+            sigungu_code TEXT PRIMARY KEY,
+            murder INTEGER,
+            robbery INTEGER,
+            sexual_assault INTEGER,
+            theft INTEGER,
+            violence INTEGER,
+            total_crime INTEGER,
+            resident_pop INTEGER,
+            effective_pop INTEGER,
+            crime_rate DOUBLE PRECISION,
+            crime_safety_score DOUBLE PRECISION,
+            float_pop_ratio DOUBLE PRECISION,
+            updated_year INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS sigungu_crime_score (
+            sigungu_code TEXT PRIMARY KEY,
+            crime_safety_score DOUBLE PRECISION,
+            updated_year INTEGER DEFAULT 2024
+        );
+
         CREATE TABLE IF NOT EXISTS apt_vectors (
             pnu TEXT PRIMARY KEY,
             vector DOUBLE PRECISION[] NOT NULL,
