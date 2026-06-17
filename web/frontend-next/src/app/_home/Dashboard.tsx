@@ -144,16 +144,19 @@ export default function Dashboard() {
   }, []);
 
   // 지역 검색 (debounce 200ms + AbortController로 stale 응답 덮어쓰기 방지)
+  // 빈 입력은 즉시(0ms) 결과를 비우고, 검색어가 있으면 200ms debounce 후 조회.
+  // 결과 갱신을 모두 타이머 콜백에서 처리해 effect 본문의 동기 setState 를 피한다.
   useEffect(() => {
-    if (!regionQuery.trim()) {
-      setRegionResults([]);
-      return;
-    }
+    const q = regionQuery.trim();
     const controller = new AbortController();
     const timer = setTimeout(async () => {
+      if (!q) {
+        setRegionResults([]);
+        return;
+      }
       try {
         const res = await api.get<RegionOption[]>(`/api/dashboard/regions`, {
-          params: { q: regionQuery },
+          params: { q },
           signal: controller.signal,
         });
         setRegionResults(res.data);
@@ -162,7 +165,7 @@ export default function Dashboard() {
         if (isCancel(err)) return;
         // 그 외 에러는 무시 (일시적 네트워크 실패 시 사용자가 다시 입력하면 됨)
       }
-    }, 200);
+    }, q ? 200 : 0);
     return () => {
       clearTimeout(timer);
       controller.abort();
@@ -218,7 +221,10 @@ export default function Dashboard() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (showLoading = false) => {
+    // 필터/타입 변경 등 명시적 재조회 시에만 로딩 표시. 주기적 백그라운드
+    // 새로고침은 showLoading=false 로 호출해 기존 데이터를 유지하며 조용히 갱신.
+    if (showLoading) setLoading(true);
     // 이전 요청 전부 취소 — rankingType/recentType/sggFilter 연타 시 stale 응답이
     // 최신 state를 덮어쓰는 것을 방지.
     abortRef.current?.abort();
@@ -257,9 +263,10 @@ export default function Dashboard() {
   }, [fetchData]);
 
   // 필터/타입 변경 시 로딩 + fetch (첫 로드 포함).
+  // setLoading 은 fetchData(showLoading=true) 내부에서 처리 — effect 본문의
+  // 동기 setState 를 피한다.
   useEffect(() => {
-    setLoading(true);
-    fetchRef.current();
+    fetchRef.current(true);
   }, [sggFilter, rankingType, recentType]);
 
   // 주기적 새로고침 — deps 빈 배열로 한 번만 설치, ref 통해 최신 fetcher 호출.
