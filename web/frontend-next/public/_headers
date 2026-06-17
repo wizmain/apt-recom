@@ -1,0 +1,30 @@
+# Cloudflare Workers Static Assets 헤더 규칙.
+# next.config.ts 의 headers() 는 Next.js 라우트에만 적용되고 public/ 정적 파일에는
+# 적용되지 않으므로, 정적 파일(agent 발견용 텍스트/JSON)의 Content-Type charset 과
+# CORS 는 이 파일에서 지정한다.
+
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+
+/.well-known/llms.txt
+  Content-Type: text/plain; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+
+/skill.md
+  Content-Type: text/markdown; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+
+/.well-known/skills/apt-recom/skill.md
+  Content-Type: text/markdown; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+
+/.well-known/mcp/server-card.json
+  Content-Type: application/json; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Cache-Control: public, max-age=3600
