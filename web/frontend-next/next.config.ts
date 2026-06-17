@@ -54,6 +54,50 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "public, max-age=3600" },
         ],
       },
+      // llms.txt — agent 가 읽는 사이트 설명 파일.
+      // charset 미지정 시 일부 클라이언트(예: Python requests)가 text/* 를
+      // ISO-8859-1 로 디코딩해 한글이 깨지므로 charset=utf-8 을 명시한다.
+      // cross-origin agent fetch 를 위해 CORS 도 허용.
+      // headers() 의 source 는 glob 만 지원(정규식 불가) → 경로별 항목 분리.
+      {
+        source: "/llms.txt",
+        headers: [
+          { key: "Content-Type", value: "text/plain; charset=utf-8" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+      {
+        source: "/.well-known/llms.txt",
+        headers: [
+          { key: "Content-Type", value: "text/plain; charset=utf-8" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+      // skill.md — agent 가 읽어 apt-recom API 사용법을 따르는 Agent Skill 문서.
+      // text/markdown + charset=utf-8 + CORS. 편의 경로(/skill.md)와
+      // 스펙 정합 경로(/.well-known/skills/apt-recom/skill.md) 둘 다 서빙.
+      {
+        source: "/skill.md",
+        headers: [
+          { key: "Content-Type", value: "text/markdown; charset=utf-8" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+      {
+        source: "/.well-known/skills/apt-recom/skill.md",
+        headers: [
+          { key: "Content-Type", value: "text/markdown; charset=utf-8" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
     ];
   },
 };
