@@ -26,7 +26,7 @@ Public REST API is served under `/api/*`. See the OpenAPI document for the full 
 - `GET /api/apartments/search?q={keyword}` — keyword search by region or complex name
 - `GET /api/apartment/{pnu}` — apartment detail (basic info, scores, transaction history, school district)
 - `POST /api/nudge/score` — lifestyle-based recommendation scoring
-- `GET /api/similar/{pnu}` — similar-apartment recommendations
+- `GET /api/apartment/{pnu}/similar` — similar-apartment recommendations
 - `GET /api/dashboard/summary` — price trend by sigungu (시군구)
 - `GET /api/dashboard/trend` — monthly price & transaction-volume trend
 - `POST /api/chat/stream` — chatbot SSE streaming response
@@ -34,5 +34,6 @@ Public REST API is served under `/api/*`. See the OpenAPI document for the full 
 
 ## Optional
 
+- Skill (agent playbook): https://apt-recom.kr/skill.md
 - Website: https://apt-recom.kr
 - Sitemap: https://apt-recom.kr/sitemap.xml

@@ -77,6 +77,27 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "public, max-age=3600" },
         ],
       },
+      // skill.md — agent 가 읽어 apt-recom API 사용법을 따르는 Agent Skill 문서.
+      // text/markdown + charset=utf-8 + CORS. 편의 경로(/skill.md)와
+      // 스펙 정합 경로(/.well-known/skills/apt-recom/skill.md) 둘 다 서빙.
+      {
+        source: "/skill.md",
+        headers: [
+          { key: "Content-Type", value: "text/markdown; charset=utf-8" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+      {
+        source: "/.well-known/skills/apt-recom/skill.md",
+        headers: [
+          { key: "Content-Type", value: "text/markdown; charset=utf-8" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
     ];
   },
 };
