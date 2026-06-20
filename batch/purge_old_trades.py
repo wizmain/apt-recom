@@ -4,6 +4,13 @@
 부수 정리: ``trade_apt_mapping`` 의 orphan apt_seq (양쪽 history 어디에도 없는) 자동 제거.
 마지막에 영향 받은 테이블 ``VACUUM (ANALYZE)`` 실행.
 
+.. note::
+    기본 ``VACUUM (ANALYZE)`` 는 죽은 튜플 공간을 **테이블 내부에서 재사용** 가능하게만
+    만들 뿐, 디스크 사용량을 OS 로 반환하지 않는다. purge 후 실제 용량을 줄이려면
+    ``--vacuum-full`` 을 써서 ``VACUUM (FULL, ANALYZE)`` 로 테이블을 rewrite 해야 한다.
+    단 VACUUM FULL 은 ACCESS EXCLUSIVE 락(작업 중 해당 테이블 조회/쓰기 차단)과
+    잔존 데이터 크기만큼의 임시 디스크가 필요하므로 트래픽 적은 시간대에 실행한다.
+
 목적: Railway Postgres 메모리 압박 감소. ``trade_history``(982 MB) +
 ``rent_history``(1.9 GB) + 인덱스 21개 가 DB 의 ~80% 차지.
 
@@ -12,6 +19,7 @@
     python -m batch.purge_old_trades --target both --years 5          # cutoff 변경
     python -m batch.purge_old_trades --target railway --years 7       # 본격 실행
     python -m batch.purge_old_trades --target local --years 5 --confirm  # 7 미만은 confirm 필요
+    python -m batch.purge_old_trades --target railway --years 7 --vacuum-full  # 삭제 후 디스크 회수
 
 검증·운영 절차는 plan 문서(/Users/wizmain/.claude/plans/foamy-swimming-book.md) 참고.
 """
@@ -127,15 +135,28 @@ def _delete_orphan_mappings(conn, logger) -> int:
     return deleted
 
 
-def _vacuum(url: str, tables: list[str], logger) -> None:
-    """VACUUM 은 transaction 안에서 못 돌리므로 별도 autocommit connection."""
+def _vacuum(url: str, tables: list[str], logger, full: bool = False) -> None:
+    """VACUUM 은 transaction 안에서 못 돌리므로 별도 autocommit connection.
+
+    full=True 면 ``VACUUM (FULL, ANALYZE)`` — 테이블을 rewrite 해 디스크 공간을
+    OS 로 반환한다. ACCESS EXCLUSIVE 락 + 잔존 데이터 크기만큼의 임시 디스크가
+    필요하므로 트래픽 적은 시간대에 실행. 한 테이블이 실패(예: 디스크 부족)해도
+    이미 회수한 앞 테이블 효과는 유지되도록 테이블별로 에러를 잡고 계속 진행한다.
+    """
+    mode = "FULL, ANALYZE" if full else "ANALYZE"
     conn = psycopg2.connect(url)
     conn.autocommit = True
     try:
         cur = conn.cursor()
         for t in tables:
-            logger.info(f"  VACUUM (ANALYZE) {t}")
-            cur.execute(f"VACUUM (ANALYZE) {t}")
+            logger.info(f"  VACUUM ({mode}) {t} 시작")
+            start = time.time()
+            try:
+                cur.execute(f"VACUUM ({mode}) {t}")
+            except psycopg2.Error as e:
+                logger.error(f"  VACUUM ({mode}) {t} 실패: {e}")
+                continue
+            logger.info(f"  VACUUM ({mode}) {t} 완료 ({time.time() - start:.1f}s)")
     finally:
         conn.close()
 
@@ -201,7 +222,12 @@ def _process_target(target: str, args, logger) -> None:
         vacuum_targets = ["trade_history", "rent_history"]
         if not args.skip_mapping_cleanup:
             vacuum_targets.append("trade_apt_mapping")
-        _vacuum(url, vacuum_targets, logger)
+        if args.vacuum_full:
+            logger.warning(
+                f"  [{target}] VACUUM FULL — 대상 테이블이 rewrite 동안 잠깁니다"
+                f"(ACCESS EXCLUSIVE). 잔존 데이터 크기만큼 임시 디스크 필요."
+            )
+        _vacuum(url, vacuum_targets, logger, full=args.vacuum_full)
 
 
 def main() -> None:
@@ -238,6 +264,15 @@ def main() -> None:
         "--no-vacuum", action="store_true", help="실행 후 VACUUM (ANALYZE) 단계 건너뜀"
     )
     parser.add_argument(
+        "--vacuum-full",
+        action="store_true",
+        help=(
+            "후처리 VACUUM 을 VACUUM (FULL, ANALYZE) 로 실행해 디스크 공간을 실제로 회수. "
+            "테이블 잠금(ACCESS EXCLUSIVE) + 임시 디스크 필요 — 트래픽 적은 시간대 권장. "
+            "--no-vacuum 과 동시 사용 불가."
+        ),
+    )
+    parser.add_argument(
         "--skip-mapping-cleanup",
         action="store_true",
         help="orphan trade_apt_mapping 정리 건너뜀",
@@ -253,6 +288,8 @@ def main() -> None:
         parser.error("--years must be positive")
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
+    if args.no_vacuum and args.vacuum_full:
+        parser.error("--no-vacuum 와 --vacuum-full 는 동시에 쓸 수 없습니다")
     if args.years < DEFAULT_YEARS and not args.dry_run and not args.confirm:
         parser.error(
             f"--years={args.years} 가 기본 {DEFAULT_YEARS} 미만 — 실행하려면 --confirm 필요"
