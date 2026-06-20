@@ -710,7 +710,7 @@ def create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_summary_pnu ON apt_facility_summary(pnu)",
         "CREATE INDEX IF NOT EXISTS idx_trade_sgg ON trade_history(sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_trade_seq ON trade_history(apt_seq)",
-        "CREATE INDEX IF NOT EXISTS idx_trade_year ON trade_history(deal_year)",
+        # idx_trade_year(deal_year) 제거 — 운영 0 scans, idx_trade_ymd(deal_year, ...) 가 커버.
         "CREATE INDEX IF NOT EXISTS idx_rent_sgg ON rent_history(sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_rent_seq ON rent_history(apt_seq)",
         "CREATE INDEX IF NOT EXISTS idx_apt_sigungu ON apartments(sigungu_code)",
@@ -722,7 +722,8 @@ def create_indexes(conn) -> None:
         # 대시보드 성능용 복합 인덱스
         "CREATE INDEX IF NOT EXISTS idx_trade_ymd ON trade_history(deal_year, deal_month, deal_day)",
         "CREATE INDEX IF NOT EXISTS idx_rent_ymd ON rent_history(deal_year, deal_month, deal_day)",
-        "CREATE INDEX IF NOT EXISTS idx_trade_sgg_date ON trade_history(sgg_cd, deal_year, deal_month)",
+        # idx_trade_sgg_date(sgg_cd, deal_year, deal_month) 제거 — 운영 0 scans,
+        # idx_trade_sgg_recent(sgg_cd, deal_year DESC, ...) 가 동일 prefix 를 커버.
         "CREATE INDEX IF NOT EXISTS idx_rent_sgg_date ON rent_history(sgg_cd, deal_year, deal_month)",
         "CREATE INDEX IF NOT EXISTS idx_trade_apt_sgg ON trade_history(apt_nm, sgg_cd)",
         "CREATE INDEX IF NOT EXISTS idx_rent_apt_sgg ON rent_history(apt_nm, sgg_cd)",
