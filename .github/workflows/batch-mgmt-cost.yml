@@ -1,8 +1,9 @@
-name: Management Cost Batch (Monthly)
+name: Management Cost Batch (manual only)
 
+# 정기 스케줄 중지 (2026-06): 관리비는 자료실 xlsx 로컬 수동 적재
+# (collect_mgmt_cost --source xlsx)로 전환. API 는 월 총액(sUse)만 제공해
+# 50개 상세 항목을 못 채움. 이 API 워크플로는 수동 폴백용으로만 유지.
 on:
-  schedule:
-    - cron: '0 18 15 * *'  # 매월 15일 18:00 UTC (한국 03:00)
   workflow_dispatch:
 
 jobs:

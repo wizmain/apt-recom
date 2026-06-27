@@ -1,8 +1,10 @@
-name: K-APT Info Refresh (Monthly)
+name: K-APT Info Refresh (manual only)
 
+# 정기 스케줄 중지 (2026-06): K-APT 기본/면적/관리비 갱신은 자료실 xlsx 로컬 수동
+# 적재(ingest_full_kapt + collect_mgmt_cost)로 전환. API 기반 이 워크플로는 수동
+# 폴백용으로만 유지(workflow_dispatch). 자료실은 CI(해외 IP)에서 접근 불가, API 는
+# 관리비 상세 항목을 제공하지 않음.
 on:
-  schedule:
-    - cron: '0 18 1 * *'  # 매월 1일 18:00 UTC (한국 03:00)
   workflow_dispatch:
 
 jobs:
