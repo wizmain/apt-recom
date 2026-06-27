@@ -1,0 +1,18 @@
+name: PoC - K-APT 자료실 Reachability
+
+# 수동 실행 전용 (스케줄 없음). CI runner IP 에서 k-apt.go.kr 접근/구조 확인용 PoC.
+# 의존성 없음 — 표준 라이브러리(urllib)만 사용.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Probe K-APT 자료실 (reachability + 구조)
+        run: python scripts/poc_kapt_reachability.py
