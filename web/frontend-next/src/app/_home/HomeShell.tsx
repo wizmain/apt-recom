@@ -7,6 +7,7 @@ import { useAppStore } from "@/lib/store";
 import { useApartments, countActiveFilters } from "@/hooks/useApartments";
 import { useNudge } from "@/hooks/useNudge";
 import { useUrlSyncedPnu } from "@/hooks/useUrlSyncedPnu";
+import { useBridgeParams } from "@/hooks/useBridgeParams";
 import { MapView } from "./Map/MapView";
 import FilterPanel from "./FilterPanel";
 import NudgeBar from "./NudgeBar";
@@ -72,6 +73,8 @@ export function HomeShell() {
   useApartments();
   useNudge();
   useUrlSyncedPnu();
+  // 단지 상세 딥링크 쿼리파라미터를 store 로 부트스트랩 (1회 소비).
+  useBridgeParams();
 
   // HomeShell-owned UI state (not in store)
   const [filterOpen, setFilterOpen] = useState(false);

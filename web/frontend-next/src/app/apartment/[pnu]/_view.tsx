@@ -7,6 +7,7 @@ import { Facilities } from "./sections/Facilities";
 import { Safety } from "./sections/Safety";
 import { Population } from "./sections/Population";
 import { RecentTrades } from "./sections/RecentTrades";
+import { RecommendCta } from "./sections/RecommendCta";
 
 /**
  * 아파트 상세 뷰 — Server Component 조립자.
@@ -31,6 +32,16 @@ export function ApartmentDetailView({
     detail;
   const address = basic.new_plat_plc ?? basic.plat_plc ?? null;
 
+  /**
+   * region_label 도출: `new_plat_plc` 의 두 번째 토큰(시군구명)을 사용.
+   * 예) "서울특별시 강남구 삼성동 ..." → "강남구"
+   * 파싱 실패 시 sigungu_code 로 fallback(정확한 값은 없으나 코드라도 전달).
+   */
+  const rawAddress = basic.new_plat_plc ?? basic.plat_plc ?? "";
+  const addressTokens = rawAddress.trim().split(/\s+/);
+  const regionLabel =
+    addressTokens.length >= 2 ? addressTokens[1] : (basic.sigungu_code ?? null);
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <header className="mb-6">
@@ -44,6 +55,13 @@ export function ApartmentDetailView({
       <BasicInfo basic={basic} kapt={kapt_info} />
       <PriceInfo basic={basic} />
       <LifeScores scores={scores} />
+      <RecommendCta
+        pnu={pnu}
+        bldNm={basic.bld_nm}
+        scores={scores}
+        sigunguCode={basic.sigungu_code}
+        regionLabel={regionLabel}
+      />
       <School school={school} />
       <Facilities summary={facility_summary} />
       <Safety safety={safety} />

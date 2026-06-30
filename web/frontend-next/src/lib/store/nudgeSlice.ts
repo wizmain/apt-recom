@@ -26,6 +26,18 @@ export type NudgeSlice = {
   scoredFitNonce: number;
 
   toggleNudge: (nudgeId: string) => void;
+  /**
+   * 유효한 nudge 코드 목록을 한 번에 덮어씀 (프리셋 세팅용).
+   * `toggleNudge` 반복 호출의 경합 위험 없이 단일 set 으로 처리.
+   *
+   * 필터:
+   * - 빈 문자열/공백은 항상 제거.
+   * - `validCodes` 가 주어지면 그 화이트리스트(common_code group='nudge')에
+   *   속하지 않는 코드도 제거한다. 변조/오타된 딥링크가 깨진 코드를 store 에
+   *   주입하는 것을 막기 위함. `validCodes` 를 생략하면 화이트리스트 검사를 건너뛴다
+   *   (코드 목록을 아직 모르는 호출부의 하위호환).
+   */
+  setSelectedNudges: (ids: string[], validCodes?: string[]) => void;
   setCustomWeights: (w: Record<string, Record<string, number>> | null) => void;
   fetchDefaultWeights: () => Promise<void>;
   scoreApartments: () => Promise<void>;
@@ -48,6 +60,14 @@ export const createNudgeSlice: StateCreator<NudgeSlice> = (set) => ({
         ? s.selectedNudges.filter((n) => n !== nudgeId)
         : [...s.selectedNudges, nudgeId],
     })),
+  setSelectedNudges: (ids, validCodes) =>
+    set(() => {
+      const cleaned = ids.map((id) => id.trim()).filter((id) => id.length > 0);
+      const filtered = validCodes
+        ? cleaned.filter((id) => validCodes.includes(id))
+        : cleaned;
+      return { selectedNudges: filtered };
+    }),
   setCustomWeights: (w) => set({ customWeights: w }),
   fetchDefaultWeights: async () => {
     try {
