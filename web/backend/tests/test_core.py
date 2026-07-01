@@ -740,6 +740,167 @@ def test_admin_scoring_weights():
 
 
 # ============================================================
+# 12. 이벤트 수집 API 테스트 (POST /api/events)
+# ============================================================
+
+@test("이벤트: detail_recommend_cta_view — 202 적재")
+def test_events_cta_view_accepted():
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/events",
+        json={
+            "event_type": "detail_recommend_cta_view",
+            "payload": {"pnu": "1168010600010270000", "top_nudges": ["commute", "education"]},
+        },
+        headers={"x-device-id": "test-device-events-view"},
+        timeout=10,
+    )
+    assert resp.status_code == 202, f"예상 202, 실제: {resp.status_code} {resp.text}"
+    data = resp.json()
+    assert data.get("accepted") is True, f"accepted 필드 누락: {data}"
+
+
+@test("이벤트: detail_recommend_cta_click — 202 적재")
+def test_events_cta_click_accepted():
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/events",
+        json={
+            "event_type": "detail_recommend_cta_click",
+            "payload": {
+                "pnu": "1168010600010270000",
+                "preset_nudges": ["commute", "education"],
+                "sigungu_code": "11680",
+            },
+        },
+        headers={"x-device-id": "test-device-events-click"},
+        timeout=10,
+    )
+    assert resp.status_code == 202, f"예상 202, 실제: {resp.status_code} {resp.text}"
+    data = resp.json()
+    assert data.get("accepted") is True, f"accepted 필드 누락: {data}"
+
+
+@test("이벤트: 화이트리스트 외 event_type → 422 거부")
+def test_events_unknown_type_rejected():
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/events",
+        json={
+            "event_type": "arbitrary_unknown_event",
+            "payload": {},
+        },
+        headers={"x-device-id": "test-device-events-reject"},
+        timeout=10,
+    )
+    assert resp.status_code == 422, f"예상 422, 실제: {resp.status_code} {resp.text}"
+
+
+@test("이벤트: 빈 event_type → 422 거부")
+def test_events_empty_type_rejected():
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/events",
+        json={"event_type": "", "payload": {}},
+        headers={"x-device-id": "test-device-events-empty"},
+        timeout=10,
+    )
+    assert resp.status_code == 422, f"예상 422, 실제: {resp.status_code} {resp.text}"
+
+
+@test("이벤트: x-device-id 헤더 없어도 202 반환 (no-op 허용)")
+def test_events_no_device_id_accepted():
+    import requests
+    # 헤더 없이 전송 — device_id=None → log_event no-op, 요청은 정상 처리
+    resp = requests.post(
+        "http://localhost:8000/api/events",
+        json={
+            "event_type": "detail_recommend_cta_view",
+            "payload": {"pnu": "1168010600010270000", "top_nudges": ["commute"]},
+        },
+        timeout=10,
+    )
+    assert resp.status_code == 202, f"헤더 없을 때 202 예상, 실제: {resp.status_code} {resp.text}"
+
+
+@test("이벤트: x-anon-key 헤더로도 202 반환")
+def test_events_anon_key_header_accepted():
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/events",
+        json={
+            "event_type": "detail_recommend_cta_click",
+            "payload": {"pnu": "1168010600010270000", "preset_nudges": ["commute"], "sigungu_code": "11680"},
+        },
+        headers={"x-anon-key": "toss-anon-test-key-001"},
+        timeout=10,
+    )
+    assert resp.status_code == 202, f"x-anon-key 헤더 시 202 예상, 실제: {resp.status_code} {resp.text}"
+
+
+@test("이벤트: cta_view 적재 후 user_event 테이블에서 확인")
+def test_events_db_row_inserted():
+    """헤더와 함께 전송 후 실제 DB 적재 여부 확인.
+
+    BackgroundTasks 비동기 특성 때문에 잠시 대기 후 조회.
+    """
+    import requests
+    import time
+
+    unique_pnu = "test-pnu-db-check-001"
+    device_id = "test-device-db-check-001"
+
+    resp = requests.post(
+        "http://localhost:8000/api/events",
+        json={
+            "event_type": "detail_recommend_cta_view",
+            "payload": {"pnu": unique_pnu, "top_nudges": ["safety"]},
+        },
+        headers={"x-device-id": device_id},
+        timeout=10,
+    )
+    assert resp.status_code == 202, f"예상 202, 실제: {resp.status_code}"
+
+    # BackgroundTasks 처리 대기 (최대 2초)
+    time.sleep(2)
+
+    from database import DictConnection
+    conn = DictConnection()
+    row = conn.execute(
+        "SELECT id, device_id, event_type, payload FROM user_event "
+        "WHERE device_id = %s AND event_type = %s "
+        "ORDER BY created_at DESC LIMIT 1",
+        [device_id, "detail_recommend_cta_view"],
+    ).fetchone()
+    # 테스트 데이터 정리
+    if row:
+        conn.execute("DELETE FROM user_event WHERE id = %s", [row["id"]])
+    conn.close()
+
+    assert row is not None, "user_event 테이블에 이벤트가 적재되지 않음"
+    assert row["device_id"] == device_id, f"device_id 불일치: {row['device_id']}"
+    assert row["payload"]["pnu"] == unique_pnu, f"payload.pnu 불일치: {row['payload']}"
+
+
+@test("이벤트: POST /api/nudge/score 회귀 — 기존 스코어링 정상 동작")
+def test_events_nudge_score_regression():
+    """이벤트 라우터 추가 후 기존 /api/nudge/score 가 정상 동작하는지 확인."""
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/nudge/score",
+        json={"nudges": ["commute"], "top_n": 5, "keyword": "강남"},
+        timeout=10,
+    )
+    assert resp.status_code == 200, f"nudge/score 에러: {resp.status_code}"
+    data = resp.json()
+    assert isinstance(data, list), "nudge/score 응답이 배열이 아님"
+    assert len(data) > 0, "nudge/score 결과가 비어있음"
+    first = data[0]
+    assert "pnu" in first, "pnu 필드 없음"
+    assert "score" in first or "total_score" in first, "score 필드 없음"
+
+
+# ============================================================
 # 실행
 # ============================================================
 

@@ -1,12 +1,13 @@
 // src/app/_home/HomeShell.tsx
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import dynamic from "next/dynamic";
 import { useAppStore } from "@/lib/store";
 import { useApartments, countActiveFilters } from "@/hooks/useApartments";
 import { useNudge } from "@/hooks/useNudge";
 import { useUrlSyncedPnu } from "@/hooks/useUrlSyncedPnu";
+import { BridgeParams } from "./BridgeParams";
 import { MapView } from "./Map/MapView";
 import FilterPanel from "./FilterPanel";
 import NudgeBar from "./NudgeBar";
@@ -116,6 +117,12 @@ export function HomeShell() {
 
   return (
     <div className="relative w-full h-[100dvh] flex flex-col">
+      {/* 단지 상세 딥링크 쿼리파라미터를 store 로 부트스트랩 (1회 소비).
+          useSearchParams 의 CSR bailout 을 Suspense 로 격리해 페이지 프리렌더 유지. */}
+      <Suspense fallback={null}>
+        <BridgeParams />
+      </Suspense>
+
       <NudgeBar
         onOpenSettings={() => setWeightOpen(true)}
         onOpenFilter={() => setFilterOpen(true)}
