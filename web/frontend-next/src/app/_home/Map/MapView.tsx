@@ -181,6 +181,11 @@ export function MapView(props: MapViewProps) {
   // 전이되는 시점에 재실행되어 직전 검색한 지역으로 다시 fit 되도록 한다.
   useEffect(() => {
     if (!regionFitNonce || !mapRef.current || !ready) return;
+    // 대시보드 "지도로 이동"으로 재마운트된 경우, focus 가 대기 중이면 지역 fit 을 양보한다.
+    // focus effect 가 먼저 선언돼 있어도 이 effect 가 뒤이어 실행되며 panTo 를 setBounds 로
+    // 덮어써 아파트로 이동하지 않는 버그가 있었음. focusPnu 는 소비(null) 시 재실행을 피하려
+    // 의도적으로 deps 에서 제외 — 마운트 렌더 시점의 값만 참조하면 충분하다.
+    if (focusPnu) return;
     const k = window.kakao!.maps;
     const bounds = new k.LatLngBounds();
     let count = 0;
@@ -201,6 +206,8 @@ export function MapView(props: MapViewProps) {
   useEffect(() => {
     if (!scoredFitNonce || !mapRef.current || !ready) return;
     if (scoredApartments.length === 0) return;
+    // regionFit 과 동일 — 대기 중인 focus 가 있으면 스코어 fit 을 양보(focus 우선).
+    if (focusPnu) return;
     const k = window.kakao!.maps;
     const bounds = new k.LatLngBounds();
     let count = 0;
