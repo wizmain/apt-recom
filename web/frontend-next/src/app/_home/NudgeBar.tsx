@@ -6,6 +6,8 @@ import { api } from '@/lib/api';
 import { useCodes } from '@/hooks/useCodes';
 import type { RegionCandidate, SelectedRegion } from '@/types/apartment';
 import { useAppStore } from '@/lib/store';
+import { logEvent } from '@/lib/logEvent';
+import SearchCoach from './SearchCoach';
 
 interface NudgeBarProps {
   onOpenSettings: () => void;
@@ -32,6 +34,16 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
 
   const isMapMode = viewMode === 'map';
   const hasAnyKeyword = searchKeywords.length > 0 || selectedRegion !== null;
+
+  // E1: 비활성 칩 클릭 → 검색 유도 코치. 지역/키워드가 생기면 자동 종료.
+  // hasAnyKeyword 로부터 파생 — effect 로 별도 리셋하지 않고 렌더 시점에 계산한다.
+  const [nudgeCoachRequested, setNudgeCoachRequested] = useState(false);
+  const showSearchCoach = nudgeCoachRequested && !hasAnyKeyword;
+
+  const handleDisabledChipClick = (nudgeId: string) => {
+    logEvent('nudge_chip_blocked', { nudge_id: nudgeId });
+    setNudgeCoachRequested(true);
+  };
 
   // compound handler: 기존 App.tsx handleClearAllKeywords 동치
   const handleClearAll = () => {
@@ -67,6 +79,9 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
             onAddKeyword={addKeyword}
             onSelectRegion={selectRegion}
             onSelectApartment={handleSelectApartment}
+            onDisabledChipClick={handleDisabledChipClick}
+            coachVisible={showSearchCoach}
+            onCoachDismiss={() => setNudgeCoachRequested(false)}
           />
         )}
 
@@ -81,6 +96,7 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
             selectedNudges={selectedNudges}
             onToggleNudge={toggleNudge}
             hasAnyKeyword={hasAnyKeyword}
+            onDisabledChipClick={handleDisabledChipClick}
           />
           <KeywordTags
             searchKeywords={searchKeywords}
@@ -137,6 +153,7 @@ type DropdownMode = 'apt' | 'region' | 'empty';
 function MapControls({
   selectedNudges, onToggleNudge, onOpenSettings, onOpenFilter, filterCount,
   hasAnyKeyword, onAddKeyword, onSelectRegion, onSelectApartment,
+  onDisabledChipClick, coachVisible, onCoachDismiss,
 }: {
   selectedNudges: string[]; onToggleNudge: (id: string) => void;
   onOpenSettings: () => void; onOpenFilter: () => void; filterCount: number;
@@ -144,6 +161,9 @@ function MapControls({
   onAddKeyword: (kw: string, label?: string) => void;
   onSelectRegion: (region: SelectedRegion) => void;
   onSelectApartment?: (pnu: string, lat: number, lng: number, name: string) => void;
+  onDisabledChipClick: (nudgeId: string) => void;
+  coachVisible: boolean;
+  onCoachDismiss: () => void;
 }) {
   const { codes: nudgeCodes } = useCodes('nudge');
   const nudges = nudgeCodes.map(c => ({ id: c.code, label: c.name }));
@@ -308,12 +328,14 @@ function MapControls({
           onChange={(e) => { setInputValue(e.target.value); resetDropdown(); }}
           onKeyDown={handleKeyDown}
           placeholder="지역명·단지명 (Enter)"
-          className="w-full sm:w-48 px-3 py-1.5 pr-7 text-sm bg-blue-50/70 border-2 border-blue-300 rounded-full
+          className={`w-full sm:w-48 px-3 py-1.5 pr-7 text-sm bg-blue-50/70 border-2 rounded-full
                      hover:border-blue-400 hover:bg-blue-50
                      focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-200
-                     placeholder-blue-400/70 transition-colors"
+                     placeholder-blue-400/70 transition-colors
+                     ${coachVisible ? 'border-blue-500 ring-2 ring-blue-300' : 'border-blue-300'}`}
         />
         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-blue-500 text-xs pointer-events-none">🔍</span>
+        <SearchCoach visible={coachVisible} onDismiss={onCoachDismiss} />
 
         {/* 검색 결과 드롭다운 */}
         {dropdownMode === 'empty' && (
@@ -376,6 +398,7 @@ function MapControls({
             isSelected={selectedNudges.includes(nudge.id)}
             disabled={!hasAnyKeyword}
             onToggle={onToggleNudge}
+            onDisabledClick={onDisabledChipClick}
             size="desktop"
           />
         ))}
@@ -408,9 +431,10 @@ function MapControls({
 }
 
 function MobileNudgeChips({
-  selectedNudges, onToggleNudge, hasAnyKeyword,
+  selectedNudges, onToggleNudge, hasAnyKeyword, onDisabledChipClick,
 }: {
   selectedNudges: string[]; onToggleNudge: (id: string) => void; hasAnyKeyword: boolean;
+  onDisabledChipClick: (nudgeId: string) => void;
 }) {
   const { codes: nudgeCodes } = useCodes('nudge');
   const nudges = nudgeCodes.map(c => ({ id: c.code, label: c.name }));
@@ -424,6 +448,7 @@ function MobileNudgeChips({
           isSelected={selectedNudges.includes(nudge.id)}
           disabled={!hasAnyKeyword}
           onToggle={onToggleNudge}
+          onDisabledClick={onDisabledChipClick}
           size="mobile"
         />
       ))}
@@ -432,16 +457,18 @@ function MobileNudgeChips({
 }
 
 function NudgeChip({
-  nudge, isSelected, disabled, onToggle, size,
+  nudge, isSelected, disabled, onToggle, onDisabledClick, size,
 }: {
   nudge: { id: string; label: string }; isSelected: boolean; disabled: boolean;
-  onToggle: (id: string) => void; size: 'desktop' | 'mobile';
+  onToggle: (id: string) => void; onDisabledClick: (id: string) => void;
+  size: 'desktop' | 'mobile';
 }) {
   const sizeClass = size === 'desktop' ? 'px-3 py-1.5 text-sm' : 'px-2.5 py-1 text-xs';
   return (
     <button
       onClick={() => {
-        if (disabled) { alert('지역명 또는 단지명을 먼저 입력해주세요.'); return; }
+        // 비활성 상태 클릭 = 진입 실패 신호 — alert 대신 검색 코치로 유도 (E1)
+        if (disabled) { onDisabledClick(nudge.id); return; }
         onToggle(nudge.id);
       }}
       className={`${sizeClass} rounded-full font-medium whitespace-nowrap transition-all duration-200 border
