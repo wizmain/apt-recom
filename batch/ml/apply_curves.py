@@ -11,8 +11,9 @@ _load_facility_decay_by_profile 이 facility_decay_{profile} 그룹을 우선
 - metro 적합값에 기존 프로필 배율(×1.3 / ×1.8)을 적용해 3개 프로필 산출.
 
 사용법:
-  .venv/bin/python -m batch.ml.apply_curves            # dry-run
+  .venv/bin/python -m batch.ml.apply_curves              # dry-run
   .venv/bin/python -m batch.ml.apply_curves --apply
+  .venv/bin/python -m batch.ml.apply_curves --self-test  # 합성 곡선 적합 검증 (DB 불필요)
   (batch/run.py --type ml 에서도 호출됨)
 """
 
@@ -56,7 +57,8 @@ def fit_decay_from_curve(
         rmse = math.sqrt(se / len(norm))
         if rmse < best_rmse:
             best_decay, best_rmse = decay, rmse
-    fit_decay_from_curve.last_rmse = best_rmse  # 호출부 skip 판단용
+    # 호출부 skip 판단용. 함수 속성이라 재진입 불가 — 단일 스레드 순차 루프 전제.
+    fit_decay_from_curve.last_rmse = best_rmse
     return best_decay
 
 
@@ -105,12 +107,46 @@ def apply_curves(conn, logger, apply: bool = False) -> dict:
     return {"applied": applied, "skipped": skipped}
 
 
+def self_test() -> None:
+    """합성 로그감쇠 곡선(decay=500, max_d=3000) 라운드트립 복원 검증 (DB 불필요).
+
+    backend test_core.py 는 모듈 경계 규칙상 batch.* 를 import 할 수 없어
+    hedonic_validation 의 --self-test 선례를 따라 여기서 자체 검증한다.
+    """
+    true_decay, max_d = 500.0, 3000.0
+    distances = [i * 30.0 for i in range(100)]
+    scores = [_log_decay_score(d, true_decay, max_d) for d in distances]
+
+    fitted = fit_decay_from_curve(distances, scores, max_d)
+    assert abs(fitted - true_decay) <= 25.0, (
+        f"decay 복원 실패: {fitted} (기대 {true_decay})"
+    )
+    assert fit_decay_from_curve.last_rmse < 1.0, (
+        f"RMSE 과다: {fit_decay_from_curve.last_rmse}"
+    )
+
+    # 정규화 경로 검증: PDP 원점수는 임의 스케일 — 선형 변환(×0.37 +12)된 곡선도 동일 복원
+    scaled = [s * 0.37 + 12.0 for s in scores]
+    fitted_scaled = fit_decay_from_curve(distances, scaled, max_d)
+    assert abs(fitted_scaled - fitted) <= 1e-9, (
+        f"정규화 경로 불일치: {fitted_scaled} (기대 {fitted})"
+    )
+
+    print(
+        f"self-test PASS: fitted={fitted} rmse={round(fit_decay_from_curve.last_rmse, 3)}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--apply", action="store_true", help="common_code 반영 (기본 dry-run)"
     )
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return
     logger = setup_logger("apply_curves")
     conn = get_connection()
     try:

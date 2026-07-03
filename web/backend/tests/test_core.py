@@ -1034,22 +1034,8 @@ def test_education_score_uses_assigned():
     assert "assigned_elementary" in subtypes, f"기여 시설에 assigned_elementary 없음: {sorted(subtypes)}"
 
 
-@test("Phase1: apply_curves 의 decay 적합이 합성 로그감쇠 곡선을 복원")
-def test_fit_decay_roundtrip():
-    import sys as _sys
-    from pathlib import Path as _Path
-    _sys.path.insert(0, str(_Path(__file__).resolve().parents[3]))
-    import math
-    from batch.ml.apply_curves import fit_decay_from_curve
-
-    true_decay, max_d = 500.0, 3000.0
-    distances = [i * 30.0 for i in range(100)]
-    scores = [
-        100.0 * max(0.0, 1.0 - math.log(1 + d / true_decay) / math.log(1 + max_d / true_decay))
-        for d in distances
-    ]
-    fitted = fit_decay_from_curve(distances, scores, max_d)
-    assert abs(fitted - true_decay) <= 25.0, f"decay 복원 실패: {fitted} (기대 {true_decay})"
+# NOTE: apply_curves 의 decay 적합 검증은 backend 테스트에서 batch.* 를 import 하지
+# 않도록(모듈 경계 규칙) `python -m batch.ml.apply_curves --self-test` 로 이동함.
 
 
 # ============================================================

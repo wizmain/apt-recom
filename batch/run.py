@@ -280,14 +280,19 @@ def run_ml(args, logger, result):
     steps.append(("감쇠 곡선 반영", curves_cmd))
     steps.append(("넛지 가중치 갱신", weights_cmd))
 
-    for name, cmd in steps:
-        t0 = time.time()
-        proc = subprocess.run(cmd, capture_output=False)
-        if proc.returncode != 0:
-            result.record(name, "critical", error=f"exit {proc.returncode}")
-            logger.error(f"{name} 실패 — 이후 단계 중단")
-            return
-        result.record(name, "success", duration=time.time() - t0)
+    try:
+        for name, cmd in steps:
+            t0 = time.time()
+            proc = subprocess.run(cmd, capture_output=False)
+            if proc.returncode != 0:
+                result.record(name, "critical", error=f"exit {proc.returncode}")
+                logger.error(f"{name} 실패 — 이후 단계 중단")
+                return
+            result.record(name, "success", duration=time.time() - t0)
+    except Exception as e:
+        # subprocess 스폰 실패 등 returncode 로 잡히지 않는 예외 — 다른 run_* 와 동일하게 구조화 보고
+        logger.error(f"ML 파이프라인 실패: {e}")
+        result.record("ML 파이프라인", "critical", error=str(e))
 
 
 def main():
