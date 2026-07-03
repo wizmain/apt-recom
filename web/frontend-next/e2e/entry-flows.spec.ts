@@ -79,3 +79,37 @@ test.describe("E3: 신규거래 배너 → 이 지역 추천", () => {
     });
   });
 });
+
+test.describe("D: /explore 큐레이션 갤러리", () => {
+  test("프리셋 타일 렌더 — 깨진 행은 제외", async ({ page }) => {
+    const res = await page.goto("/explore");
+    expect(res?.status()).toBe(200);
+    await expect(page.getByRole("heading", { name: "라이프스타일 추천 둘러보기" })).toBeVisible();
+    await expect(page.getByText("강남구 · 학군과 안전")).toBeVisible();
+    await expect(page.getByText("마포구 · 출퇴근과 가성비")).toBeVisible();
+    await expect(page.getByText("깨진 프리셋")).toBeHidden();
+  });
+
+  test("타일 클릭 → 홈 딥링크 소비 → 지역 태그 + 스코어 호출", async ({ page }) => {
+    await page.goto("/explore");
+    const scoreReq = page.waitForRequest(
+      (r) => r.url().includes("/api/nudge/score") && r.method() === "POST",
+    );
+    await page.getByRole("link", { name: /강남구 · 학군과 안전/ }).click();
+
+    await expect(page.getByText("📍 강남구")).toBeVisible();
+    const req = await scoreReq;
+    expect(req.postDataJSON()).toMatchObject({
+      nudges: ["education", "safety"],
+      sigungu_code: "11680",
+    });
+    // 소비 후 쿼리 제거 (useBridgeParams 규약)
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  test("홈 상단바에서 둘러보기 진입", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: "추천 둘러보기" }).click();
+    await expect(page.getByRole("heading", { name: "라이프스타일 추천 둘러보기" })).toBeVisible();
+  });
+});

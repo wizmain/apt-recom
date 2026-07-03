@@ -96,6 +96,7 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
           />
         )}
 
+        <ExploreLink />
         <GuideLink />
         <SiteInfo />
       </div>
@@ -495,15 +496,32 @@ function NudgeChip({
   );
 }
 
+function ExploreLink() {
+  // 상단바 우측: /explore 큐레이션 갤러리 진입점 (D안 홈 진입점).
+  // ml-auto 로 우측 정렬 → GuideLink, SiteInfo (데스크톱 전용) 는 바로 옆에 붙어 표시.
+  return (
+    <Link
+      href="/explore"
+      title="추천 둘러보기"
+      aria-label="추천 둘러보기"
+      className="ml-auto inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
+                 text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
+                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0"
+    >
+      <span aria-hidden>✨</span>
+      <span className="hidden sm:inline">둘러보기</span>
+    </Link>
+  );
+}
+
 function GuideLink() {
   // 상단바 우측: 사용 가이드 / MCP 연결 안내 진입점. 맵·대시보드 모두 노출.
-  // ml-auto 로 우측 정렬 → SiteInfo (데스크톱 전용) 는 바로 옆에 붙어 표시.
   return (
     <Link
       href="/guide"
       title="사용 가이드"
       aria-label="사용 가이드"
-      className="ml-auto inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
+      className="inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
                  text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
                  transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0"
     >
