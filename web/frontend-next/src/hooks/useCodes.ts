@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 
-interface CodeItem {
+export interface CodeItem {
   code: string;
   name: string;
   extra: string;
