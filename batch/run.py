@@ -25,7 +25,12 @@ def run_trade(args, logger, result):
         # 1. 수집
         t0 = time.time()
         trade_rows, rent_rows = collect_trades(conn, logger, dry_run=args.dry_run)
-        result.record("거래 데이터 수집", "success", rows=len(trade_rows) + len(rent_rows), duration=time.time() - t0)
+        result.record(
+            "거래 데이터 수집",
+            "success",
+            rows=len(trade_rows) + len(rent_rows),
+            duration=time.time() - t0,
+        )
 
         if args.dry_run:
             logger.info("Dry-run 모드: DB 적재 생략")
@@ -34,17 +39,23 @@ def run_trade(args, logger, result):
         # 2. 적재
         t0 = time.time()
         inserted = load_trades(conn, trade_rows, rent_rows, logger)
-        result.record("거래 데이터 적재", "success", rows=inserted, duration=time.time() - t0)
+        result.record(
+            "거래 데이터 적재", "success", rows=inserted, duration=time.time() - t0
+        )
 
         # 3. 가격 점수 재계산
         t0 = time.time()
         updated = recalc_price(conn, logger)
-        result.record("가격 점수 재계산", "success", rows=updated, duration=time.time() - t0)
+        result.record(
+            "가격 점수 재계산", "success", rows=updated, duration=time.time() - t0
+        )
 
         # 4. 신규 아파트 등록 + 건물정보 보충
         t0 = time.time()
         enriched, new_pnus = enrich_new_apartments(conn, logger)
-        result.record("신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0)
+        result.record(
+            "신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0
+        )
 
         # 4.5. 대시보드 집계 갱신 — 별도 커넥션에서 수행하여 선행 단계와 격리.
         #      선행 단계(load_trades/recalc_price/enrich)가 내부 commit 하지만 안전망으로 commit 재호출.
@@ -52,6 +63,7 @@ def run_trade(args, logger, result):
         conn.commit()
         try:
             from batch.trade.refresh_dashboard import refresh_dashboard_stats
+
             t0 = time.time()
             counts = refresh_dashboard_stats(logger)
             result.record(
@@ -69,12 +81,19 @@ def run_trade(args, logger, result):
         # 6. 시설 집계 + 안전점수 + 유사도 벡터 (모든 데이터 반영 후 계산)
         if new_pnus:
             from batch.quarterly.recalc_summary import recalc_for_new_apartments
+
             t0 = time.time()
             recalc_for_new_apartments(conn, logger, new_pnus)
-            result.record("시설집계/안전점수", "success", rows=len(new_pnus), duration=time.time() - t0)
+            result.record(
+                "시설집계/안전점수",
+                "success",
+                rows=len(new_pnus),
+                duration=time.time() - t0,
+            )
 
         if enriched > 0:
             from batch.ml.build_vectors import build_all_vectors
+
             t0 = time.time()
             build_all_vectors(conn, logger)
             result.record("벡터 재생성", "success", duration=time.time() - t0)
@@ -96,8 +115,15 @@ def run_quarterly(args, logger, result):
         # 1. 수집
         t0 = time.time()
         region = getattr(args, "region", "metro")
-        facility_rows = collect_all_facilities(logger, dry_run=args.dry_run, region=region)
-        result.record("시설 데이터 수집", "success", rows=len(facility_rows), duration=time.time() - t0)
+        facility_rows = collect_all_facilities(
+            logger, dry_run=args.dry_run, region=region
+        )
+        result.record(
+            "시설 데이터 수집",
+            "success",
+            rows=len(facility_rows),
+            duration=time.time() - t0,
+        )
 
         if args.dry_run:
             logger.info("Dry-run 모드: DB 갱신 생략")
@@ -106,7 +132,9 @@ def run_quarterly(args, logger, result):
         # 2. DB 갱신
         t0 = time.time()
         upserted = update_facilities(conn, facility_rows, logger, region=region)
-        result.record("시설 DB 갱신", "success", rows=upserted, duration=time.time() - t0)
+        result.record(
+            "시설 DB 갱신", "success", rows=upserted, duration=time.time() - t0
+        )
 
         # 3. 집계 재계산
         t0 = time.time()
@@ -116,9 +144,15 @@ def run_quarterly(args, logger, result):
         # 4. 배정초교 거리 재계산 (education 넛지 1급 지표 — recalc_summary 의
         #    school 최근접 거리를 fallback 프록시로 쓰므로 반드시 3단계 이후 실행)
         from batch.quarterly.assigned_school import recalc_assigned_school
+
         t0 = time.time()
         stats = recalc_assigned_school(conn, logger)
-        result.record("배정초교 거리 재계산", "success", rows=stats["total"], duration=time.time() - t0)
+        result.record(
+            "배정초교 거리 재계산",
+            "success",
+            rows=stats["total"],
+            duration=time.time() - t0,
+        )
 
     except Exception as e:
         logger.error(f"Quarterly 배치 실패: {e}")
@@ -136,22 +170,33 @@ def run_annual(args, logger, result):
         # 1. 인구 수집 + 갱신
         t0 = time.time()
         pop_rows = collect_population(logger, dry_run=args.dry_run)
-        result.record("인구 데이터 수집", "success", rows=len(pop_rows), duration=time.time() - t0)
+        result.record(
+            "인구 데이터 수집", "success", rows=len(pop_rows), duration=time.time() - t0
+        )
 
         if not args.dry_run and pop_rows:
             t0 = time.time()
             updated = update_population(conn, pop_rows, logger)
-            result.record("인구 DB 갱신", "success", rows=updated, duration=time.time() - t0)
+            result.record(
+                "인구 DB 갱신", "success", rows=updated, duration=time.time() - t0
+            )
 
         # 2. 범죄 수집 + 갱신
         t0 = time.time()
         crime_rows = collect_crime(logger, dry_run=args.dry_run)
-        result.record("범죄 데이터 수집", "success", rows=len(crime_rows), duration=time.time() - t0)
+        result.record(
+            "범죄 데이터 수집",
+            "success",
+            rows=len(crime_rows),
+            duration=time.time() - t0,
+        )
 
         if not args.dry_run and crime_rows:
             t0 = time.time()
             updated = update_crime(conn, crime_rows, logger)
-            result.record("범죄 DB 갱신", "success", rows=updated, duration=time.time() - t0)
+            result.record(
+                "범죄 DB 갱신", "success", rows=updated, duration=time.time() - t0
+            )
 
     except Exception as e:
         logger.error(f"Annual 배치 실패: {e}")
@@ -167,7 +212,9 @@ def run_mgmt_cost(args, logger, result):
     try:
         t0 = time.time()
         count = collect_from_api(conn=conn, logger=logger, dry_run=args.dry_run)
-        result.record("관리비 API 수집", "success", rows=count, duration=time.time() - t0)
+        result.record(
+            "관리비 API 수집", "success", rows=count, duration=time.time() - t0
+        )
     except Exception as e:
         logger.error(f"관리비 배치 실패: {e}")
         result.record("관리비 배치", "critical", error=str(e))
@@ -182,7 +229,9 @@ def run_kapt_refresh(args, logger, result):
     try:
         t0 = time.time()
         count = phase2_refresh(conn, logger)
-        result.record("K-APT 정보 갱신", "success", rows=count, duration=time.time() - t0)
+        result.record(
+            "K-APT 정보 갱신", "success", rows=count, duration=time.time() - t0
+        )
     except Exception as e:
         logger.error(f"K-APT 갱신 실패: {e}")
         result.record("K-APT 갱신", "critical", error=str(e))
@@ -197,7 +246,9 @@ def run_backfill(args, logger, result):
     try:
         t0 = time.time()
         max_calls = getattr(args, "max_calls", 900)
-        updated = backfill_trades(conn, logger, max_calls=max_calls, dry_run=args.dry_run)
+        updated = backfill_trades(
+            conn, logger, max_calls=max_calls, dry_run=args.dry_run
+        )
         result.record("거래 백필", "success", rows=updated, duration=time.time() - t0)
     except Exception as e:
         logger.error(f"백필 배치 실패: {e}")
@@ -206,15 +257,74 @@ def run_backfill(args, logger, result):
         conn.close()
 
 
+def run_ml(args, logger, result):
+    """ML 재학습 파이프라인 (Phase 1-4).
+
+    기본 dry-run: 학습·리포트만 수행하고 common_code 는 건드리지 않는다.
+    --apply 명시 시에만 감쇠(decay)·넛지 가중치를 DB 에 반영한다 —
+    점수 체계의 무단 변동을 막기 위한 안전장치.
+    """
+    import subprocess
+
+    steps = [
+        ("ML 학습 (train_scoring)", [sys.executable, "-m", "batch.ml.train_scoring"]),
+        ("Hedonic 검증", [sys.executable, "-m", "batch.ml.hedonic_validation"]),
+    ]
+    apply_flag = getattr(args, "apply", False)
+    curves_cmd = [sys.executable, "-m", "batch.ml.apply_curves"]
+    weights_cmd = [sys.executable, "-m", "batch.ml.update_weights"]
+    if apply_flag:
+        curves_cmd.append("--apply")
+    else:
+        weights_cmd.append("--dry-run")
+    steps.append(("감쇠 곡선 반영", curves_cmd))
+    steps.append(("넛지 가중치 갱신", weights_cmd))
+
+    for name, cmd in steps:
+        t0 = time.time()
+        proc = subprocess.run(cmd, capture_output=False)
+        if proc.returncode != 0:
+            result.record(name, "critical", error=f"exit {proc.returncode}")
+            logger.error(f"{name} 실패 — 이후 단계 중단")
+            return
+        result.record(name, "success", duration=time.time() - t0)
+
+
 def main():
     parser = argparse.ArgumentParser(description="집토리 배치 데이터 수집/갱신")
-    parser.add_argument("--type", choices=["trade", "quarterly", "annual", "mgmt_cost", "kapt_refresh", "backfill"], required=True,
-                        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비), kapt_refresh(K-APT 갱신), backfill(거래 백필)")
-    parser.add_argument("--dry-run", action="store_true", help="수집만 하고 DB 적재 생략")
-    parser.add_argument("--region", default="metro",
-                        help="시설 수집 지역 (metro/all/시도명). quarterly 전용")
-    parser.add_argument("--max-calls", type=int, default=900,
-                        help="백필 최대 API 호출 수. backfill 전용")
+    parser.add_argument(
+        "--type",
+        choices=[
+            "trade",
+            "quarterly",
+            "annual",
+            "mgmt_cost",
+            "kapt_refresh",
+            "backfill",
+            "ml",
+        ],
+        required=True,
+        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비), kapt_refresh(K-APT 갱신), backfill(거래 백필), ml(재학습 파이프라인)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="수집만 하고 DB 적재 생략"
+    )
+    parser.add_argument(
+        "--region",
+        default="metro",
+        help="시설 수집 지역 (metro/all/시도명). quarterly 전용",
+    )
+    parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=900,
+        help="백필 최대 API 호출 수. backfill 전용",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="ml 전용: 학습 결과(decay/가중치)를 common_code 에 반영 (기본 dry-run)",
+    )
     args = parser.parse_args()
 
     logger = setup_logger()
@@ -234,6 +344,8 @@ def main():
         run_kapt_refresh(args, logger, result)
     elif args.type == "backfill":
         run_backfill(args, logger, result)
+    elif args.type == "ml":
+        run_ml(args, logger, result)
 
     result.summary(logger)
     sys.exit(result.exit_code())
