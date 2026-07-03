@@ -901,6 +901,68 @@ def test_events_nudge_score_regression():
 
 
 # ============================================================
+# 라이프점수 Phase 0 회귀 테스트 (2026-07-03)
+# — crime 테이블 교체 / jeonse 정규화 / 결측 중립화 / score_percentile
+# ============================================================
+
+@test("스코어링: jeonse_ratio_to_score 경계값 (결측 50, 40%→0, 90%→100, 이상치 클립)")
+def test_jeonse_ratio_normalization():
+    from services.scoring import jeonse_ratio_to_score, INFRA_MISSING_NEUTRAL_SCORE
+    assert jeonse_ratio_to_score(None) == INFRA_MISSING_NEUTRAL_SCORE, "결측은 중립 50"
+    assert jeonse_ratio_to_score(0) == INFRA_MISSING_NEUTRAL_SCORE, "0 이하는 중립 50"
+    assert jeonse_ratio_to_score(40.0) == 0.0, "FLOOR(40%)는 0점"
+    assert jeonse_ratio_to_score(90.0) == 100.0, "CEIL(90%)은 100점"
+    assert jeonse_ratio_to_score(215.7) == 100.0, "이상치는 100 클립"
+    mid = jeonse_ratio_to_score(65.0)
+    assert 0.0 < mid < 100.0, f"구간 내 값은 0~100 사이: {mid}"
+
+
+@test("스코어링: safety 넛지가 전국 범죄 테이블(sigungu_crime_detail) 커버리지를 사용")
+def test_crime_detail_coverage():
+    from database import DictConnection
+    conn = DictConnection()
+    cnt = conn.execute(
+        "SELECT COUNT(*) AS c FROM sigungu_crime_detail WHERE crime_safety_score IS NOT NULL"
+    ).fetchone()["c"]
+    conn.close()
+    assert cnt >= 200, f"sigungu_crime_detail 커버리지 부족: {cnt}행 (전국 268 기대)"
+
+
+@test("스코어링: 비수도권(safety) 점수가 score_crime 결측 0점 페널티를 받지 않음")
+def test_safety_no_zero_penalty_rural():
+    """전남무안군(46830)은 구 sigungu_crime_score(77행) 미포함 지역 —
+    crime detail 교체+결측 중립화 이후 safety top1 이 과도하게 낮지 않아야 한다."""
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/nudge/score",
+        json={"nudges": ["safety"], "top_n": 5, "sigungu_code": "46830"},
+        timeout=30,
+    )
+    assert resp.status_code == 200, f"nudge/score 에러: {resp.status_code}"
+    data = resp.json()
+    assert len(data) > 0, "무안군 safety 결과가 비어있음"
+    # 수정 전 top1=55.8 (score_crime 0점 깔림). 수정 후 60점 이상이어야 함.
+    assert data[0]["score"] >= 58.0, f"safety 점수가 여전히 낮음: {data[0]['score']}"
+
+
+@test("스코어링: 응답에 score_percentile 포함 + 순위 단조 감소")
+def test_score_percentile_field():
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/nudge/score",
+        json={"nudges": ["commute"], "top_n": 10, "sigungu_code": "11680"},
+        timeout=30,
+    )
+    assert resp.status_code == 200, f"nudge/score 에러: {resp.status_code}"
+    data = resp.json()
+    assert len(data) >= 2, "표본 부족"
+    pcts = [r.get("score_percentile") for r in data]
+    assert all(isinstance(p, (int, float)) for p in pcts), f"score_percentile 누락: {pcts}"
+    assert pcts[0] == 100.0, f"top1 백분위는 100.0: {pcts[0]}"
+    assert all(pcts[i] >= pcts[i + 1] for i in range(len(pcts) - 1)), "백분위 단조 감소 위반"
+
+
+# ============================================================
 # 실행
 # ============================================================
 
