@@ -6,7 +6,8 @@ school POI 와 매칭해 아파트→배정초교 거리를 계산한다.
 매칭 규칙:
 - 배정명 정규화: '~초' → '~초등학교' (예: '대구매호초' → '대구매호초등학교')
 - 동명 학교 다수 시 아파트에서 가장 가까운 후보 선택 (3km 초과면 오매칭으로 간주)
-- 실측(2026-07): 정규화 정확 일치 97% (공동배정 표기 제외 기준)
+- 실측(2026-07): 정규화 정확 일치 97% — 분모는 배정명 보유 행 기준
+  (school_zones 미보유 포함 전체 아파트 기준 매칭 비율은 ~72%)
 
 fallback (발동 조건을 반환 통계와 로그로 남김):
 - school_zones 미보유(전체의 ~29%) 또는 매칭 실패(공동배정 '~공동(일방)' 표기 등)
@@ -21,6 +22,8 @@ fallback (발동 조건을 반환 통계와 로그로 남김):
 """
 
 import math
+
+from psycopg2.extras import execute_values
 
 from batch.db import get_connection
 from batch.logger import setup_logger
@@ -100,14 +103,16 @@ def recalc_assigned_school(conn, logger) -> dict:
                 skipped += 1
                 continue
 
+        # 단일 시설 지표: count_Nkm 은 밀도가 아니라 "해당 반경 내 존재 여부"(0/1).
+        # count_1km 은 scoring 의 density factor 100 과 결합해 도보권 보너스로 쓰인다.
         within_1km = 1 if distance_m <= 1000.0 else 0
+        within_3km = 1 if distance_m <= 3000.0 else 0
+        within_5km = 1 if distance_m <= 5000.0 else 0
         upsert_rows.append(
-            (pnu, SUBTYPE, round(distance_m, 1), within_1km, within_1km, within_1km)
+            (pnu, SUBTYPE, round(distance_m, 1), within_1km, within_3km, within_5km)
         )
 
     # 3. upsert (PK: pnu, facility_subtype)
-    from psycopg2.extras import execute_values
-
     execute_values(
         cur,
         """

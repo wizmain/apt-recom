@@ -989,13 +989,17 @@ def test_assigned_elementary_distance_sane():
     conn = DictConnection()
     row = conn.execute(
         """SELECT MIN(nearest_distance_m) AS mn, MAX(nearest_distance_m) AS mx,
-                  COUNT(*) FILTER (WHERE nearest_distance_m IS NULL) AS nulls
+                  COUNT(*) FILTER (WHERE nearest_distance_m IS NULL) AS nulls,
+                  COUNT(*) FILTER (WHERE nearest_distance_m > 1000 AND nearest_distance_m <= 3000
+                                     AND count_3km <> 1) AS bad_3km
            FROM apt_facility_summary WHERE facility_subtype = 'assigned_elementary'"""
     ).fetchone()
     conn.close()
     assert row["nulls"] == 0, f"거리 NULL {row['nulls']}건"
     assert row["mn"] is not None and row["mn"] >= 0, f"음수 거리: {row['mn']}"
     assert row["mx"] <= 20000, f"비상식적 거리: {row['mx']}m"
+    # count_3km 은 반경별 독립 플래그(0/1) — 1km 초과~3km 이내 표본은 count_3km=1 이어야 함
+    assert row["bad_3km"] == 0, f"1~3km 구간인데 count_3km!=1 인 행 {row['bad_3km']}건"
 
 
 # ============================================================
