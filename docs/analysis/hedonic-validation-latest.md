@@ -1,6 +1,6 @@
 # Hedonic 검증 리포트 (자동 생성)
 
-- 생성: 2026-07-03T12:48:31.034469+00:00
+- 생성: 2026-07-03T12:58:15.024904+00:00
 - 표본: 21,077 (아파트 단위, 최근 2년 평균 ㎡당가)
 - within R² (시군구 고정효과): 0.5115
 
@@ -26,3 +26,20 @@
 | fire_station | -0.004333 | -0.99 | 0.0124 |
 
 > 해석: |t|≥2 면 유의. 시장 중요도는 넛지 가중치 조정의 참고 근거 (1-2 대체).
+
+## 다중공선성 진단 — dist_* 피처 간 피어슨 상관 상위 10쌍 (demean 후)
+
+| feature_a | feature_b | r |
+|---|---|---|
+| dist_school | dist_assigned_elementary | 0.9155 |
+| dist_hospital | dist_pet_facility | 0.7439 |
+| dist_pharmacy | dist_convenience_store | 0.7334 |
+| dist_bus | dist_cctv | 0.7235 |
+| dist_assigned_elementary | dist_kindergarten | 0.6886 |
+| dist_school | dist_cctv | 0.6856 |
+| dist_convenience_store | dist_cctv | 0.685 |
+| dist_school | dist_kindergarten | 0.6806 |
+| dist_hospital | dist_pharmacy | 0.6795 |
+| dist_pharmacy | dist_animal_hospital | 0.6763 |
+
+> |r| 이 높은 쌍은 개별 계수 해석 주의 (부호 왜곡 가능).

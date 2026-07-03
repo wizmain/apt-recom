@@ -69,8 +69,27 @@ def ols(y: np.ndarray, x: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     return beta, t_stats, r2
 
 
+def top_correlated_pairs(
+    x: np.ndarray, names: list[str], top_n: int = 10
+) -> list[dict]:
+    """피처 간 피어슨 상관 상위 쌍 (다중공선성 진단용). |r| 내림차순."""
+    std = x.std(axis=0)
+    valid = std > 1e-12  # 상수 컬럼 제외 (상관 정의 불가)
+    corr = np.corrcoef(x[:, valid], rowvar=False)
+    valid_names = [n for n, v in zip(names, valid) if v]
+    pairs = []
+    for i in range(len(valid_names)):
+        for j in range(i + 1, len(valid_names)):
+            pairs.append((valid_names[i], valid_names[j], float(corr[i, j])))
+    pairs.sort(key=lambda p: abs(p[2]), reverse=True)
+    return [
+        {"feature_a": a, "feature_b": b, "pearson_r": round(r, 4)}
+        for a, b, r in pairs[:top_n]
+    ]
+
+
 def self_test() -> None:
-    """합성 데이터로 OLS 가 알려진 계수를 복원하는지 검증."""
+    """합성 데이터로 OLS + 고정효과(demean) 경로가 알려진 계수를 복원하는지 검증."""
     rng = np.random.default_rng(42)
     n = 5000
     x = rng.normal(size=(n, 3))
@@ -81,6 +100,20 @@ def self_test() -> None:
     assert abs(t_stats[2]) < 3, f"무효 피처의 t 가 과대: {t_stats[2]}"
     assert r2 > 0.95, f"R² 과소: {r2}"
     print("self-test PASS: beta=", np.round(beta, 3), "r2=", round(r2, 4))
+
+    # 고정효과 검증: 그룹별 상이한 절편(고정효과)을 y 에 주입 후
+    # demean_by_group → ols 경로가 원래 β 를 복원해야 한다.
+    groups = rng.choice(np.array(["g1", "g2", "g3"]), size=n)
+    group_effects = {"g1": 3.0, "g2": -2.0, "g3": 7.5}
+    y_fe = y + np.array([group_effects[g] for g in groups])
+    y_d, x_d = demean_by_group(y_fe, x, groups)
+    beta_fe, _, r2_fe = ols(y_d, x_d)
+    assert np.allclose(beta_fe, true_beta, atol=0.02), f"FE 계수 복원 실패: {beta_fe}"
+    assert r2_fe > 0.95, f"FE within R² 과소: {r2_fe}"
+    # demean 이 실제로 그룹 평균을 제거했는지 확인
+    for g in group_effects:
+        assert abs(y_d[groups == g].mean()) < 1e-9, f"그룹 {g} demean 실패"
+    print("self-test PASS (FE): beta=", np.round(beta_fe, 3), "r2=", round(r2_fe, 4))
 
 
 def load_dataset(conn, logger):
@@ -187,6 +220,10 @@ def main() -> None:
     beta, t_stats, r2 = ols(y_d, x_d)
 
     dist_idx = [i for i, n in enumerate(names) if n.startswith("dist_")]
+    # 다중공선성 진단: 회귀에 실제 투입된 (demean 후) dist_* 피처 간 상관 상위쌍
+    collinearity = top_correlated_pairs(
+        x_d[:, dist_idx], [names[i] for i in dist_idx], top_n=10
+    )
     importance_raw = {names[i]: abs(float(t_stats[i])) for i in dist_idx}
     total_imp = sum(importance_raw.values()) or 1.0
     market_importance = {
@@ -206,6 +243,7 @@ def main() -> None:
             for i in range(len(names))
         },
         "market_importance_by_subtype": market_importance,
+        "collinearity_top_pairs": collinearity,
     }
     REPORT_JSON.parent.mkdir(exist_ok=True)
     REPORT_JSON.write_text(json.dumps(report, ensure_ascii=False, indent=2))
@@ -232,6 +270,17 @@ def main() -> None:
     md += [
         "",
         "> 해석: |t|≥2 면 유의. 시장 중요도는 넛지 가중치 조정의 참고 근거 (1-2 대체).",
+        "",
+        "## 다중공선성 진단 — dist_* 피처 간 피어슨 상관 상위 10쌍 (demean 후)",
+        "",
+        "| feature_a | feature_b | r |",
+        "|---|---|---|",
+    ]
+    for p in collinearity:
+        md.append(f"| {p['feature_a']} | {p['feature_b']} | {p['pearson_r']} |")
+    md += [
+        "",
+        "> |r| 이 높은 쌍은 개별 계수 해석 주의 (부호 왜곡 가능).",
         "",
     ]
     REPORT_MD.write_text("\n".join(md))

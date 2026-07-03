@@ -72,6 +72,8 @@ batch/.*_checkpoint.json
 
 # ML 학습 산출물
 models/*.joblib
+# hedonic 검증 리포트 (로컬 DB 기반 재생성 산출물 — 커밋 대상은 docs/analysis md 만)
+models/hedonic_report.json
 
 # 생성된 EDA 차트 이미지 (대량 PNG)
 docs/images/
