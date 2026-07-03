@@ -87,7 +87,7 @@
 | 0-3 | 결측 처리 정책 명문화 | 시설 결측 시 "지역 프로필 중립값" 적용 + 데이터 커버리지 플래그. Niche 방식(결측 50%↑ 시 랭킹 제외 표기) 벤치마크 | §3.2 |
 | 0-4 | 점수 스프레드 보정 | 지역 내 백분위/리스케일링으로 top-N 변별력 확보 (표시 점수와 내부 점수 분리) | §2.1-2 |
 
-### Phase 1 — 단기 (기존 보유 데이터 활용, 1~2주 규모)
+### Phase 1 — 단기 — ✅ 1-1/1-3/1-4 구현 완료 (2026-07-03, 1-2 는 hedonic 으로 대체·1-5 후속) (기존 보유 데이터 활용, 1~2주 규모)
 | # | 항목 | 내용 | 대응 문제 |
 |---|------|------|-----------|
 | 1-1 | education 에 school_zones 반영 | 배정초교 거리·도보시간을 학군 넛지의 1급 지표로 | §3.3 |
@@ -95,6 +95,15 @@
 | 1-3 | Hedonic 검증 배치 | 실거래가 ~ 시설 접근성 회귀로 (a) 점수-시장가치 상관 측정(타당성 검증), (b) 감쇠 파라미터·가중치의 시장 근거 확보. 이미 보유한 데이터만으로 가능 | §3.7, §3.8 |
 | 1-4 | ML 재학습 파이프라인 편입 | train_scoring/update_weights 를 quarterly 배치(run.py)에 포함 + learned decay curve 런타임 연결 | §3.8 |
 | 1-5 | 다중 넛지 가중 선택 | 첫 번째 선택 넛지에 가중(예: 0.5/0.3/0.2) 또는 UI 슬라이더 | §3.6 |
+
+> **Hedonic 검증 결과 (2026-07-03, `docs/analysis/hedonic-validation-latest.md`)**: 표본 21,077 아파트, within R²(시군구 고정효과) 0.5115, 16개 시설 subtype 중 11개가 |t|≥2 유의(핵심 4시설 — subway/school/assigned_elementary/mart — 모두 유의 음수, 거리가 가까울수록 가격↑).
+> school~assigned_elementary r=0.92 — 가중치 조정 시 합산 축 권장, cctv/bus 양수 계수는 도심밀집 공선성.
+
+**Phase 1 후속 이슈**
+- (a) decay 곡선 RMSE-skip — 전 subtype 관찰됨(Task 4), PDP 스무딩/스킵 임계 재검토 + max_d 정합성 점검 필요
+- (b) self-test(apply_curves/hedonic_validation) CI 편입 — 현재 수동 실행만 검증됨
+- (c) stale assigned_elementary retire 경로 — 배정 학교 변경/폐교 시 기존 매칭 무효화 절차 미정
+- (d) 구 sigungu_crime_score 폐기 정리 — sigungu_crime_detail 전환(Phase 0-1) 후 구 테이블/참조 잔존분 정리
 
 ### Phase 2 — 중기 (외부 데이터 도입, 넛지별 품질 축 추가)
 즉시 활용 가능(무료 API + 좌표/PNU 단위) 우선순위:
