@@ -7,6 +7,8 @@ import { useAppStore } from "@/lib/store";
 import { useApartments, countActiveFilters } from "@/hooks/useApartments";
 import { useNudge } from "@/hooks/useNudge";
 import { useUrlSyncedPnu } from "@/hooks/useUrlSyncedPnu";
+import { useCodes } from "@/hooks/useCodes";
+import { logEvent } from "@/lib/logEvent";
 import { BridgeParams } from "./BridgeParams";
 import { MapView } from "./Map/MapView";
 import FilterPanel from "./FilterPanel";
@@ -68,11 +70,17 @@ export function HomeShell() {
   const openChat = useAppStore((s) => s.openChat);
   const switchView = useAppStore((s) => s.switchView);
   const setCustomWeights = useAppStore((s) => s.setCustomWeights);
+  const selectRegion = useAppStore((s) => s.selectRegion);
+  const setSelectedNudges = useAppStore((s) => s.setSelectedNudges);
 
   // side-effect hooks
   useApartments();
   useNudge();
   useUrlSyncedPnu();
+
+  // E3 "이 지역 추천"용 코드 — nudge(화이트리스트) + recommend_default(기본 세트)
+  const { codes: nudgeCodes } = useCodes("nudge");
+  const { codes: recommendDefaultCodes } = useCodes("recommend_default");
 
   // HomeShell-owned UI state (not in store)
   const [filterOpen, setFilterOpen] = useState(false);
@@ -105,6 +113,21 @@ export function HomeShell() {
       focusApartment({ pnu, lat: apt.lat, lng: apt.lng, name: apt.bld_nm });
     }
     selectApartment(pnu);
+  };
+
+  // RecentTradesBanner "이 지역 추천" — 거래 지역 + 기본 넛지 세트로 즉시 추천 (E3).
+  // recommend_default(common_code) 미시드 환경에서는 지역만 세팅된다(칩 활성화까지).
+  const handleRecommendRegion = (sigunguCode: string, sigunguLabel: string) => {
+    logEvent("recent_banner_recommend_click", { sgg_cd: sigunguCode });
+    void selectRegion({ type: "sigungu", code: sigunguCode, label: sigunguLabel });
+    if (recommendDefaultCodes.length > 0) {
+      const validNudgeCodes =
+        nudgeCodes.length > 0 ? nudgeCodes.map((c) => c.code) : undefined;
+      setSelectedNudges(
+        recommendDefaultCodes.map((c) => c.code),
+        validNudgeCodes,
+      );
+    }
   };
 
   // WeightDrawer onApply — 선택된 nudge 하나의 weights 를 store 에 설정.
@@ -152,6 +175,7 @@ export function HomeShell() {
           <RecentTradesBanner
             onSelect={handleBannerSelect}
             onGoToDashboard={() => switchView("dashboard")}
+            onRecommendRegion={handleRecommendRegion}
             hasResults={hasResults}
           />
         </div>

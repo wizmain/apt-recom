@@ -60,3 +60,22 @@ test.describe("E1: 비활성 넛지 칩 → 인라인 코치", () => {
     await expect(page.getByText(COACH_TEXT)).toBeHidden();
   });
 });
+
+test.describe("E3: 신규거래 배너 → 이 지역 추천", () => {
+  test("배너 아이템의 지역 추천 → 지역 태그 + 스코어 호출", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "최근 거래 내역 열기" }).click();
+
+    const scoreReq = page.waitForRequest(
+      (r) => r.url().includes("/api/nudge/score") && r.method() === "POST",
+    );
+    await page.getByRole("button", { name: "서울 종로구 지역 추천 보기" }).click();
+
+    await expect(page.getByText("📍 서울 종로구")).toBeVisible();
+    const req = await scoreReq;
+    expect(req.postDataJSON()).toMatchObject({
+      nudges: ["cost", "commute", "education"],
+      sigungu_code: "11110",
+    });
+  });
+});
