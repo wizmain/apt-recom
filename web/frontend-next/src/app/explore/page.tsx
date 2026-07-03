@@ -6,7 +6,8 @@ import { parseExplorePresets, type ExplorePreset } from "@/lib/explorePreset";
 import PresetTiles from "./PresetTiles";
 
 export const metadata: Metadata = {
-  title: "라이프스타일 추천 둘러보기 | 집토리",
+  // 루트 layout 의 title.template("%s | 집토리")가 접미사를 붙이므로 페이지명만 선언.
+  title: "라이프스타일 추천 둘러보기",
   description:
     "학군·출퇴근·가성비 등 지역 × 라이프스타일 조합을 고르면 바로 아파트 추천을 받아볼 수 있습니다.",
 };
