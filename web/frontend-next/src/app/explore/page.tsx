@@ -13,6 +13,8 @@ export const metadata: Metadata = {
 
 // 프리셋은 common_code(explore_preset) 서버 fetch — 1시간 재검증 캐시.
 // 각 타일은 홈 딥링크(useBridgeParams 소비)이므로 이 페이지 자체가 SEO/공유 랜딩이 된다.
+// 세그먼트 revalidate(프리렌더 주기)와 아래 fetch 의 next.revalidate(fetch 캐시 주기)는
+// 역할이 달라 각각 선언이 필요하다 — 값은 반드시 동기 유지할 것(3600 = 1시간).
 export const revalidate = 3600;
 
 async function fetchPresets(): Promise<ExplorePreset[]> {
@@ -20,6 +22,7 @@ async function fetchPresets(): Promise<ExplorePreset[]> {
     const res = await fetch(`${API_URL}/api/codes/explore_preset`, {
       next: { revalidate: 3600 },
     });
+    // degrade: 백엔드 비정상 응답(non-2xx) 시 빈 갤러리로 강등 — 아래 catch 와 동일 UX
     if (!res.ok) return [];
     return parseExplorePresets((await res.json()) as CodeItem[]);
   } catch {

@@ -62,8 +62,9 @@ export default function FirstRunHint({ active }: FirstRunHintProps) {
   if (!visible) return null;
 
   return (
+    // role="status" 미부여: 상시 안내 배너로 시각 전용 처리 — SearchCoach(즉각 피드백)와
+    // 동시 노출 시 스크린리더 이중 알림을 막기 위해 라이브영역은 SearchCoach 쪽에만 둔다.
     <div
-      role="status"
       className="fixed bottom-20 sm:bottom-8 left-1/2 -translate-x-1/2 z-10
                  flex items-center gap-3 rounded-full bg-gray-900/90 text-white
                  px-4 py-2.5 text-xs sm:text-sm shadow-lg backdrop-blur-sm

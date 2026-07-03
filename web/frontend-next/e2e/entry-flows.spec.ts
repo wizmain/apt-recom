@@ -89,15 +89,17 @@ test.describe("E2: 첫 실행 힌트", () => {
 
   test("첫 방문 노출 → ✕ 닫기 → 새로고침 후 미노출 (1회성)", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("status").filter({ hasText: HINT_TEXT })).toBeVisible();
+    // FirstRunHint 는 상시 안내 배너로 role="status" 를 갖지 않는다(SearchCoach 와의
+    // 라이브영역 중복 방지) — 텍스트 기반 셀렉터로 노출/숨김/영속성을 검증한다.
+    await expect(page.getByText(HINT_TEXT)).toBeVisible();
 
     await page.getByRole("button", { name: "힌트 닫기" }).click();
-    await expect(page.getByRole("status").filter({ hasText: HINT_TEXT })).toBeHidden();
+    await expect(page.getByText(HINT_TEXT)).toBeHidden();
 
     await page.reload();
     // localStorage 마킹으로 재노출 없음
     await expect(page.getByRole("button", { name: "집토리 열기" })).toBeVisible();
-    await expect(page.getByRole("status").filter({ hasText: HINT_TEXT })).toBeHidden();
+    await expect(page.getByText(HINT_TEXT)).toBeHidden();
   });
 
   test("힌트의 둘러보기 링크 → /explore", async ({ page }) => {
