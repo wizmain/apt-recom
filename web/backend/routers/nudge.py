@@ -6,9 +6,11 @@ from database import DictConnection
 from services.activity_log import log_event
 from services.identity import get_user_identifier
 from services.scoring import (
+    INFRA_MISSING_NEUTRAL_SCORE,
     get_nudge_weights,
     get_region_profile,
     facility_score,
+    jeonse_ratio_to_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
     get_top_contributors,
@@ -217,6 +219,20 @@ def nudge_score(
                 profile=pnu_profiles.get(pnu, "metro"),
             )
 
+        # 4a. 지역 결측 subtype 중립화 — 후보군 전체에서 관측 0건인 시설 축은
+        # 그 지역에 데이터/인프라가 없는 것으로 보고 전 후보 중립 점수 처리
+        # (subway 특례의 일반화 — INFRA_MISSING_NEUTRAL_SCORE 주석 참조).
+        # 일부 후보에만 없는 축은 실제 원거리로 간주해 기존대로 0점 유지.
+        # score_* pseudo-subtype 은 각자 로더(4b~4d)가 결측 기본값을 처리한다.
+        facility_subtypes = {s for s in all_subtypes if not s.startswith("score_")}
+        observed_subtypes = {row["facility_subtype"] for row in summary_rows}
+        region_missing_subtypes = facility_subtypes - observed_subtypes
+        if region_missing_subtypes:
+            for pnu in pnu_list:
+                fscores = apt_facility_scores.setdefault(pnu, {})
+                for subtype in region_missing_subtypes:
+                    fscores[subtype] = INFRA_MISSING_NEUTRAL_SCORE
+
         # 4b. Price scores
         price_nudges = {"cost", "investment"}
         if price_nudges & set(req.nudges):
@@ -232,8 +248,9 @@ def nudge_score(
                     if pnu not in apt_facility_scores:
                         apt_facility_scores[pnu] = {}
                     apt_facility_scores[pnu]["score_price"] = row["price_score"] or 50.0
-                    apt_facility_scores[pnu]["score_jeonse"] = (
-                        row["jeonse_ratio"] or 50.0
+                    # 전세가율 원값(0~215%)은 스케일이 달라 정규화 함수를 경유
+                    apt_facility_scores[pnu]["score_jeonse"] = jeonse_ratio_to_score(
+                        row["jeonse_ratio"]
                     )
 
         # 4c. Safety scores
@@ -271,8 +288,10 @@ def nudge_score(
                 )
                 if sgg_codes:
                     ph = ",".join(["%s"] * len(sgg_codes))
+                    # sigungu_crime_detail: 전국 268개 시군구 백분위 점수 (KOSIS 경찰청 통계).
+                    # 구 sigungu_crime_score(77행, 초기 적재분)는 커버리지가 좁아 사용하지 않는다.
                     crime_rows = conn.execute(
-                        f"SELECT sigungu_code, crime_safety_score FROM sigungu_crime_score WHERE sigungu_code IN ({ph})",
+                        f"SELECT sigungu_code, crime_safety_score FROM sigungu_crime_detail WHERE sigungu_code IN ({ph})",
                         sgg_codes,
                     ).fetchall()
                     sgg_crime = {
@@ -286,6 +305,17 @@ def nudge_score(
                             apt_facility_scores[pnu]["score_crime"] = sgg_crime[sgg]
             except Exception:
                 pass
+
+        # 4e. score_* pseudo-subtype 결측 중립화 — 원천 테이블(apt_price_score /
+        # apt_safety_score / sigungu_crime_detail)에 해당 아파트·시군구가 없으면
+        # 데이터 미보유이므로 0점 페널티 대신 중립 점수를 적용한다 (4a 와 동일 정책).
+        # 발동 조건: 위 4b~4d 로더가 값을 채우지 못한 pnu × score_* 조합.
+        score_subtypes = {s for s in all_subtypes if s.startswith("score_")}
+        if score_subtypes:
+            for pnu in pnu_list:
+                fscores = apt_facility_scores.setdefault(pnu, {})
+                for subtype in score_subtypes:
+                    fscores.setdefault(subtype, INFRA_MISSING_NEUTRAL_SCORE)
 
         # 5. Calculate scores
         results = []
@@ -321,6 +351,16 @@ def nudge_score(
 
         # 6. Sort and return top_n
         results.sort(key=lambda x: x["score"], reverse=True)
+
+        # 후보군 내 백분위(표시 보조 지표) — 상위권 절대점수가 1~4점 폭으로
+        # 압축되어 변별이 어려우므로 "이 후보군에서 상위 몇 %인가"를 함께 제공.
+        # 정렬 순위 기반(1위=100.0)이며 기존 score/순위는 변경하지 않는다.
+        candidate_count = len(results)
+        for rank_index, item in enumerate(results):
+            item["score_percentile"] = round(
+                (candidate_count - rank_index) / candidate_count * 100.0, 1
+            )
+
         return results[: req.top_n]
     finally:
         conn.close()

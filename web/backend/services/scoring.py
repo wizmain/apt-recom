@@ -16,12 +16,23 @@ from database import DictConnection
 _region_profiles: dict[str, str] | None = None
 
 _DEFAULT_REGION_PROFILES: dict[str, str] = {
-    "11": "metro", "28": "metro", "41": "metro",
-    "26": "major_city", "27": "major_city", "29": "major_city",
-    "30": "major_city", "31": "major_city", "36": "major_city",
-    "42": "provincial", "43": "provincial", "44": "provincial",
-    "45": "provincial", "46": "provincial", "47": "provincial",
-    "48": "provincial", "50": "provincial",
+    "11": "metro",
+    "28": "metro",
+    "41": "metro",
+    "26": "major_city",
+    "27": "major_city",
+    "29": "major_city",
+    "30": "major_city",
+    "31": "major_city",
+    "36": "major_city",
+    "42": "provincial",
+    "43": "provincial",
+    "44": "provincial",
+    "45": "provincial",
+    "46": "provincial",
+    "47": "provincial",
+    "48": "provincial",
+    "50": "provincial",
 }
 
 
@@ -111,6 +122,7 @@ _MAX_DIST_MULTIPLIER = {"metro": 1.0, "major_city": 1.3, "provincial": 1.6}
 # 로더 함수들
 # ---------------------------------------------------------------------------
 
+
 def _load_max_distances() -> dict[str, float]:
     """기존 호환: 글로벌 max_distance (facility_distance group)."""
     global _max_distances
@@ -169,7 +181,9 @@ def _load_facility_decay_by_profile() -> dict[str, dict[str, float]]:
             result[profile] = {r["code"]: float(r["name"]) for r in rows}
         else:
             mult = _DECAY_MULTIPLIER.get(profile, 1.0)
-            result[profile] = {k: round(v * mult) for k, v in _DEFAULT_FACILITY_DECAY.items()}
+            result[profile] = {
+                k: round(v * mult) for k, v in _DEFAULT_FACILITY_DECAY.items()
+            }
 
     conn.close()
     _facility_decay_by_profile = result
@@ -194,7 +208,9 @@ def _load_density_factor_by_profile() -> dict[str, dict[str, float]]:
             result[profile] = {r["code"]: float(r["name"]) for r in rows}
         else:
             mult = _DENSITY_MULTIPLIER.get(profile, 1.0)
-            result[profile] = {k: round(v * mult, 1) for k, v in _DEFAULT_DENSITY_FACTOR.items()}
+            result[profile] = {
+                k: round(v * mult, 1) for k, v in _DEFAULT_DENSITY_FACTOR.items()
+            }
 
     conn.close()
     _density_factor_by_profile = result
@@ -226,6 +242,7 @@ def _load_nudge_weights() -> dict[str, dict[str, float]]:
 # 공개 API: 캐시 접근 + 무효화
 # ---------------------------------------------------------------------------
 
+
 def get_max_distances() -> dict[str, float]:
     return _load_max_distances()
 
@@ -247,8 +264,41 @@ def invalidate_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 지표 정규화 상수/함수
+# ---------------------------------------------------------------------------
+
+# 인프라/데이터가 아예 없는 축의 중립 점수.
+# - subway: 비수도권 인프라 부재 시 개별 아파트에 적용 (facility_score 내부)
+# - 지역 결측: 요청 후보군 전체에서 관측되지 않는 subtype 에 적용 (routers/nudge.py)
+# 결측 축을 0점으로 깔면 해당 지역 전체가 구조적으로 저평가되므로,
+# "변별력이 없는 축은 중립"이라는 원칙으로 통일한다.
+INFRA_MISSING_NEUTRAL_SCORE = 50.0
+
+# 전세가율(%) → 0~100 점수 선형 변환 구간.
+# 실측 분포(apt_price_score 26,395건, 2026-07: 중앙값 71.7%, 최대 215.7% 이상치)
+# 기준 40% 이하 = 0점, 90% 이상 = 100점 클리핑.
+# 방향: 전세가율 높음 = 매매가 대비 사용가치 높음(가성비)·갭 부담 낮음(투자) → 고점.
+JEONSE_RATIO_SCORE_FLOOR = 40.0
+JEONSE_RATIO_SCORE_CEIL = 90.0
+
+
+def jeonse_ratio_to_score(jeonse_ratio: float | None) -> float:
+    """전세가율(%) → 0~100 점수. 결측/비정상(≤0)은 중립 50점.
+
+    apt_price_score.jeonse_ratio 원값은 0~215% 범위라 0~100 점수 축에
+    직접 주입하면 스케일이 왜곡된다 — 반드시 이 함수를 거쳐 주입할 것.
+    """
+    if jeonse_ratio is None or jeonse_ratio <= 0:
+        return INFRA_MISSING_NEUTRAL_SCORE
+    span = JEONSE_RATIO_SCORE_CEIL - JEONSE_RATIO_SCORE_FLOOR
+    scaled = (jeonse_ratio - JEONSE_RATIO_SCORE_FLOOR) / span * 100.0
+    return round(min(100.0, max(0.0, scaled)), 2)
+
+
+# ---------------------------------------------------------------------------
 # 점수 계산 함수
 # ---------------------------------------------------------------------------
+
 
 def distance_to_score(
     distance_m: float | None,
@@ -294,15 +344,15 @@ def facility_score(
 
     지하철 인프라가 없는 비수도권 아파트는 중립 점수 50점 반환.
     """
-    # 지하철 인프라가 없는 비수도권: 중립 점수 50점
+    # 지하철 인프라가 없는 비수도권: 중립 점수
     # distance=None 또는 max_distance 초과 + 1km 내 0개 → 인프라 부재로 판단
     if facility_subtype == "subway" and profile != "metro" and not count_1km:
         if distance_m is None:
-            return 50.0
+            return INFRA_MISSING_NEUTRAL_SCORE
         max_d_map = _load_max_distances_by_profile()
         max_d = max_d_map.get(profile, {}).get("subway", 3000)
         if distance_m >= max_d:
-            return 50.0
+            return INFRA_MISSING_NEUTRAL_SCORE
 
     d_score = distance_to_score(distance_m, facility_subtype, profile)
     n_score = density_to_score(count_1km, facility_subtype, profile)
@@ -378,7 +428,9 @@ def get_top_contributors(
             continue
         total_w = sum(weights.values()) or 1.0
         for subtype, w in weights.items():
-            norm_w = w / total_w  # 넛지 내부 정규화 (calculate_nudge_score 와 동일 규칙)
+            norm_w = (
+                w / total_w
+            )  # 넛지 내부 정규화 (calculate_nudge_score 와 동일 규칙)
             score = float(facility_scores.get(subtype, 0.0))
             bucket = agg.setdefault(
                 subtype, {"score": score, "weight_sum": 0.0, "contribution": 0.0}
