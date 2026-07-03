@@ -1002,6 +1002,38 @@ def test_assigned_elementary_distance_sane():
     assert row["bad_3km"] == 0, f"1~3km 구간인데 count_3km!=1 인 행 {row['bad_3km']}건"
 
 
+@test("Phase1: education 넛지에 assigned_elementary 가중치 반영")
+def test_education_weights_include_assigned():
+    from database import DictConnection
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT name, extra FROM common_code WHERE group_id = 'nudge_weight' AND code LIKE 'education:%%'"
+    ).fetchall()
+    conn.close()
+    weights = {r["name"]: float(r["extra"]) for r in rows}
+    assert "assigned_elementary" in weights, f"assigned_elementary 없음: {sorted(weights)}"
+    assert weights["assigned_elementary"] >= 0.25, f"가중치 과소: {weights['assigned_elementary']}"
+    total = sum(weights.values())
+    assert abs(total - 1.0) < 0.02, f"가중치 합 이탈: {total}"
+
+
+@test("Phase1: education 스코어 응답의 top_contributors 에 assigned_elementary 등장 가능")
+def test_education_score_uses_assigned():
+    import requests
+    resp = requests.post(
+        "http://localhost:8000/api/nudge/score",
+        json={"nudges": ["education"], "top_n": 10, "sigungu_code": "11680"},
+        timeout=30,
+    )
+    assert resp.status_code == 200, f"nudge/score 에러: {resp.status_code}"
+    data = resp.json()
+    assert len(data) > 0, "결과 없음"
+    subtypes = {
+        c["subtype"] for r in data for c in r.get("top_contributors", [])
+    }
+    assert "assigned_elementary" in subtypes, f"기여 시설에 assigned_elementary 없음: {sorted(subtypes)}"
+
+
 # ============================================================
 # 실행
 # ============================================================
