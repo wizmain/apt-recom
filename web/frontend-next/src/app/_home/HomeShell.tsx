@@ -15,6 +15,7 @@ import FilterPanel from "./FilterPanel";
 import NudgeBar from "./NudgeBar";
 import ResultCards from "./ResultCards";
 import RecentTradesBanner from "./RecentTradesBanner";
+import FirstRunHint from "./FirstRunHint";
 import ChatButton from "./ChatButton";
 import ChatModal from "./ChatModal";
 import CompareModal from "./CompareModal";
@@ -72,6 +73,8 @@ export function HomeShell() {
   const setCustomWeights = useAppStore((s) => s.setCustomWeights);
   const selectRegion = useAppStore((s) => s.selectRegion);
   const setSelectedNudges = useAppStore((s) => s.setSelectedNudges);
+  const searchKeywords = useAppStore((s) => s.searchKeywords);
+  const selectedRegion = useAppStore((s) => s.selectedRegion);
 
   // side-effect hooks
   useApartments();
@@ -88,6 +91,13 @@ export function HomeShell() {
 
   const hasResults = nudgeResults.length > 0 || nudgeLoading;
   const filterCount = countActiveFilters(filters);
+
+  // E2: 검색·지역·넛지 아무것도 없는 첫 상태 (첫 실행 힌트 노출 조건)
+  const preSearchIdle =
+    viewMode === "map" &&
+    searchKeywords.length === 0 &&
+    selectedRegion === null &&
+    selectedNudges.length === 0;
 
   // Dashboard 진입 시 검색 행동 + chat 행동
   const handleAnalyzeFromMap = (name: string, pnu: string) => {
@@ -178,6 +188,7 @@ export function HomeShell() {
             onRecommendRegion={handleRecommendRegion}
             hasResults={hasResults}
           />
+          <FirstRunHint active={preSearchIdle} />
         </div>
       ) : (
         // 대시보드 — NudgeBar(fixed h-12 sm:h-14) 에 가려지지 않도록 상단 패딩

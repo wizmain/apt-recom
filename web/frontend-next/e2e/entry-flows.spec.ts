@@ -18,6 +18,10 @@ test.describe("E1: 비활성 넛지 칩 → 인라인 코치", () => {
     });
 
     await page.goto("/");
+    // E2 첫 실행 힌트가 fresh context 에서 함께 떠 있으면 first_run_hint_shown
+    // 로깅 요청이 아래 waitForRequest(범용 /api/log/event 매처)와 경합한다 —
+    // 먼저 닫아 이 테스트의 관심사(nudge_chip_blocked)만 남긴다.
+    await page.getByRole("button", { name: "힌트 닫기" }).click();
     const logReq = page.waitForRequest(
       (r) => r.url().includes("/api/log/event") && r.method() === "POST",
     );
@@ -77,6 +81,29 @@ test.describe("E3: 신규거래 배너 → 이 지역 추천", () => {
       nudges: ["cost", "commute", "education"],
       sigungu_code: "11110",
     });
+  });
+});
+
+test.describe("E2: 첫 실행 힌트", () => {
+  const HINT_TEXT = "지역 검색";
+
+  test("첫 방문 노출 → ✕ 닫기 → 새로고침 후 미노출 (1회성)", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("status").filter({ hasText: HINT_TEXT })).toBeVisible();
+
+    await page.getByRole("button", { name: "힌트 닫기" }).click();
+    await expect(page.getByRole("status").filter({ hasText: HINT_TEXT })).toBeHidden();
+
+    await page.reload();
+    // localStorage 마킹으로 재노출 없음
+    await expect(page.getByRole("button", { name: "집토리 열기" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: HINT_TEXT })).toBeHidden();
+  });
+
+  test("힌트의 둘러보기 링크 → /explore", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: "추천 조합 둘러보기 →" }).click();
+    await expect(page.getByRole("heading", { name: "라이프스타일 추천 둘러보기" })).toBeVisible();
   });
 });
 
