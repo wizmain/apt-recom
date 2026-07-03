@@ -963,6 +963,42 @@ def test_score_percentile_field():
 
 
 # ============================================================
+# 라이프점수 Phase 1 회귀 테스트 (2026-07-03)
+# ============================================================
+
+@test("Phase1: apt_facility_summary 에 assigned_elementary 가 전 아파트 커버")
+def test_assigned_elementary_coverage():
+    from database import DictConnection
+    conn = DictConnection()
+    # 분모에서 TRADE_ 플레이스홀더/좌표 결측 제외 — 시설 집계가 구조적으로 불가 (test_area_coverage 관례)
+    total = conn.execute(
+        "SELECT COUNT(*) AS c FROM apartments WHERE pnu NOT LIKE %s AND lat IS NOT NULL",
+        ["TRADE_%"],
+    ).fetchone()["c"]
+    covered = conn.execute(
+        "SELECT COUNT(*) AS c FROM apt_facility_summary WHERE facility_subtype = 'assigned_elementary'"
+    ).fetchone()["c"]
+    conn.close()
+    # fallback 포함 95% 이상 커버 (school 프록시도 없는 극소수 예외 허용)
+    assert covered >= total * 0.95, f"assigned_elementary 커버리지 부족: {covered}/{total}"
+
+
+@test("Phase1: assigned_elementary 거리가 상식 범위(0~20km)")
+def test_assigned_elementary_distance_sane():
+    from database import DictConnection
+    conn = DictConnection()
+    row = conn.execute(
+        """SELECT MIN(nearest_distance_m) AS mn, MAX(nearest_distance_m) AS mx,
+                  COUNT(*) FILTER (WHERE nearest_distance_m IS NULL) AS nulls
+           FROM apt_facility_summary WHERE facility_subtype = 'assigned_elementary'"""
+    ).fetchone()
+    conn.close()
+    assert row["nulls"] == 0, f"거리 NULL {row['nulls']}건"
+    assert row["mn"] is not None and row["mn"] >= 0, f"음수 거리: {row['mn']}"
+    assert row["mx"] <= 20000, f"비상식적 거리: {row['mx']}m"
+
+
+# ============================================================
 # 실행
 # ============================================================
 

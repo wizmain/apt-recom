@@ -113,6 +113,13 @@ def run_quarterly(args, logger, result):
         recalc_summary(conn, logger)
         result.record("시설 집계 재계산", "success", duration=time.time() - t0)
 
+        # 4. 배정초교 거리 재계산 (education 넛지 1급 지표 — recalc_summary 의
+        #    school 최근접 거리를 fallback 프록시로 쓰므로 반드시 3단계 이후 실행)
+        from batch.quarterly.assigned_school import recalc_assigned_school
+        t0 = time.time()
+        stats = recalc_assigned_school(conn, logger)
+        result.record("배정초교 거리 재계산", "success", rows=stats["total"], duration=time.time() - t0)
+
     except Exception as e:
         logger.error(f"Quarterly 배치 실패: {e}")
         result.record("Quarterly 배치", "critical", error=str(e))

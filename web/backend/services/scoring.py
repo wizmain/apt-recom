@@ -91,6 +91,7 @@ _DEFAULT_FACILITY_DECAY: dict[str, float] = {
     "fire_station": 250,
     "park": 300,
     "police": 250,
+    "assigned_elementary": 400,  # 배정초교 — school 과 동일 감쇠 (도보 통학 거리 민감)
 }
 
 # 시설별 밀도 환산 계수 (count_1km × factor → 0~100 점수)
@@ -110,6 +111,9 @@ _DEFAULT_DENSITY_FACTOR: dict[str, float] = {
     "animal_hospital": 15,
     "police": 50,
     "fire_station": 50,
+    # 배정초교는 단일 시설이라 밀도 개념이 없음 — count_1km∈{0,1} 을
+    # "1km 도보권 보너스"(0 또는 100)로 사용 (배치가 0/1 로 적재)
+    "assigned_elementary": 100,
 }
 
 # 프로필별 배율 (metro=1.0 기준)
