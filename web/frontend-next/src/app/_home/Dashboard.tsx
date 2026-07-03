@@ -96,6 +96,9 @@ export default function Dashboard() {
   const selectApartment = useAppStore((s) => s.selectApartment);
   const focusApartment = useAppStore((s) => s.focusApartment);
   const switchView = useAppStore((s) => s.switchView);
+  const clearRegion = useAppStore((s) => s.clearRegion);
+  const clearSelectedNudges = useAppStore((s) => s.clearSelectedNudges);
+  const searchKeywords = useAppStore((s) => s.searchKeywords);
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
@@ -120,16 +123,24 @@ export default function Dashboard() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 지도 진입 시 사용자가 지도에 세팅해 둔 검색/필터/챗봇 결과는 유지한다.
+  // 지도 진입 시 검색 키워드/필터/챗봇 결과는 유지하되, **지역 필터는 리셋**한다.
+  // 지역이 남아 있으면 fetchApartments 가 bounds 를 무시하고 그 지역만 조회해
+  // (searchSlice.fetchApartments 의 region 우선 정책) 대상 아파트로 panTo 해도
+  // 주변 마커가 보이지 않는다. 지역 리셋 → bounds 기반 조회로 전환 → pan 후
+  // onBoundsChange 가 대상 주변 아파트를 로드한다.
+  // 넛지는 NudgeBar handleClearRegion 과 동일 의미론: 키워드가 없으면 함께 리셋
+  // (지역 없이 옛 지역 기준 추천 카드가 남는 불일치 방지).
   // selectApartment(null) 만 호출해 이전 detail modal 과 새 focus 의 충돌을 방지.
   // 좌표는 /api/dashboard/recent 응답에 이미 포함되어 있어 추가 API 호출 불필요.
   // 모달은 즉시 닫아 잔상 없이 지도 모드로 전환.
   const handleGoToMap = useCallback((params: { pnu: string; lat: number; lng: number; name: string }) => {
     setSelectedApt(null);
     selectApartment(null);
+    clearRegion();
+    if (searchKeywords.length === 0) clearSelectedNudges();
     focusApartment(params);
     switchView('map');
-  }, [selectApartment, focusApartment, switchView]);
+  }, [selectApartment, clearRegion, searchKeywords, clearSelectedNudges, focusApartment, switchView]);
 
   // 바깥 클릭 시 드롭다운 닫기
   const regionRef = useRef<HTMLDivElement>(null);

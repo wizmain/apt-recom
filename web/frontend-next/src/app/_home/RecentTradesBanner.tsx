@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 
 interface RecentTrade {
   apt_nm: string;
+  sgg_cd?: string;
   sigungu: string;
   area: number | null;
   floor: number | null;
@@ -16,6 +17,7 @@ interface RecentTrade {
 interface Props {
   onSelect?: (pnu: string, aptName: string) => void;
   onGoToDashboard?: () => void;
+  onRecommendRegion?: (sigunguCode: string, sigunguLabel: string) => void;
   hasResults?: boolean;
 }
 
@@ -32,7 +34,7 @@ function formatPrice(price?: number): string {
   return `${price.toLocaleString()}만`;
 }
 
-export default function RecentTradesBanner({ onSelect, onGoToDashboard, hasResults }: Props) {
+export default function RecentTradesBanner({ onSelect, onGoToDashboard, onRecommendRegion, hasResults }: Props) {
   const [trades, setTrades] = useState<RecentTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
@@ -119,7 +121,7 @@ export default function RecentTradesBanner({ onSelect, onGoToDashboard, hasResul
           </div>
           <ul className="divide-y divide-gray-100 overflow-y-auto max-h-[21rem]">
             {trades.map((t, i) => (
-              <li key={`${t.pnu ?? t.apt_nm}-${i}`}>
+              <li key={`${t.pnu ?? t.apt_nm}-${i}`} className="flex items-stretch">
                 <button
                   type="button"
                   disabled={!t.pnu}
@@ -129,7 +131,7 @@ export default function RecentTradesBanner({ onSelect, onGoToDashboard, hasResul
                       setExpanded(false);
                     }
                   }}
-                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50 disabled:cursor-default disabled:hover:bg-transparent"
+                  className="flex-1 min-w-0 text-left px-4 py-2.5 hover:bg-blue-50 disabled:cursor-default disabled:hover:bg-transparent"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-gray-900 truncate">{t.apt_nm}</span>
@@ -143,6 +145,21 @@ export default function RecentTradesBanner({ onSelect, onGoToDashboard, hasResul
                     {t.floor != null && <><span>·</span><span>{t.floor}층</span></>}
                   </div>
                 </button>
+                {/* E3: 거래 지역 기반 추천 런처 — sgg_cd 없는 행(구데이터)은 미노출 */}
+                {t.sgg_cd && onRecommendRegion ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRecommendRegion(t.sgg_cd!, t.sigungu);
+                      setExpanded(false);
+                    }}
+                    aria-label={`${t.sigungu} 지역 추천 보기`}
+                    className="flex-shrink-0 px-2.5 text-[11px] font-medium text-emerald-700
+                               border-l border-gray-100 hover:bg-emerald-50 whitespace-nowrap"
+                  >
+                    이 지역<br />추천
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
