@@ -6,6 +6,7 @@ from database import DictConnection
 from services.activity_log import log_event
 from services.identity import get_user_identifier
 from services.scoring import (
+    DERIVED_FACILITY_SUBTYPES,
     INFRA_MISSING_NEUTRAL_SCORE,
     get_nudge_weights,
     get_region_profile,
@@ -232,6 +233,19 @@ def nudge_score(
                 fscores = apt_facility_scores.setdefault(pnu, {})
                 for subtype in region_missing_subtypes:
                     fscores[subtype] = INFRA_MISSING_NEUTRAL_SCORE
+
+        # 4a-1. 파생 지표(DERIVED_FACILITY_SUBTYPES) per-apartment 결측 중립화 —
+        # assigned_elementary 는 quarterly 배치가 계산하는 파생값이라, trade 배치로
+        # 신규 등록된 아파트는 다음 quarterly 실행 전까지 이 subtype 행이 없다.
+        # 4a는 "후보군 전체" 결측만 중립화하므로, 일부 아파트만 결측인 이 케이스는
+        # 별도로 처리해야 education(가중 0.30) 축에서 신규 아파트가 0점으로 깔리지 않는다.
+        # 발동 조건: 신규 아파트가 quarterly 학군 배정 배치 실행 전 창(window)에 있을 때.
+        derived_requested = facility_subtypes & DERIVED_FACILITY_SUBTYPES
+        if derived_requested:
+            for pnu in pnu_list:
+                fscores = apt_facility_scores.setdefault(pnu, {})
+                for subtype in derived_requested:
+                    fscores.setdefault(subtype, INFRA_MISSING_NEUTRAL_SCORE)
 
         # 4b. Price scores
         price_nudges = {"cost", "investment"}

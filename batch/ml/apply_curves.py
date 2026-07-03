@@ -142,7 +142,11 @@ def main() -> None:
     parser.add_argument(
         "--apply", action="store_true", help="common_code 반영 (기본 dry-run)"
     )
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="합성 로그감쇠 곡선으로 fit_decay_from_curve 라운드트립 검증 (DB 불필요)",
+    )
     args = parser.parse_args()
     if args.self_test:
         self_test()

@@ -278,6 +278,15 @@ def invalidate_cache() -> None:
 # "변별력이 없는 축은 중립"이라는 원칙으로 통일한다.
 INFRA_MISSING_NEUTRAL_SCORE = 50.0
 
+# 파생(derived) 지표 — 원본 시설 관측치가 아니라 다른 배치 산출물에서 계산되는
+# facility_subtype. quarterly 배치가 학군을 재계산하기 전까지, trade 배치로
+# 신규 등록된 아파트는 apt_facility_summary 에 이 subtype 행이 아예 없다.
+# "행 없음" 이 "그 아파트 주변에 시설이 없음" 이 아니라 "아직 계산 안 됨" 을
+# 뜻하므로, 지역 전체 결측(routers/nudge.py 4a)뿐 아니라 개별 아파트 결측도
+# 중립 처리해야 education(가중 0.30) 같은 축에서 신규 아파트가 0점으로
+# 깔리는 것을 막는다. 대상: assigned_elementary (quarterly 학군 배정 배치).
+DERIVED_FACILITY_SUBTYPES: set[str] = {"assigned_elementary"}
+
 # 전세가율(%) → 0~100 점수 선형 변환 구간.
 # 실측 분포(apt_price_score 26,395건, 2026-07: 중앙값 71.7%, 최대 215.7% 이상치)
 # 기준 40% 이하 = 0점, 90% 이상 = 100점 클리핑.

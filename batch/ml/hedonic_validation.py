@@ -145,7 +145,7 @@ def load_dataset(conn, logger):
     controls = {}
     for pnu, sgg, hhld, floor, apr, area in cur.fetchall():
         try:
-            age = 2026 - int(str(apr)[:4]) if apr else 20
+            age = datetime.now().year - int(str(apr)[:4]) if apr else 20
         except (ValueError, TypeError):
             age = 20
         controls[pnu] = (sgg or "", age, hhld or 100, floor or 15, float(area or 60))
@@ -245,7 +245,7 @@ def main() -> None:
         "market_importance_by_subtype": market_importance,
         "collinearity_top_pairs": collinearity,
     }
-    REPORT_JSON.parent.mkdir(exist_ok=True)
+    REPORT_JSON.parent.mkdir(parents=True, exist_ok=True)
     REPORT_JSON.write_text(json.dumps(report, ensure_ascii=False, indent=2))
     logger.info(f"리포트 저장: {REPORT_JSON}")
 
@@ -283,6 +283,7 @@ def main() -> None:
         "> |r| 이 높은 쌍은 개별 계수 해석 주의 (부호 왜곡 가능).",
         "",
     ]
+    REPORT_MD.parent.mkdir(parents=True, exist_ok=True)
     REPORT_MD.write_text("\n".join(md))
     logger.info(f"요약 저장: {REPORT_MD}")
 
