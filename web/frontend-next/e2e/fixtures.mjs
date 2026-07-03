@@ -57,7 +57,79 @@ export const dashboardTrades = { trades: [], rents: [], total: 0 };
 /** `NudgeWeights` — { [nudgeId]: { [subtype]: weight } }. 빈 객체면 넛지 비활성. */
 export const nudgeWeights = {};
 
-/** `/api/codes/:group` — region selector 옵션. 빈 배열이어도 UI 는 깨지지 않는다. */
-export const codes = [];
+/**
+ * common_code 그룹별 fixture — mock-api 가 `/api/codes/:group` 을 그룹별로 응답.
+ * nudge 코드/이름은 실 DB(common_code group='nudge')와 동일 체계.
+ */
+export const nudgeCodes = [
+  { code: "cost", name: "가성비", extra: "", sort_order: 1 },
+  { code: "commute", name: "출퇴근", extra: "", sort_order: 2 },
+  { code: "education", name: "학군", extra: "", sort_order: 3 },
+  { code: "newlywed", name: "신혼", extra: "", sort_order: 4 },
+  { code: "pet", name: "반려동물", extra: "", sort_order: 5 },
+  { code: "senior", name: "시니어", extra: "", sort_order: 6 },
+  { code: "investment", name: "투자", extra: "", sort_order: 7 },
+  { code: "nature", name: "자연", extra: "", sort_order: 8 },
+  { code: "safety", name: "안전", extra: "", sort_order: 9 },
+];
+
+/** 배너 "이 지역 추천"이 쓰는 기본 넛지 세트 (실 DB 는 seed_explore_presets.py 가 시드). */
+export const recommendDefaultCodes = [
+  { code: "cost", name: "가성비", extra: "", sort_order: 1 },
+  { code: "commute", name: "출퇴근", extra: "", sort_order: 2 },
+  { code: "education", name: "학군", extra: "", sort_order: 3 },
+];
+
+/** /explore 갤러리 프리셋. broken_preset 은 파서가 건너뛰어야 할 깨진 행(고의). */
+export const explorePresetCodes = [
+  {
+    code: "gangnam_edu",
+    name: "강남구 · 학군과 안전",
+    extra: JSON.stringify({
+      emoji: "🏫",
+      description: "학군과 치안을 모두 잡는 강남 라이프",
+      nudges: ["education", "safety"],
+      sigungu_code: "11680",
+      region_label: "강남구",
+    }),
+    sort_order: 1,
+  },
+  {
+    code: "mapo_value",
+    name: "마포구 · 출퇴근과 가성비",
+    extra: JSON.stringify({
+      emoji: "🚇",
+      description: "도심 접근성과 합리적인 가격",
+      nudges: ["commute", "cost"],
+      sigungu_code: "11440",
+      region_label: "마포구",
+    }),
+    sort_order: 2,
+  },
+  { code: "broken_preset", name: "깨진 프리셋", extra: "not-json", sort_order: 99 },
+];
+
+export const codesByGroup = {
+  nudge: nudgeCodes,
+  recommend_default: recommendDefaultCodes,
+  explore_preset: explorePresetCodes,
+};
+
+/** `/api/dashboard/recent` — RecentTradesBanner 렌더 + E3 "이 지역 추천" 검증용. */
+export const dashboardRecent = [
+  {
+    apt_nm: FIXTURE_APT_NAME,
+    sgg_cd: "11110",
+    sigungu: "서울 종로구",
+    area: 84.9,
+    floor: 10,
+    date: "2026.07.01",
+    price: 120000,
+    pnu: FIXTURE_PNU,
+    lat: 37.5665,
+    lng: 126.978,
+    bld_nm: FIXTURE_APT_NAME,
+  },
+];
 
 export const chatFeedbackStats = { total: 0, helpful: 0, not_helpful: 0 };

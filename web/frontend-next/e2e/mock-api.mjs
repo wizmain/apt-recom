@@ -19,7 +19,8 @@ import {
   tradesResponse,
   dashboardTrades,
   nudgeWeights,
-  codes,
+  codesByGroup,
+  dashboardRecent,
   chatFeedbackStats,
 } from "./fixtures.mjs";
 
@@ -40,20 +41,33 @@ function resolveBody(pathname) {
     "/api/dashboard/summary": {},
     "/api/dashboard/trend": [],
     "/api/dashboard/ranking": [],
-    "/api/dashboard/recent": [],
+    "/api/dashboard/recent": dashboardRecent,
     "/api/dashboard/trades": dashboardTrades,
     "/api/nudge/weights": nudgeWeights,
     "/api/nudge/score": [],
     "/api/chat/feedback": { ok: true },
     "/api/chat/feedback/stats": chatFeedbackStats,
     "/api/chat/stream": "",
+    "/api/log/event": { ok: true },
   };
   if (pathname in exact) return exact[pathname];
 
   // 패턴 라우트 — 거래이력이 단지 상세보다 먼저(접두어 충돌 회피)
   if (/^\/api\/apartment\/[^/]+\/trades$/.test(pathname)) return tradesResponse;
   if (/^\/api\/apartment\/[^/]+$/.test(pathname)) return apartmentDetail;
-  if (/^\/api\/codes(\/[^/]+)?$/.test(pathname)) return codes;
+
+  // 공통코드 — 그룹별 fixture, 미정의 그룹은 빈 배열
+  const codesMatch = pathname.match(/^\/api\/codes(?:\/([^/]+))?$/);
+  if (codesMatch) {
+    const group = codesMatch[1];
+    if (!group) {
+      return Object.entries(codesByGroup).map(([group_id, items]) => ({
+        group_id,
+        cnt: items.length,
+      }));
+    }
+    return codesByGroup[group] ?? [];
+  }
 
   // catch-all: 미정의 엔드포인트는 빈 배열(목록류 가정)
   return [];
