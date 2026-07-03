@@ -133,3 +133,26 @@ export const dashboardRecent = [
 ];
 
 export const chatFeedbackStats = { total: 0, helpful: 0, not_helpful: 0 };
+
+/**
+ * `/api/apartments/search` — 단일 지역(sigungu) 매칭 응답.
+ * 검색 Enter → 즉시 지역 선택되는 경로(E1 코치 자동 종료/재노출 방지 검증)에 사용.
+ * 프론트 계약: results[].match_type === 'region' + sigungu_code → selectRegion.
+ */
+export const FIXTURE_REGION_LABEL = "서울 종로구";
+
+export const searchRegionResponse = {
+  results: [
+    {
+      pnu: "",
+      bld_nm: "",
+      lat: null,
+      lng: null,
+      new_plat_plc: null,
+      match_type: "region",
+      region_label: FIXTURE_REGION_LABEL,
+      sigungu_code: "11110",
+    },
+  ],
+  region_candidates: [],
+};

@@ -22,6 +22,7 @@ import {
   codesByGroup,
   dashboardRecent,
   chatFeedbackStats,
+  searchRegionResponse,
 } from "./fixtures.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 8788);
@@ -36,7 +37,7 @@ function resolveBody(pathname) {
   const exact = {
     "/healthz": "ok",
     "/api/apartments": apartments,
-    "/api/apartments/search": { apartments: [], regions: [] },
+    "/api/apartments/search": searchRegionResponse,
     "/api/dashboard/regions": [],
     "/api/dashboard/summary": {},
     "/api/dashboard/trend": [],

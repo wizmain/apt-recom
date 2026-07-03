@@ -35,14 +35,25 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
   const isMapMode = viewMode === 'map';
   const hasAnyKeyword = searchKeywords.length > 0 || selectedRegion !== null;
 
-  // E1: 비활성 칩 클릭 → 검색 유도 코치. 지역/키워드가 생기면 자동 종료.
-  // hasAnyKeyword 로부터 파생 — effect 로 별도 리셋하지 않고 렌더 시점에 계산한다.
+  // E1: 비활성 칩 클릭 → 검색 유도 코치. 지역/키워드가 생기는 핸들러 시점에 리셋해
+  // true→false 단방향을 보장한다 — 이후 조건이 다시 비어도(전체삭제/지역 해제)
+  // 칩 재클릭 전에는 재노출되지 않는다. `!hasAnyKeyword` 파생 계산은 이중 방어.
   const [nudgeCoachRequested, setNudgeCoachRequested] = useState(false);
   const showSearchCoach = nudgeCoachRequested && !hasAnyKeyword;
 
   const handleDisabledChipClick = (nudgeId: string) => {
     logEvent('nudge_chip_blocked', { nudge_id: nudgeId });
     setNudgeCoachRequested(true);
+  };
+  // 코치 목적(검색 유도) 달성 시점 — 키워드 추가/지역 선택 액션에 리셋을 결합.
+  // (단지 선택 경로는 MapControls 가 onAddKeyword 를 함께 호출하므로 자동 커버.)
+  const handleAddKeyword = (kw: string, label?: string) => {
+    setNudgeCoachRequested(false);
+    addKeyword(kw, label);
+  };
+  const handleSelectRegion = (region: SelectedRegion) => {
+    setNudgeCoachRequested(false);
+    selectRegion(region);
   };
 
   // compound handler: 기존 App.tsx handleClearAllKeywords 동치
@@ -76,8 +87,8 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
             onOpenFilter={onOpenFilter}
             filterCount={filterCount}
             hasAnyKeyword={hasAnyKeyword}
-            onAddKeyword={addKeyword}
-            onSelectRegion={selectRegion}
+            onAddKeyword={handleAddKeyword}
+            onSelectRegion={handleSelectRegion}
             onSelectApartment={handleSelectApartment}
             onDisabledChipClick={handleDisabledChipClick}
             coachVisible={showSearchCoach}
