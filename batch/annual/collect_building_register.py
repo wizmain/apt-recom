@@ -237,7 +237,14 @@ def collect_building_register(
             skipped += 1
         else:
             denom = agg["register_hhld_cnt"] or (db_hhld or 0)
-            ratio = round(agg["parking_total_count"] / denom, 3) if denom > 0 else None
+            # parking_total=0 은 "주차 없음"이 아니라 동별 표제부 미등재가 지배적
+            # (전수 실측 2026-07-05: 49.6% 가 0, 양수 분포는 p50 1.16 로 건강)
+            # — 단지 공용 주차장은 총괄표제부에만 등재되는 사례 다수. 0 을 그대로
+            # 점수화하면 수집 단지가 미수집(중립)보다 불리해지므로 None(중립)으로 적재.
+            if denom > 0 and agg["parking_total_count"] > 0:
+                ratio = round(agg["parking_total_count"] / denom, 3)
+            else:
+                ratio = None
             cur.execute(
                 UPSERT_SQL,
                 [
