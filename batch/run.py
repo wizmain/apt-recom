@@ -233,7 +233,7 @@ def run_backfill(args, logger, result):
     conn = get_connection()
     try:
         t0 = time.time()
-        max_calls = getattr(args, "max_calls", 900)
+        max_calls = args.max_calls if args.max_calls is not None else 900
         updated = backfill_trades(
             conn, logger, max_calls=max_calls, dry_run=args.dry_run
         )
@@ -290,9 +290,9 @@ def run_building_register(args, logger, result):
     conn = get_connection()
     try:
         t0 = time.time()
-        stats = collect_building_register(
-            conn, logger, max_calls=getattr(args, "max_calls", 0)
-        )
+        # 기본 0 = 무제한 전수 수집. backfill 과 달리 900 캡을 두지 않음.
+        max_calls = args.max_calls if args.max_calls is not None else 0
+        stats = collect_building_register(conn, logger, max_calls=max_calls)
         result.record(
             "건축물대장 수집",
             "success",
@@ -334,8 +334,9 @@ def main():
     parser.add_argument(
         "--max-calls",
         type=int,
-        default=900,
-        help="최대 API 호출 수. backfill(거래 백필)/building_register(건축물대장 표제부) 공용",
+        default=None,
+        help="최대 API 호출 수. backfill(거래 백필)/building_register(건축물대장 표제부) 공용. "
+        "타입별 기본: backfill 900, building_register 0(무제한)",
     )
     parser.add_argument(
         "--apply",
