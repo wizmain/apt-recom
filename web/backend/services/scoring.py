@@ -308,6 +308,42 @@ def jeonse_ratio_to_score(jeonse_ratio: float | None) -> float:
     return round(min(100.0, max(0.0, scaled)), 2)
 
 
+# 세대당 주차대수 → 0~100 선형 구간 (건축물대장 표제부 집계, Phase 2-1).
+# 법정 기준이 세대당 ~1대 내외임을 근거로 0.4대 이하 = 0점, 1.3대 이상 = 100점.
+# 초기값 — 전수 수집 후 실측 분포(percentile)로 재확인한다.
+PARKING_RATIO_SCORE_FLOOR = 0.4
+PARKING_RATIO_SCORE_CEIL = 1.3
+
+# 승강기 1대당 담당 세대수가 이 값 이하면 만점 (승강기 대기시간 체감 근거).
+ELEVATOR_HOUSEHOLDS_PER_UNIT_GOOD = 25.0
+
+
+def parking_ratio_to_score(parking_per_hhld: float | None) -> float:
+    """세대당 주차대수 → 0~100. 값 NULL(대장에 주차 미기재)은 중립."""
+    if parking_per_hhld is None:
+        return INFRA_MISSING_NEUTRAL_SCORE
+    span = PARKING_RATIO_SCORE_CEIL - PARKING_RATIO_SCORE_FLOOR
+    scaled = (parking_per_hhld - PARKING_RATIO_SCORE_FLOOR) / span * 100.0
+    return round(min(100.0, max(0.0, scaled)), 2)
+
+
+def elevator_to_score(elevator_count: int | None, hhld_cnt: int | None) -> float:
+    """승강기 수 → 0~100 (세대당 밀도 기준).
+
+    - elevator_count None (대장 미기재) → 중립
+    - 0대 → 0점 (계단식 구식 단지 — 결측이 아닌 실제 열위)
+    - hhld 불명이면 승강기 존재만으로 중립 이상 판단 불가 → 중립
+    """
+    if elevator_count is None:
+        return INFRA_MISSING_NEUTRAL_SCORE
+    if elevator_count <= 0:
+        return 0.0
+    if not hhld_cnt or hhld_cnt <= 0:
+        return INFRA_MISSING_NEUTRAL_SCORE
+    scaled = 100.0 * (elevator_count * ELEVATOR_HOUSEHOLDS_PER_UNIT_GOOD) / hhld_cnt
+    return round(min(100.0, scaled), 2)
+
+
 # ---------------------------------------------------------------------------
 # 점수 계산 함수
 # ---------------------------------------------------------------------------

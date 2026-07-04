@@ -1280,6 +1280,7 @@ def test_assigned_elementary_derived_neutralization():
 @test("Phase2: apt_building_register 테이블 존재 + 표본 적재")
 def test_building_register_table():
     from database import DictConnection
+
     conn = DictConnection()
     row = conn.execute(
         """SELECT COUNT(*) AS c,
@@ -1287,8 +1288,52 @@ def test_building_register_table():
            FROM apt_building_register"""
     ).fetchone()
     conn.close()
-    assert row["c"] >= 100, f"apt_building_register 적재 부족: {row['c']}행 (표본 100+ 기대)"
+    assert row["c"] >= 100, (
+        f"apt_building_register 적재 부족: {row['c']}행 (표본 100+ 기대)"
+    )
     assert row["with_ratio"] > 0, "parking_per_hhld 전부 NULL"
+
+
+@test("Phase2: parking/elevator 정규화 경계값")
+def test_quality_score_normalization():
+    from services.scoring import (
+        parking_ratio_to_score,
+        elevator_to_score,
+        INFRA_MISSING_NEUTRAL_SCORE,
+    )
+
+    assert parking_ratio_to_score(None) == INFRA_MISSING_NEUTRAL_SCORE
+    assert parking_ratio_to_score(0.4) == 0.0
+    assert parking_ratio_to_score(1.3) == 100.0
+    assert parking_ratio_to_score(2.5) == 100.0, "이상치 클립"
+    mid = parking_ratio_to_score(0.85)
+    assert 0.0 < mid < 100.0
+    assert elevator_to_score(None, 500) == INFRA_MISSING_NEUTRAL_SCORE
+    assert elevator_to_score(0, 500) == 0.0, "승강기 없음 = 0점"
+    assert elevator_to_score(20, 500) == 100.0, "25세대/대 = 만점"
+    assert 0.0 < elevator_to_score(10, 500) < 100.0
+
+
+@test("Phase2: senior/cost 가중치에 품질 지표 반영 + 합 1.0")
+def test_quality_weights_applied():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, extra FROM common_code WHERE group_id = 'nudge_weight' "
+        "AND (code LIKE %s OR code LIKE %s OR code LIKE %s)",
+        ["senior:%", "cost:%", "newlywed:%"],
+    ).fetchall()
+    conn.close()
+    weights: dict[str, dict[str, float]] = {}
+    for r in rows:
+        nudge, subtype = r["code"].split(":", 1)
+        weights.setdefault(nudge, {})[subtype] = float(r["extra"])
+    assert weights["senior"].get("score_elevator", 0) >= 0.12
+    assert weights["cost"].get("score_parking", 0) >= 0.08
+    assert weights["newlywed"].get("score_parking", 0) >= 0.08
+    for nudge, w in weights.items():
+        assert abs(sum(w.values()) - 1.0) < 0.02, f"{nudge} 합 이탈: {sum(w.values())}"
 
 
 # ============================================================
