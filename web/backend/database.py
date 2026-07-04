@@ -520,6 +520,22 @@ def create_tables(conn) -> None:
         -- sigungu_crime_score(77행 구 테이블)는 sigungu_crime_detail 로 일원화되어
         -- 스키마에서 제거 (2026-07-04). 기존 DB 의 테이블 DROP 은 수동 정리 항목.
 
+        -- 건축물대장 표제부 집계 (라이프점수 Phase 2-1: 승강기/주차)
+        -- 수집: batch/annual/collect_building_register.py (동별 표제부 → 단지 합산)
+        -- NULL 보충 전략: 미수집 pnu 는 nudge.py 4e 결측 중립화(50점)로 처리,
+        -- 연 1회 재수집(--type building_register)으로 채움.
+        CREATE TABLE IF NOT EXISTS apt_building_register (
+            pnu TEXT PRIMARY KEY,
+            elevator_count INTEGER,
+            parking_total_count INTEGER,
+            parking_indoor_count INTEGER,
+            register_hhld_cnt INTEGER,
+            register_dong_cnt INTEGER,
+            parking_per_hhld DOUBLE PRECISION,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
         CREATE TABLE IF NOT EXISTS apt_vectors (
             pnu TEXT PRIMARY KEY,
             vector DOUBLE PRECISION[] NOT NULL,

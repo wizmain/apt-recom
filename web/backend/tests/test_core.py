@@ -1273,6 +1273,25 @@ def test_assigned_elementary_derived_neutralization():
 
 
 # ============================================================
+# 라이프점수 Phase 2 회귀 테스트 (2026-07-04) — 건축물대장 표제부
+# ============================================================
+
+
+@test("Phase2: apt_building_register 테이블 존재 + 표본 적재")
+def test_building_register_table():
+    from database import DictConnection
+    conn = DictConnection()
+    row = conn.execute(
+        """SELECT COUNT(*) AS c,
+                  COUNT(*) FILTER (WHERE parking_per_hhld IS NOT NULL) AS with_ratio
+           FROM apt_building_register"""
+    ).fetchone()
+    conn.close()
+    assert row["c"] >= 100, f"apt_building_register 적재 부족: {row['c']}행 (표본 100+ 기대)"
+    assert row["with_ratio"] > 0, "parking_per_hhld 전부 NULL"
+
+
+# ============================================================
 # 실행
 # ============================================================
 
