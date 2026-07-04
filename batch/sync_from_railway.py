@@ -25,8 +25,14 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 SYNC_CHECKPOINT_GROUP = "sync_checkpoint"
 SYNC_TABLES = [
-    ("trade_history", "apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year, created_at"),
-    ("rent_history", "apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day, created_at"),
+    (
+        "trade_history",
+        "apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year, created_at",
+    ),
+    (
+        "rent_history",
+        "apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day, created_at",
+    ),
 ]
 
 # 아파트 관련 테이블: created_at 부재 → PK 기반 전략
@@ -36,9 +42,23 @@ APT_SYNC_TABLES = [
     {
         "name": "apartments",
         "pk": ["pnu"],
-        "cols": ["pnu", "bld_nm", "total_hhld_cnt", "dong_count", "max_floor",
-                 "use_apr_day", "plat_plc", "new_plat_plc", "bjd_code", "sigungu_code",
-                 "lat", "lng", "bld_nm_norm", "coord_source", "group_pnu"],
+        "cols": [
+            "pnu",
+            "bld_nm",
+            "total_hhld_cnt",
+            "dong_count",
+            "max_floor",
+            "use_apr_day",
+            "plat_plc",
+            "new_plat_plc",
+            "bjd_code",
+            "sigungu_code",
+            "lat",
+            "lng",
+            "bld_nm_norm",
+            "coord_source",
+            "group_pnu",
+        ],
         "mode": "missing_only",
     },
     {
@@ -50,26 +70,53 @@ APT_SYNC_TABLES = [
     {
         "name": "apt_facility_summary",
         "pk": ["pnu", "facility_subtype"],
-        "cols": ["pnu", "facility_subtype", "nearest_distance_m",
-                 "count_1km", "count_3km", "count_5km"],
+        "cols": [
+            "pnu",
+            "facility_subtype",
+            "nearest_distance_m",
+            "count_1km",
+            "count_3km",
+            "count_5km",
+        ],
         "mode": "missing_only",
     },
     {
         "name": "apt_safety_score",
         "pk": ["pnu"],
-        "cols": ["pnu", "safety_score", "cctv_count_500m", "cctv_count_1km",
-                 "nearest_cctv_m", "crime_safety_score", "micro_score",
-                 "access_score", "macro_score", "complex_score", "data_reliability",
-                 "crime_hotspot_grade", "score_version", "complex_cctv_score",
-                 "complex_security_score", "complex_mgr_score", "complex_parking_score",
-                 "regional_safety_score", "crime_adjust_score", "complex_data_source"],
+        "cols": [
+            "pnu",
+            "safety_score",
+            "cctv_count_500m",
+            "cctv_count_1km",
+            "nearest_cctv_m",
+            "crime_safety_score",
+            "micro_score",
+            "access_score",
+            "macro_score",
+            "complex_score",
+            "data_reliability",
+            "crime_hotspot_grade",
+            "score_version",
+            "complex_cctv_score",
+            "complex_security_score",
+            "complex_mgr_score",
+            "complex_parking_score",
+            "regional_safety_score",
+            "crime_adjust_score",
+            "complex_data_source",
+        ],
         "mode": "upsert",
     },
     {
         "name": "apt_price_score",
         "pk": ["pnu"],
-        "cols": ["pnu", "price_per_m2", "sgg_avg_price_per_m2",
-                 "price_score", "jeonse_ratio"],
+        "cols": [
+            "pnu",
+            "price_per_m2",
+            "sgg_avg_price_per_m2",
+            "price_score",
+            "jeonse_ratio",
+        ],
         "mode": "upsert",
     },
 ]
@@ -96,7 +143,8 @@ def _sync_apt_table(local, railway, cfg, logger):
         rcur.execute(f"SELECT {col_sql} FROM {table}")
         pk_indices = [all_cols.index(c) for c in pk_cols]
         missing_rows = [
-            row for row in rcur.fetchall()
+            row
+            for row in rcur.fetchall()
             if tuple(row[i] for i in pk_indices) not in local_pks
         ]
 
@@ -162,7 +210,7 @@ def _get_last_sync(local_conn):
     cur = local_conn.cursor()
     cur.execute(
         "SELECT name FROM common_code WHERE group_id = %s AND code = %s",
-        [SYNC_CHECKPOINT_GROUP, "last_sync"]
+        [SYNC_CHECKPOINT_GROUP, "last_sync"],
     )
     row = cur.fetchone()
     return row[0] if row else None
@@ -175,7 +223,7 @@ def _save_last_sync(local_conn, timestamp):
         """INSERT INTO common_code (group_id, code, name, extra, sort_order)
            VALUES (%s, %s, %s, %s, 0)
            ON CONFLICT (group_id, code) DO UPDATE SET name = EXCLUDED.name""",
-        [SYNC_CHECKPOINT_GROUP, "last_sync", timestamp, ""]
+        [SYNC_CHECKPOINT_GROUP, "last_sync", timestamp, ""],
     )
     local_conn.commit()
 
@@ -212,7 +260,9 @@ def incremental_sync(logger):
             placeholders = ",".join(["%s"] * col_count)
             for row in new_rows:
                 try:
-                    lcur.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", row)
+                    lcur.execute(
+                        f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", row
+                    )
                 except psycopg2.errors.UniqueViolation:
                     local.rollback()
                     continue
@@ -237,7 +287,9 @@ def incremental_sync(logger):
 
     # 검증
     logger.info("정합성 검증:")
-    verify_tables = ["trade_history", "rent_history"] + [c["name"] for c in APT_SYNC_TABLES]
+    verify_tables = ["trade_history", "rent_history"] + [
+        c["name"] for c in APT_SYNC_TABLES
+    ]
     for table in verify_tables:
         lcur = local.cursor()
         rcur = railway.cursor()
@@ -273,8 +325,17 @@ def full_sync(logger):
     try:
         logger.info("1/3 Railway DB dump 시작...")
         result = subprocess.run(
-            [pg_dump, railway_url, "--format=custom", "--no-owner", "--no-acl", f"--file={dump_file}"],
-            capture_output=True, text=True, timeout=1800,
+            [
+                pg_dump,
+                railway_url,
+                "--format=custom",
+                "--no-owner",
+                "--no-acl",
+                f"--file={dump_file}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1800,
         )
         if result.returncode != 0:
             logger.error(f"pg_dump 실패: {result.stderr}")
@@ -285,8 +346,18 @@ def full_sync(logger):
 
         logger.info("2/3 로컬 DB restore 시작...")
         result = subprocess.run(
-            [pg_restore, "--clean", "--if-exists", "--no-owner", "--no-acl", f"--dbname={local_url}", dump_file],
-            capture_output=True, text=True, timeout=1800,
+            [
+                pg_restore,
+                "--clean",
+                "--if-exists",
+                "--no-owner",
+                "--no-acl",
+                f"--dbname={local_url}",
+                dump_file,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1800,
         )
         if result.returncode != 0 and "error" in result.stderr.lower():
             logger.warning(f"pg_restore 경고: {result.stderr[:500]}")
@@ -294,11 +365,19 @@ def full_sync(logger):
 
         logger.info("3/3 정합성 검증...")
         import psycopg2
+
         local = psycopg2.connect(local_url)
         railway = psycopg2.connect(railway_url)
 
-        tables = ["apartments", "trade_history", "rent_history", "common_code",
-                   "facilities", "apt_facility_summary", "apt_safety_score"]
+        tables = [
+            "apartments",
+            "trade_history",
+            "rent_history",
+            "common_code",
+            "facilities",
+            "apt_facility_summary",
+            "apt_safety_score",
+        ]
         for table in tables:
             lcur = local.cursor()
             rcur = railway.cursor()
@@ -337,8 +416,17 @@ def push_to_railway(logger):
     try:
         logger.info("1/3 로컬 DB dump 시작...")
         result = subprocess.run(
-            [pg_dump, local_url, "--format=custom", "--no-owner", "--no-acl", f"--file={dump_file}"],
-            capture_output=True, text=True, timeout=1800,
+            [
+                pg_dump,
+                local_url,
+                "--format=custom",
+                "--no-owner",
+                "--no-acl",
+                f"--file={dump_file}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1800,
         )
         if result.returncode != 0:
             logger.error(f"pg_dump 실패: {result.stderr}")
@@ -349,8 +437,18 @@ def push_to_railway(logger):
 
         logger.info("2/3 Railway DB restore 시작...")
         result = subprocess.run(
-            [pg_restore, "--clean", "--if-exists", "--no-owner", "--no-acl", f"--dbname={railway_url}", dump_file],
-            capture_output=True, text=True, timeout=1800,
+            [
+                pg_restore,
+                "--clean",
+                "--if-exists",
+                "--no-owner",
+                "--no-acl",
+                f"--dbname={railway_url}",
+                dump_file,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1800,
         )
         if result.returncode != 0 and "error" in result.stderr.lower():
             logger.warning(f"pg_restore 경고: {result.stderr[:500]}")
@@ -360,9 +458,17 @@ def push_to_railway(logger):
         local = psycopg2.connect(local_url)
         railway = psycopg2.connect(railway_url)
 
-        tables = ["apartments", "trade_history", "rent_history", "common_code",
-                   "facilities", "apt_facility_summary", "apt_safety_score",
-                   "trade_apt_mapping", "apt_price_score"]
+        tables = [
+            "apartments",
+            "trade_history",
+            "rent_history",
+            "common_code",
+            "facilities",
+            "apt_facility_summary",
+            "apt_safety_score",
+            "trade_apt_mapping",
+            "apt_price_score",
+        ]
         for table in tables:
             lcur = local.cursor()
             rcur = railway.cursor()
@@ -384,8 +490,12 @@ def push_to_railway(logger):
 
 def main():
     parser = argparse.ArgumentParser(description="DB 동기화 (Railway ↔ 로컬)")
-    parser.add_argument("--mode", choices=["incremental", "full", "push"], default="incremental",
-                        help="incremental: Railway→로컬 신규 건 (기본) / full: Railway→로컬 전체 / push: 로컬→Railway 전체")
+    parser.add_argument(
+        "--mode",
+        choices=["incremental", "full", "push"],
+        default="incremental",
+        help="incremental: Railway→로컬 신규 건 (기본) / full: Railway→로컬 전체 / push: 로컬→Railway 전체",
+    )
     args = parser.parse_args()
 
     logger = setup_logger("sync")
@@ -402,6 +512,20 @@ def main():
         push_to_railway(logger)
     else:
         incremental_sync(logger)
+
+    # Railway→로컬 방향 동기화는 raw 테이블만 복사하므로, 로컬의 대시보드
+    # 집계 테이블(dashboard_monthly_stats 등)이 갱신되지 않아 raw 와 드리프트가
+    # 누적된다 (test_core 대시보드 정합 테스트가 이를 감지). 동기화 직후
+    # 로컬 집계를 재생성해 원인을 제거한다. 집계 실패는 동기화 자체의 실패가
+    # 아니므로 warning 으로만 남긴다.
+    if args.mode in ("incremental", "full"):
+        try:
+            from batch.trade.refresh_dashboard import refresh_dashboard_stats
+
+            counts = refresh_dashboard_stats(logger)
+            logger.info(f"로컬 대시보드 집계 갱신: {sum(counts.values()):,}건")
+        except Exception as e:
+            logger.warning(f"로컬 대시보드 집계 갱신 실패 (동기화는 완료): {e}")
 
 
 if __name__ == "__main__":
