@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query
 from database import DictConnection
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter()
 
@@ -87,8 +87,20 @@ def _summary_from_aggregate(conn, scope: str):
     by_kind = {r["window_kind"]: r for r in rows}
     cur_row = by_kind.get("current")
     prev_row = by_kind.get("prev_year")
-    if not cur_row or not prev_row:
+    if not cur_row:
         return None
+    if not prev_row:
+        # refresh 집계는 거래가 존재하는 (윈도우×시군구)만 행을 만들므로,
+        # 전년동기 거래 0건인 시군구는 prev_year 행이 없다. 이를 None(집계 미존재)으로
+        # 처리하면 raw fallback 으로 우회해 집계 경로가 무효화됨 — 0건으로 간주가 정답.
+        prev_row = {
+            "period_start": cur_row["period_start"] - timedelta(days=365),
+            "period_end": cur_row["period_end"] - timedelta(days=365),
+            "trade_volume": 0,
+            "trade_median_price_m2": 0,
+            "rent_volume": 0,
+            "rent_median_deposit_m2": 0,
+        }
     return {
         "current_period": _format_period(
             cur_row["period_start"], cur_row["period_end"]
@@ -123,7 +135,9 @@ def _summary_from_raw(conn, sigungu: str, recent: bool = False):
     """
     from datetime import timedelta
 
-    now = datetime.now()
+    # date 단위로 계산해야 함 — datetime(시각 포함)을 make_date(자정) BETWEEN
+    # 하한과 비교하면 시작일 하루가 통째로 빠진다 (집계 테이블과 45건 불일치 원인).
+    now = datetime.now().date()
     if recent:
         cur_end = now
         cur_start = cur_end - timedelta(days=29)
@@ -463,15 +477,11 @@ def dashboard_recent(
     - from_date / to_date: 거래일 기준 날짜 범위 (포함). 둘 중 하나만 지정 가능.
       범위 366일 초과 시 400.
     """
-    from_d = (
-        datetime.strptime(from_date, "%Y%m%d").date() if from_date else None
-    )
+    from_d = datetime.strptime(from_date, "%Y%m%d").date() if from_date else None
     to_d = datetime.strptime(to_date, "%Y%m%d").date() if to_date else None
     if from_d and to_d:
         if from_d > to_d:
-            raise HTTPException(
-                status_code=400, detail="from_date must be <= to_date"
-            )
+            raise HTTPException(status_code=400, detail="from_date must be <= to_date")
         if (to_d - from_d).days > 366:
             raise HTTPException(
                 status_code=400, detail="date range must be within 366 days"
@@ -483,14 +493,10 @@ def dashboard_recent(
         where_parts.append("t.sgg_cd = %s")
         params.append(sigungu)
     if from_d is not None:
-        where_parts.append(
-            "make_date(t.deal_year, t.deal_month, t.deal_day) >= %s"
-        )
+        where_parts.append("make_date(t.deal_year, t.deal_month, t.deal_day) >= %s")
         params.append(from_d)
     if to_d is not None:
-        where_parts.append(
-            "make_date(t.deal_year, t.deal_month, t.deal_day) <= %s"
-        )
+        where_parts.append("make_date(t.deal_year, t.deal_month, t.deal_day) <= %s")
         params.append(to_d)
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
@@ -560,7 +566,9 @@ def dashboard_recent(
     return result
 
 
-def _resolve_pnu_to_apt_keys(conn, pnu: str) -> tuple[list[int], str | None, str | None]:
+def _resolve_pnu_to_apt_keys(
+    conn, pnu: str
+) -> tuple[list[int], str | None, str | None]:
     """pnu → 같은 group_pnu 단지의 apt_seq 목록 + 표시용 (bld_nm, sigungu_code).
 
     apartments.bld_nm 과 trade_history.apt_nm 의 표기 차이가 약 60% 에 달해
@@ -594,7 +602,9 @@ def _resolve_pnu_to_apt_keys(conn, pnu: str) -> tuple[list[int], str | None, str
 def dashboard_trades(
     pnu: str | None = Query(None, description="PNU (우선) — 정확한 단지 특정"),
     apt_nm: str | None = Query(None, description="아파트명 (pnu 미제공 시 fallback)"),
-    sgg_cd: str | None = Query(None, description="시군구 코드 (pnu 미제공 시 fallback)"),
+    sgg_cd: str | None = Query(
+        None, description="시군구 코드 (pnu 미제공 시 fallback)"
+    ),
     area: float | None = Query(None, description="기준 면적 (±5㎡ 필터)"),
 ):
     """특정 아파트의 매매 + 전월세 이력 조회.
@@ -621,7 +631,9 @@ def dashboard_trades(
                 # 단지는 있으나 거래 매핑이 없는 케이스 (신축·미거래 단지 등)
                 return {
                     "apt_nm": bld_nm or "",
-                    "sigungu": _get_sgg_names(conn).get(sigungu_code, sigungu_code or ""),
+                    "sigungu": _get_sgg_names(conn).get(
+                        sigungu_code, sigungu_code or ""
+                    ),
                     "trades": [],
                     "rents": [],
                 }

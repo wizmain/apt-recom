@@ -76,7 +76,9 @@ def _mgmt_percentiles(conn, sgg: str, ym: str) -> dict[str, float | None]:
         ).fetchone()
 
     result = {
-        "per_unit": float(row["median_per_unit"]) if row and row["median_per_unit"] else None,
+        "per_unit": float(row["median_per_unit"])
+        if row and row["median_per_unit"]
+        else None,
         "per_m2": float(row["median_per_m2"]) if row and row["median_per_m2"] else None,
     }
     with _MGMT_PCT_LOCK:
@@ -262,6 +264,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                     "SELECT * FROM sigungu_crime_detail WHERE sigungu_code = %s",
                     [sigungu],
                 ).fetchone()
+                # sigungu_crime_detail 이 전국 268 시군구를 커버하며 구
+                # sigungu_crime_score(77행)의 완전 상위집합임을 확인(2026-07-04)
+                # — 구 테이블 fallback 은 커버 이득이 없어 제거함.
                 if crime_row:
                     crime_score = crime_row["crime_safety_score"]
                     crime_detail = {
@@ -276,13 +281,6 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
                         "crime_rate": crime_row.get("crime_rate", 0),
                         "float_pop_ratio": crime_row.get("float_pop_ratio", 1.0),
                     }
-                else:
-                    score_row = conn.execute(
-                        "SELECT crime_safety_score FROM sigungu_crime_score WHERE sigungu_code = %s",
-                        [sigungu],
-                    ).fetchone()
-                    if score_row:
-                        crime_score = score_row["crime_safety_score"]
 
             police_dist = facility_summary.get("police", {}).get("nearest_distance_m")
             fire_dist = facility_summary.get("fire_station", {}).get(
@@ -435,8 +433,12 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             kapt_info.pop("updated_at", None)
             # 가산 가능한 카운트 컬럼은 SUM 으로 통합 (분양 + 임대)
             sum_cols = (
-                "ho_cnt", "dong_cnt",
-                "sale_ho_cnt", "rent_ho_cnt", "rent_public_cnt", "rent_private_cnt",
+                "ho_cnt",
+                "dong_cnt",
+                "sale_ho_cnt",
+                "rent_ho_cnt",
+                "rent_public_cnt",
+                "rent_private_cnt",
             )
             for c in sum_cols:
                 kapt_info[c] = sum((row[c] or 0) for row in kapt_rows)

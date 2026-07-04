@@ -162,8 +162,8 @@ def run_quarterly(args, logger, result):
 
 
 def run_annual(args, logger, result):
-    from batch.annual.collect_stats import collect_population, collect_crime
-    from batch.annual.update_stats import update_population, update_crime
+    from batch.annual.collect_stats import collect_population
+    from batch.annual.update_stats import update_population
 
     conn = get_connection()
     try:
@@ -181,22 +181,10 @@ def run_annual(args, logger, result):
                 "인구 DB 갱신", "success", rows=updated, duration=time.time() - t0
             )
 
-        # 2. 범죄 수집 + 갱신
-        t0 = time.time()
-        crime_rows = collect_crime(logger, dry_run=args.dry_run)
-        result.record(
-            "범죄 데이터 수집",
-            "success",
-            rows=len(crime_rows),
-            duration=time.time() - t0,
-        )
-
-        if not args.dry_run and crime_rows:
-            t0 = time.time()
-            updated = update_crime(conn, crime_rows, logger)
-            result.record(
-                "범죄 DB 갱신", "success", rows=updated, duration=time.time() - t0
-            )
+        # 범죄 갱신은 batch/safety/load_safety_data.py (KOSIS 경찰청 통계 →
+        # sigungu_crime_detail, 전국 268 시군구 백분위) 경로로 일원화됨.
+        # 구 경로(collect_crime → sigungu_crime_score 77행)는 커버리지가 좁고
+        # 스코어링에서 더 이상 참조하지 않아 제거 (2026-07-04, 라이프점수 Phase 0 후속).
 
     except Exception as e:
         logger.error(f"Annual 배치 실패: {e}")

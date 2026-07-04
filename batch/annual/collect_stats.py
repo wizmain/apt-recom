@@ -14,6 +14,7 @@ from batch.config import (
 def _latest_yyyymm():
     """최근 완료된 월 YYYYMM 문자열 (이번 달은 미집계이므로 지난달 사용)."""
     from datetime import date
+
     today = date.today()
     y, m = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
     return f"{y:04d}{m:02d}"
@@ -38,6 +39,7 @@ def _normalize_age_group(raw):
     # "0 - 4세", "10 - 14세" → "0-4", "10-14"
     s = s.replace(" ", "").rstrip("세")
     return s or "계"
+
 
 # KOSIS API 셀 제한(40,000) 회피를 위해 시군구 리스트를 청크로 분할.
 # 시군구당 21연령 × 3항목 = 63 셀 → 400 시군구 = 25,200 셀로 안전.
@@ -64,8 +66,12 @@ def _fetch_sigungu_codes(kosis_key, logger):
     r = requests.get(
         "https://kosis.kr/openapi/statisticsData.do",
         params={
-            "method": "getMeta", "apiKey": kosis_key, "type": "ITM",
-            "format": "json", "orgId": "101", "tblId": "DT_1B04005N",
+            "method": "getMeta",
+            "apiKey": kosis_key,
+            "type": "ITM",
+            "format": "json",
+            "orgId": "101",
+            "tblId": "DT_1B04005N",
         },
         timeout=90,
     )
@@ -141,11 +147,17 @@ def collect_population(logger, dry_run=False):
             merged[key][col] = value
 
     base_params = {
-        "method": "getList", "apiKey": KOSIS_KEY,
-        "itmId": "T2+T3+T4", "objL2": "ALL",
-        "format": "json", "jsonVD": "Y", "prdSe": "M",
-        "startPrdDe": period, "endPrdDe": period,
-        "orgId": "101", "tblId": "DT_1B04005N",
+        "method": "getList",
+        "apiKey": KOSIS_KEY,
+        "itmId": "T2+T3+T4",
+        "objL2": "ALL",
+        "format": "json",
+        "jsonVD": "Y",
+        "prdSe": "M",
+        "startPrdDe": period,
+        "endPrdDe": period,
+        "orgId": "101",
+        "tblId": "DT_1B04005N",
     }
 
     def _request_obj(obj_l1_value):
@@ -176,13 +188,15 @@ def collect_population(logger, dry_run=False):
                     sido_counts[sido_name] = 0
                     continue
                 for i in range(0, len(codes), _KOSIS_CELL_LIMIT_CHUNK):
-                    chunk = codes[i:i + _KOSIS_CELL_LIMIT_CHUNK]
+                    chunk = codes[i : i + _KOSIS_CELL_LIMIT_CHUNK]
                     obj_val = "+".join(chunk)
                     s2, e2, p2 = _request_obj(obj_val)
                     if s2 == "ok":
                         _ingest(p2, sido_name)
                     else:
-                        logger.warning(f"  {sido_name} 청크 {i//_KOSIS_CELL_LIMIT_CHUNK+1} 실패: {s2} {e2}")
+                        logger.warning(
+                            f"  {sido_name} 청크 {i // _KOSIS_CELL_LIMIT_CHUNK + 1} 실패: {s2} {e2}"
+                        )
             elif status == "ok":
                 _ingest(payload, sido_name)
             elif status == "api_error":
@@ -204,29 +218,4 @@ def collect_population(logger, dry_run=False):
     return rows
 
 
-def collect_crime(logger, dry_run=False):
-    """경찰청 5대범죄 데이터 수집."""
-    logger.info("범죄 데이터 수집 중...")
-
-    CRIME_URL = "http://api.data.go.kr/openapi/tn_pubr_public_polic_crime_stats_api"
-    all_rows = []
-
-    try:
-        params = {
-            "serviceKey": DATA_GO_KR_API_KEY,
-            "pageNo": "1",
-            "numOfRows": "500",
-            "type": "json",
-        }
-        resp = requests.get(CRIME_URL, params=params, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            items = data.get("response", {}).get("body", {}).get("items", [])
-            if isinstance(items, list):
-                for item in items:
-                    all_rows.append(item)
-    except Exception as e:
-        logger.error(f"  범죄 데이터 수집 실패: {e}")
-
-    logger.info(f"범죄 수집 완료: {len(all_rows):,}건")
-    return all_rows
+# 범죄 수집은 batch/safety/load_safety_data.py (KOSIS 경찰청 통계) 로 일원화됨 — 2026-07-04 구 경로 제거.
