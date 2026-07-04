@@ -1277,21 +1277,35 @@ def test_assigned_elementary_derived_neutralization():
 # ============================================================
 
 
-@test("Phase2: apt_building_register 테이블 존재 + 표본 적재")
+@test("Phase2: apt_building_register 전수 수집(부분) 적재 + 중립화 회귀 가드")
 def test_building_register_table():
     from database import DictConnection
 
     conn = DictConnection()
     row = conn.execute(
         """SELECT COUNT(*) AS c,
-                  COUNT(*) FILTER (WHERE parking_per_hhld IS NOT NULL) AS with_ratio
+                  COUNT(*) FILTER (WHERE parking_per_hhld IS NOT NULL) AS with_ratio,
+                  COUNT(*) FILTER (
+                      WHERE parking_total_count = 0 AND parking_per_hhld IS NOT NULL
+                  ) AS zero_total_leaked
            FROM apt_building_register"""
     ).fetchone()
     conn.close()
-    assert row["c"] >= 100, (
-        f"apt_building_register 적재 부족: {row['c']}행 (표본 100+ 기대)"
+    # 2026-07-05: 전수 수집 30,908건 중 19,287건(62%)에서 일일 API 호출 한도(HTTP 429) 도달 —
+    # 잔여 11,921건은 --missing-only 모드로 보충 예정. 임계는 실측 부분수집치 기준이며
+    # 보충 수집 완료 후 상향한다(후속 이슈, 진단 문서 §4 참조).
+    assert row["c"] >= 15_000, (
+        f"apt_building_register 적재 부족: {row['c']}행 (부분수집 기대치 15,000+)"
     )
-    assert row["with_ratio"] > 0, "parking_per_hhld 전부 NULL"
+    assert row["with_ratio"] >= 5_000, (
+        f"parking_per_hhld 적재 부족: {row['with_ratio']}행 (5,000+ 기대)"
+    )
+    # parking_total_count=0(동별 표제부 미등재)은 0점이 아닌 중립(NULL)으로 소급 보정됨 —
+    # 회귀 시 미등재 단지가 0점으로 깔려 cost/newlywed/senior 점수가 구조적으로 하락한다.
+    assert row["zero_total_leaked"] == 0, (
+        f"parking_total_count=0 인데 parking_per_hhld 가 NULL 이 아닌 행 "
+        f"{row['zero_total_leaked']}개 — 중립화 규칙 회귀"
+    )
 
 
 @test("Phase2: parking/elevator 정규화 경계값")
