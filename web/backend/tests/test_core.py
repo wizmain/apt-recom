@@ -321,11 +321,12 @@ def test_tool_commute():
 
 @test("안전: 범죄율 점수 존재 (서울 25구)")
 def test_crime_score_coverage():
+    # 구 sigungu_crime_score 폐기(2026-07-04) — 전국 커버 테이블로 검증
     from database import DictConnection
 
     conn = DictConnection()
     row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM sigungu_crime_score WHERE sigungu_code LIKE %s",
+        "SELECT COUNT(*) as cnt FROM sigungu_crime_detail WHERE sigungu_code LIKE %s",
         ["11%"],
     ).fetchone()
     conn.close()

@@ -517,11 +517,8 @@ def create_tables(conn) -> None:
             updated_year INTEGER
         );
 
-        CREATE TABLE IF NOT EXISTS sigungu_crime_score (
-            sigungu_code TEXT PRIMARY KEY,
-            crime_safety_score DOUBLE PRECISION,
-            updated_year INTEGER DEFAULT 2024
-        );
+        -- sigungu_crime_score(77행 구 테이블)는 sigungu_crime_detail 로 일원화되어
+        -- 스키마에서 제거 (2026-07-04). 기존 DB 의 테이블 DROP 은 수동 정리 항목.
 
         CREATE TABLE IF NOT EXISTS apt_vectors (
             pnu TEXT PRIMARY KEY,
