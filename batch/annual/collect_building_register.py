@@ -195,25 +195,39 @@ UPSERT_SQL = """
 
 
 def collect_building_register(
-    conn, logger, max_calls: int = 0, missing_only: bool = False
+    conn,
+    logger,
+    max_calls: int = 0,
+    missing_only: bool = False,
+    pnu_list: list[str] | None = None,
 ) -> dict:
     """전수 수집. max_calls=0 이면 무제한.
 
-    모드:
+    모드 (순차 체크포인트는 기본 모드에서만 전진 — 부분 대상 모드가
+    체크포인트를 오염시키지 않도록):
     - 기본: 체크포인트(pnu 오름차순) 재개형 — 최초 전수 수집용.
-    - missing_only: apt_building_register 에 없는 pnu 만 대상, 체크포인트 무시.
+    - missing_only: apt_building_register 에 없는 pnu 만 대상.
       한도(429)로 skip 된 구간을 재수집할 때 사용 — skip 도 체크포인트를
       전진시키므로 기본 모드로는 다시 돌 수 없다 (2026-07-04 한도 사고 교훈).
+    - pnu_list: 지정 아파트만 수집 — trade 배치의 신규 아파트 즉시 등록 경로
+      (2026-07-05 감사: 방치 시 신규 단지 승강기/주차가 무기한 중립 50 상태).
     """
     cur = conn.cursor()
     params: list = []
     where = "LENGTH(a.pnu) = 19 AND a.pnu NOT LIKE 'TRADE\\_%%'"
+    use_checkpoint = False
 
-    if missing_only:
+    if pnu_list:
+        last_pnu = None
+        where += " AND a.pnu = ANY(%s)"
+        params.append(list(pnu_list))
+        logger.info(f"수집 시작 (pnu_list 모드 — 지정 {len(pnu_list)}건)")
+    elif missing_only:
         last_pnu = None
         where += " AND NOT EXISTS (SELECT 1 FROM apt_building_register b WHERE b.pnu = a.pnu)"
         logger.info("수집 시작 (missing-only 모드 — 미적재 pnu 만)")
     else:
+        use_checkpoint = True
         last_pnu = _load_checkpoint(cur)
         logger.info(f"수집 시작 (재개 지점: {last_pnu or '처음'})")
         if last_pnu:
@@ -271,7 +285,8 @@ def collect_building_register(
                 ],
             )
             upserted += 1
-        _save_checkpoint(cur, pnu)
+        if use_checkpoint:
+            _save_checkpoint(cur, pnu)
         if fetched % COMMIT_EVERY == 0:
             conn.commit()
             logger.info(
