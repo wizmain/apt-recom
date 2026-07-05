@@ -159,9 +159,26 @@ def load_dataset(conn, logger):
     for pnu, subtype, dist, cnt in cur.fetchall():
         feats.setdefault(pnu, {})[subtype] = (dist, cnt)
 
+    # 건축물대장 품질 축 (Phase 2-1) — 세대당 주차, 승강기 밀도(대당 담당 세대의
+    # 역수 스케일). 결측(미수집/미등재)은 표본 중앙값으로 대체해 계수 편향을 줄인다
+    # (0 대체는 "품질 최악"과 혼동되어 계수를 왜곡).
+    cur.execute(
+        "SELECT pnu, parking_per_hhld, elevator_count, register_hhld_cnt "
+        "FROM apt_building_register"
+    )
+    bldg: dict[str, tuple] = {}
+    for pnu, ratio, elv, reg_hhld in cur.fetchall():
+        elevator_ratio = (
+            float(elv) / reg_hhld
+            if elv is not None and reg_hhld and reg_hhld > 0
+            else None
+        )
+        bldg[pnu] = (float(ratio) if ratio is not None else None, elevator_ratio)
+
     feature_names = []
     for s in FEATURE_SUBTYPES:
         feature_names += [f"dist_{s}", f"cnt1km_{s}"]
+    feature_names += ["bldg_parking_ratio", "bldg_elevator_ratio"]
     feature_names += ["age", "hhld", "floor", "area"]
 
     rows_y, rows_x, sggs = [], [], []
@@ -177,12 +194,21 @@ def load_dataset(conn, logger):
             # 별개로, 회귀에서는 "없음=매우 멂"이 보수적.
             xrow.append(math.log1p(dist if dist is not None else 20000.0))
             xrow.append(float(cnt or 0))
+        parking_ratio, elevator_ratio = bldg.get(pnu, (None, None))
+        xrow += [parking_ratio, elevator_ratio]  # None 은 아래에서 중앙값 대체
         xrow += [float(age), float(hhld), float(floor), float(area)]
         rows_y.append(math.log(price))
         rows_x.append(xrow)
         sggs.append(sgg[:5])
 
-    return np.array(rows_y), np.array(rows_x), feature_names, np.array(sggs)
+    x_arr = np.array(rows_x, dtype=float)  # None → np.nan
+    for col_name in ("bldg_parking_ratio", "bldg_elevator_ratio"):
+        idx = feature_names.index(col_name)
+        col = x_arr[:, idx]
+        median = float(np.nanmedian(col)) if not np.all(np.isnan(col)) else 0.0
+        col[np.isnan(col)] = median
+
+    return np.array(rows_y), x_arr, feature_names, np.array(sggs)
 
 
 def demean_by_group(y: np.ndarray, x: np.ndarray, groups: np.ndarray):

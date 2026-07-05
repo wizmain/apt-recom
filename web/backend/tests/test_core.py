@@ -1277,7 +1277,7 @@ def test_assigned_elementary_derived_neutralization():
 # ============================================================
 
 
-@test("Phase2: apt_building_register 전수 수집(부분) 적재 + 중립화 회귀 가드")
+@test("Phase2: apt_building_register 전수 적재(97.8%) + 중립화 회귀 가드")
 def test_building_register_table():
     from database import DictConnection
 
@@ -1291,14 +1291,14 @@ def test_building_register_table():
            FROM apt_building_register"""
     ).fetchone()
     conn.close()
-    # 2026-07-05: 전수 수집 30,908건 중 19,287건(62%)에서 일일 API 호출 한도(HTTP 429) 도달 —
-    # 잔여 11,921건은 --missing-only 모드로 보충 예정. 임계는 실측 부분수집치 기준이며
-    # 보충 수집 완료 후 상향한다(후속 이슈, 진단 문서 §4 참조).
-    assert row["c"] >= 15_000, (
-        f"apt_building_register 적재 부족: {row['c']}행 (부분수집 기대치 15,000+)"
+    # 2026-07-05 보충 수집(--missing-only, 키 로테이션) 완료: 30,241행 =
+    # 대상(실 아파트 30,908)의 97.8%. 잔여 967건은 대장 부재(진성 skip).
+    # 임계는 신규 아파트 유입으로 커버리지가 일시 하락할 여지를 두고 28,000 으로 설정.
+    assert row["c"] >= 28_000, (
+        f"apt_building_register 적재 부족: {row['c']}행 (전수 기대치 28,000+)"
     )
-    assert row["with_ratio"] >= 5_000, (
-        f"parking_per_hhld 적재 부족: {row['with_ratio']}행 (5,000+ 기대)"
+    assert row["with_ratio"] >= 12_000, (
+        f"parking_per_hhld 적재 부족: {row['with_ratio']}행 (12,000+ 기대)"
     )
     # parking_total_count=0(동별 표제부 미등재)은 0점이 아닌 중립(NULL)으로 소급 보정됨 —
     # 회귀 시 미등재 단지가 0점으로 깔려 cost/newlywed/senior 점수가 구조적으로 하락한다.

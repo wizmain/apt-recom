@@ -25,66 +25,156 @@ logger = logging.getLogger("push_table")
 
 # 테이블별 설정: (PK 컬럼, 전체 컬럼 목록)
 TABLE_CONFIGS = {
+    "apt_building_register": {
+        # 건축물대장 승강기/주차 집계 (라이프점수 Phase 2-1) — 로컬 수집 후
+        # Railway 반영은 이 push 를 사용. 반영 후 가중치(update_quality_weights)
+        # → 백엔드 재기동 순서 준수 (PR #133 배포 체크리스트).
+        "pk": ["pnu"],
+        "columns": [
+            "pnu",
+            "elevator_count",
+            "parking_total_count",
+            "parking_indoor_count",
+            "register_hhld_cnt",
+            "register_dong_cnt",
+            "parking_per_hhld",
+        ],
+    },
     "apt_area_info": {
         "pk": ["pnu"],
         "columns": [
-            "pnu", "min_area", "max_area", "avg_area",
-            "min_supply_area", "max_supply_area", "avg_supply_area",
-            "unit_count", "area_types",
-            "cnt_under_40", "cnt_40_60", "cnt_60_85",
-            "cnt_85_115", "cnt_115_135", "cnt_over_135",
-            "source", "last_refreshed",
+            "pnu",
+            "min_area",
+            "max_area",
+            "avg_area",
+            "min_supply_area",
+            "max_supply_area",
+            "avg_supply_area",
+            "unit_count",
+            "area_types",
+            "cnt_under_40",
+            "cnt_40_60",
+            "cnt_60_85",
+            "cnt_85_115",
+            "cnt_115_135",
+            "cnt_over_135",
+            "source",
+            "last_refreshed",
         ],
     },
     "apt_area_type": {
         "pk": ["pnu", "exclusive_area"],
         "columns": [
-            "pnu", "exclusive_area", "unit_count",
-            "mgmt_area_total", "priv_area_total", "last_refreshed",
+            "pnu",
+            "exclusive_area",
+            "unit_count",
+            "mgmt_area_total",
+            "priv_area_total",
+            "last_refreshed",
         ],
     },
     "apt_mgmt_cost": {
         "pk": ["pnu", "year_month"],
         "columns": [
-            "pnu", "year_month",
-            "common_cost", "individual_cost", "repair_fund",
-            "total_cost", "cost_per_unit", "detail",
+            "pnu",
+            "year_month",
+            "common_cost",
+            "individual_cost",
+            "repair_fund",
+            "total_cost",
+            "cost_per_unit",
+            "detail",
         ],
     },
     "apt_kapt_info": {
         "pk": ["pnu"],
         "columns": [
-            "pnu", "kapt_code", "kapt_name", "sigungu_code",
-            "sale_type", "heat_type", "builder", "developer",
-            "apt_type", "mgr_type", "hall_type", "structure",
-            "total_area", "priv_area", "mgmt_area",
-            "ho_cnt", "dong_cnt", "top_floor", "top_floor_official",
-            "base_floor", "use_date",
-            "sale_ho_cnt", "rent_ho_cnt", "rent_public_cnt", "rent_private_cnt",
-            "area_under_60", "area_60_85", "area_85_135", "area_over_135",
-            "mgmt_company", "general_mgmt_type", "general_mgmt_staff",
-            "security_type", "security_staff", "security_company",
-            "parking_cnt", "parking_ground", "parking_underground",
-            "total_car_cnt", "ev_car_cnt", "ev_charger_cnt",
-            "ev_charger_ground", "ev_charger_underground",
-            "ev_parking_ground", "ev_parking_underground",
-            "cctv_cnt", "elevator_cnt",
-            "elevator_passenger", "elevator_freight", "elevator_mixed",
-            "elevator_disabled", "elevator_emergency",
-            "home_network", "welfare", "convenience_facilities",
-            "jibun_addr", "road_addr", "tel", "fax", "homepage", "zipcode",
-            "subway_info", "bus_time",
-            "joined_date", "food_waste_method", "cleaning_staff", "elevator_mgr_type",
+            "pnu",
+            "kapt_code",
+            "kapt_name",
+            "sigungu_code",
+            "sale_type",
+            "heat_type",
+            "builder",
+            "developer",
+            "apt_type",
+            "mgr_type",
+            "hall_type",
+            "structure",
+            "total_area",
+            "priv_area",
+            "mgmt_area",
+            "ho_cnt",
+            "dong_cnt",
+            "top_floor",
+            "top_floor_official",
+            "base_floor",
+            "use_date",
+            "sale_ho_cnt",
+            "rent_ho_cnt",
+            "rent_public_cnt",
+            "rent_private_cnt",
+            "area_under_60",
+            "area_60_85",
+            "area_85_135",
+            "area_over_135",
+            "mgmt_company",
+            "general_mgmt_type",
+            "general_mgmt_staff",
+            "security_type",
+            "security_staff",
+            "security_company",
+            "parking_cnt",
+            "parking_ground",
+            "parking_underground",
+            "total_car_cnt",
+            "ev_car_cnt",
+            "ev_charger_cnt",
+            "ev_charger_ground",
+            "ev_charger_underground",
+            "ev_parking_ground",
+            "ev_parking_underground",
+            "cctv_cnt",
+            "elevator_cnt",
+            "elevator_passenger",
+            "elevator_freight",
+            "elevator_mixed",
+            "elevator_disabled",
+            "elevator_emergency",
+            "home_network",
+            "welfare",
+            "convenience_facilities",
+            "jibun_addr",
+            "road_addr",
+            "tel",
+            "fax",
+            "homepage",
+            "zipcode",
+            "subway_info",
+            "bus_time",
+            "joined_date",
+            "food_waste_method",
+            "cleaning_staff",
+            "elevator_mgr_type",
             "updated_at",
         ],
     },
     "sigungu_crime_detail": {
         "pk": ["sigungu_code"],
         "columns": [
-            "sigungu_code", "murder", "robbery", "sexual_assault",
-            "theft", "violence", "total_crime", "resident_pop",
-            "effective_pop", "crime_rate", "crime_safety_score",
-            "float_pop_ratio", "updated_year",
+            "sigungu_code",
+            "murder",
+            "robbery",
+            "sexual_assault",
+            "theft",
+            "violence",
+            "total_crime",
+            "resident_pop",
+            "effective_pop",
+            "crime_rate",
+            "crime_safety_score",
+            "float_pop_ratio",
+            "updated_year",
         ],
     },
 }
@@ -142,7 +232,9 @@ def _ensure_remote_schema(remote_conn, table: str) -> None:
                 PRIMARY KEY (pnu, exclusive_area)
             )
         """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_apt_area_type_pnu ON apt_area_type(pnu)")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_apt_area_type_pnu ON apt_area_type(pnu)"
+        )
 
     elif table == "apt_kapt_info":
         # 원본 CREATE은 backend/database.py에서 이미 생성됐을 가능성 높음.
@@ -155,42 +247,74 @@ def _ensure_remote_schema(remote_conn, table: str) -> None:
             )
         """)
         add_cols = [
-            ("sale_type", "TEXT"), ("heat_type", "TEXT"), ("builder", "TEXT"),
-            ("developer", "TEXT"), ("apt_type", "TEXT"), ("mgr_type", "TEXT"),
-            ("hall_type", "TEXT"), ("structure", "TEXT"),
-            ("total_area", "DOUBLE PRECISION"), ("priv_area", "DOUBLE PRECISION"),
+            ("sale_type", "TEXT"),
+            ("heat_type", "TEXT"),
+            ("builder", "TEXT"),
+            ("developer", "TEXT"),
+            ("apt_type", "TEXT"),
+            ("mgr_type", "TEXT"),
+            ("hall_type", "TEXT"),
+            ("structure", "TEXT"),
+            ("total_area", "DOUBLE PRECISION"),
+            ("priv_area", "DOUBLE PRECISION"),
             ("mgmt_area", "DOUBLE PRECISION"),
-            ("ho_cnt", "INTEGER"), ("dong_cnt", "INTEGER"),
-            ("top_floor", "INTEGER"), ("top_floor_official", "INTEGER"),
-            ("base_floor", "INTEGER"), ("use_date", "TEXT"),
-            ("sale_ho_cnt", "INTEGER"), ("rent_ho_cnt", "INTEGER"),
-            ("rent_public_cnt", "INTEGER"), ("rent_private_cnt", "INTEGER"),
-            ("area_under_60", "INTEGER"), ("area_60_85", "INTEGER"),
-            ("area_85_135", "INTEGER"), ("area_over_135", "INTEGER"),
-            ("mgmt_company", "TEXT"), ("general_mgmt_type", "TEXT"),
-            ("general_mgmt_staff", "INTEGER"), ("security_type", "TEXT"),
-            ("security_staff", "INTEGER"), ("security_company", "TEXT"),
-            ("parking_cnt", "INTEGER"), ("parking_ground", "INTEGER"),
+            ("ho_cnt", "INTEGER"),
+            ("dong_cnt", "INTEGER"),
+            ("top_floor", "INTEGER"),
+            ("top_floor_official", "INTEGER"),
+            ("base_floor", "INTEGER"),
+            ("use_date", "TEXT"),
+            ("sale_ho_cnt", "INTEGER"),
+            ("rent_ho_cnt", "INTEGER"),
+            ("rent_public_cnt", "INTEGER"),
+            ("rent_private_cnt", "INTEGER"),
+            ("area_under_60", "INTEGER"),
+            ("area_60_85", "INTEGER"),
+            ("area_85_135", "INTEGER"),
+            ("area_over_135", "INTEGER"),
+            ("mgmt_company", "TEXT"),
+            ("general_mgmt_type", "TEXT"),
+            ("general_mgmt_staff", "INTEGER"),
+            ("security_type", "TEXT"),
+            ("security_staff", "INTEGER"),
+            ("security_company", "TEXT"),
+            ("parking_cnt", "INTEGER"),
+            ("parking_ground", "INTEGER"),
             ("parking_underground", "INTEGER"),
-            ("total_car_cnt", "INTEGER"), ("ev_car_cnt", "INTEGER"),
+            ("total_car_cnt", "INTEGER"),
+            ("ev_car_cnt", "INTEGER"),
             ("ev_charger_cnt", "INTEGER"),
-            ("ev_charger_ground", "INTEGER"), ("ev_charger_underground", "INTEGER"),
-            ("ev_parking_ground", "INTEGER"), ("ev_parking_underground", "INTEGER"),
-            ("cctv_cnt", "INTEGER"), ("elevator_cnt", "INTEGER"),
-            ("elevator_passenger", "INTEGER"), ("elevator_freight", "INTEGER"),
-            ("elevator_mixed", "INTEGER"), ("elevator_disabled", "INTEGER"),
+            ("ev_charger_ground", "INTEGER"),
+            ("ev_charger_underground", "INTEGER"),
+            ("ev_parking_ground", "INTEGER"),
+            ("ev_parking_underground", "INTEGER"),
+            ("cctv_cnt", "INTEGER"),
+            ("elevator_cnt", "INTEGER"),
+            ("elevator_passenger", "INTEGER"),
+            ("elevator_freight", "INTEGER"),
+            ("elevator_mixed", "INTEGER"),
+            ("elevator_disabled", "INTEGER"),
             ("elevator_emergency", "INTEGER"),
-            ("home_network", "TEXT"), ("welfare", "TEXT"),
+            ("home_network", "TEXT"),
+            ("welfare", "TEXT"),
             ("convenience_facilities", "TEXT"),
-            ("jibun_addr", "TEXT"), ("road_addr", "TEXT"),
-            ("tel", "TEXT"), ("fax", "TEXT"), ("homepage", "TEXT"),
+            ("jibun_addr", "TEXT"),
+            ("road_addr", "TEXT"),
+            ("tel", "TEXT"),
+            ("fax", "TEXT"),
+            ("homepage", "TEXT"),
             ("zipcode", "TEXT"),
-            ("subway_info", "TEXT"), ("bus_time", "TEXT"),
-            ("joined_date", "TEXT"), ("food_waste_method", "TEXT"),
-            ("cleaning_staff", "INTEGER"), ("elevator_mgr_type", "TEXT"),
+            ("subway_info", "TEXT"),
+            ("bus_time", "TEXT"),
+            ("joined_date", "TEXT"),
+            ("food_waste_method", "TEXT"),
+            ("cleaning_staff", "INTEGER"),
+            ("elevator_mgr_type", "TEXT"),
         ]
         for col, typ in add_cols:
-            cur.execute(f"ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS {col} {typ}")
+            cur.execute(
+                f"ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS {col} {typ}"
+            )
 
     elif table == "sigungu_crime_detail":
         cur.execute("""
@@ -273,9 +397,11 @@ def push_table(table: str, *, dry_run: bool = False) -> None:
     # 배치 UPSERT — execute_batch 사용(round-trip 수십 배 감소)
     inserted = 0
     for i in range(0, len(local_rows), BATCH_SIZE):
-        batch = [_adapt(r) for r in local_rows[i:i + BATCH_SIZE]]
+        batch = [_adapt(r) for r in local_rows[i : i + BATCH_SIZE]]
         remote_cur = remote.cursor()
-        psycopg2.extras.execute_batch(remote_cur, upsert_sql, batch, page_size=BATCH_SIZE)
+        psycopg2.extras.execute_batch(
+            remote_cur, upsert_sql, batch, page_size=BATCH_SIZE
+        )
         remote.commit()
         inserted += len(batch)
         if inserted % 5000 == 0 or inserted == len(local_rows):
@@ -286,7 +412,9 @@ def push_table(table: str, *, dry_run: bool = False) -> None:
     remote_cur.execute(f"SELECT COUNT(*) FROM {table}")
     remote_after = remote_cur.fetchone()[0]
 
-    logger.info(f"Railway {table} (after): {remote_after:,}건 (이전: {remote_before:,})")
+    logger.info(
+        f"Railway {table} (after): {remote_after:,}건 (이전: {remote_before:,})"
+    )
     logger.info(f"UPSERT 완료: {len(local_rows):,}건 처리")
 
     local.close()
