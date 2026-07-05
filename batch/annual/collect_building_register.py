@@ -32,7 +32,8 @@ import xml.etree.ElementTree as ET
 
 import requests
 
-from batch.config import DATA_GO_KR_API_KEY, DATA_GO_KR_RATE
+from batch.api_keys import KeysExhausted, data_go_rotator
+from batch.config import DATA_GO_KR_RATE
 from batch.db import get_connection
 from batch.logger import setup_logger
 
@@ -44,10 +45,10 @@ MAX_RETRIES = 2
 COMMIT_EVERY = 200  # 체크포인트/upsert 커밋 주기
 
 
-def _params_from_pnu(pnu: str) -> dict:
+def _params_from_pnu(pnu: str, api_key: str) -> dict:
     """PNU 19자리 → 표제부 API 파라미터 (원값 전달 관례 — 모듈 docstring 참조)."""
     return {
-        "serviceKey": DATA_GO_KR_API_KEY,
+        "serviceKey": api_key,
         "sigunguCd": pnu[:5],
         "bjdongCd": pnu[5:10],
         "platGbCd": pnu[10],
@@ -59,14 +60,15 @@ def _params_from_pnu(pnu: str) -> dict:
 
 
 class RateLimitExceeded(RuntimeError):
-    """일일 호출 한도(HTTP 429) — 상위 루프가 조기 중단하도록 구분한다."""
+    """전 키 일일 한도(HTTP 429) 소진 — 상위 루프가 조기 중단하도록 구분한다."""
 
 
 def _fetch_title_items(pnu: str, logger) -> list[dict] | None:
     """표제부 동 목록 조회. 네트워크/파싱 실패 시 None (재시도 후).
 
-    HTTP 429 는 재시도해도 소용없는 일일 한도이므로 RateLimitExceeded 를 던진다
-    (2026-07-04 전수 수집에서 한도 도달 후 2만여 건이 무의미하게 skip 된 사고 재발 방지).
+    HTTP 429(일일 한도)는 재시도 대신 **키 로테이션**(batch/api_keys 공유
+    로테이터)으로 다음 키에 같은 pnu 를 재시도한다. 모든 키가 소진되면
+    RateLimitExceeded — 상위에서 조기 중단 (2026-07-04 한도 사고 재발 방지).
     """
     fields = (
         "bldNm",
@@ -76,12 +78,22 @@ def _fetch_title_items(pnu: str, logger) -> list[dict] | None:
         "emgenUseElvtCnt",
         *PARKING_FIELDS,
     )
-    for attempt in range(MAX_RETRIES + 1):
+    attempt = 0
+    while attempt <= MAX_RETRIES:
         try:
-            resp = requests.get(TITLE_URL, params=_params_from_pnu(pnu), timeout=15)
+            try:
+                api_key = data_go_rotator.current()
+            except KeysExhausted as e:
+                raise RateLimitExceeded(str(e)) from e
+            resp = requests.get(
+                TITLE_URL, params=_params_from_pnu(pnu, api_key), timeout=15
+            )
             time.sleep(DATA_GO_KR_RATE)
             if resp.status_code == 429:
-                raise RateLimitExceeded(f"{pnu}: HTTP 429 (일일 한도)")
+                if data_go_rotator.rotate():
+                    logger.info(f"  {pnu}: HTTP 429 → 다음 API 키로 전환, 재시도")
+                    continue  # 키 전환은 재시도 횟수(attempt)를 소모하지 않음
+                raise RateLimitExceeded(f"{pnu}: HTTP 429 (전 키 일일 한도 소진)")
             if not resp.ok:
                 raise RuntimeError(f"HTTP {resp.status_code}")
             root = ET.fromstring(resp.text)
@@ -95,10 +107,11 @@ def _fetch_title_items(pnu: str, logger) -> list[dict] | None:
                 for it in root.findall(".//item")
             ]
         except RateLimitExceeded:
-            raise  # 한도 도달 — 재시도/skip 대상 아님, 상위에서 조기 중단
+            raise  # 전 키 소진 — 재시도/skip 대상 아님, 상위에서 조기 중단
         except Exception as e:  # noqa: BLE001 — 재시도 후 상위에서 skip 처리
-            if attempt < MAX_RETRIES:
-                time.sleep(1 + attempt)
+            attempt += 1
+            if attempt <= MAX_RETRIES:
+                time.sleep(attempt)
                 continue
             logger.warning(f"  {pnu}: 조회 실패 — {e}")
             return None

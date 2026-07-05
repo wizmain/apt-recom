@@ -22,57 +22,18 @@ from typing import Iterable
 
 import requests
 
-from batch.config import (
-    DATA_GO_KR_API_KEY,
-    DATA_GO_KR_API_SECONDARY_KEY,
-    DATA_GO_KR_API_THIRD_KEY,
-    DATA_GO_KR_RATE,
-)
+from batch.config import DATA_GO_KR_RATE
+
+# 키 로테이션은 batch/api_keys.py 로 공통화 (building_register 와 공유 —
+# 프로세스 단일 인스턴스로 일일 한도 풀을 함께 소비). KeysExhausted 는
+# fill_area_info 등 기존 소비자의 하위호환을 위해 재노출한다.
+from batch.api_keys import KeysExhausted, data_go_rotator  # noqa: F401
 
 BLD_EXPOS_URL = (
     "http://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 )
 
-
-class KeysExhausted(Exception):
-    """Primary+Secondary API 키 모두 일일 한도 초과."""
-
-
-class _KeyRotator:
-    """data.go.kr API 키 로테이터 — 429 발생 시 다음 키로 순차 전환.
-
-    - key1 → key2 → key3 → … → exhausted(소진)
-    - 순차적으로 상태 전이만 허용 (되돌아가지 않음)
-    - 프로세스 수명 동안 상태 유지
-    """
-
-    def __init__(self, *keys: str):
-        self._keys = [k for k in keys if k]
-        self._index = 0
-        self._exhausted = False
-
-    def current(self) -> str:
-        if self._exhausted or self._index >= len(self._keys):
-            raise KeysExhausted("DATA_GO_KR API 키 전부 소진")
-        return self._keys[self._index]
-
-    def rotate(self) -> bool:
-        """다음 키로 전환. 더 이상 없으면 exhausted=True 로 표시."""
-        self._index += 1
-        if self._index >= len(self._keys):
-            self._exhausted = True
-            return False
-        return True
-
-    def exhausted(self) -> bool:
-        return self._exhausted
-
-
-_rotator = _KeyRotator(
-    DATA_GO_KR_API_KEY,
-    DATA_GO_KR_API_SECONDARY_KEY,
-    DATA_GO_KR_API_THIRD_KEY,
-)
+_rotator = data_go_rotator
 
 
 def is_exhausted() -> bool:
@@ -102,6 +63,7 @@ def ensure_schema(conn) -> None:
     for ddl in ddls:
         cur.execute(ddl)
     conn.commit()
+
 
 ROWS_PER_PAGE = 500  # 호당 10 row 평균 → 50세대/page
 
@@ -134,12 +96,17 @@ def _request_with_rotation(params: dict, timeout: int) -> requests.Response | No
     """
     for _ in range(3):  # primary + secondary + third
         key = _rotator.current()  # raises KeysExhausted if none left
-        resp = requests.get(BLD_EXPOS_URL,
-                            params={**params, "serviceKey": key},
-                            timeout=timeout)
+        resp = requests.get(
+            BLD_EXPOS_URL, params={**params, "serviceKey": key}, timeout=timeout
+        )
         # 429 또는 본문에 "quota exceeded" 문구가 있으면 로테이션
         body_lower = (resp.text or "").lower()
-        if resp.status_code == 429 or "quota exceeded" in body_lower or "limit" in body_lower and "exceed" in body_lower:
+        if (
+            resp.status_code == 429
+            or "quota exceeded" in body_lower
+            or "limit" in body_lower
+            and "exceed" in body_lower
+        ):
             if not _rotator.rotate():
                 raise KeysExhausted("모든 API 키 한도 초과")
             continue
@@ -149,13 +116,16 @@ def _request_with_rotation(params: dict, timeout: int) -> requests.Response | No
     return None
 
 
-def _fetch_all_items(sigungu_cd: str, bjdong_cd: str, plat_gb: str,
-                     bun: str, ji: str, timeout: int = 20) -> list[dict]:
+def _fetch_all_items(
+    sigungu_cd: str, bjdong_cd: str, plat_gb: str, bun: str, ji: str, timeout: int = 20
+) -> list[dict]:
     """페이지네이션 돌며 모든 item 수집. 키 소진 시 KeysExhausted 전파."""
     base = {
-        "sigunguCd": sigungu_cd, "bjdongCd": bjdong_cd,
+        "sigunguCd": sigungu_cd,
+        "bjdongCd": bjdong_cd,
         "platGbCd": plat_gb,
-        "bun": str(bun).zfill(4), "ji": str(ji).zfill(4),
+        "bun": str(bun).zfill(4),
+        "ji": str(ji).zfill(4),
         "numOfRows": str(ROWS_PER_PAGE),
     }
     all_items: list[dict] = []
@@ -194,25 +164,31 @@ def _extract(root) -> list[dict]:
             area = float(item.findtext("area") or 0)
         except ValueError:
             area = 0.0
-        items.append({
-            "dong": (item.findtext("dongNm") or "").strip(),
-            "ho": (item.findtext("hoNm") or "").strip(),
-            "expos": item.findtext("exposPubuseGbCdNm") or "",
-            "atch": item.findtext("mainAtchGbCdNm") or "",
-            "purps": item.findtext("mainPurpsCdNm") or "",
-            "area": area,
-        })
+        items.append(
+            {
+                "dong": (item.findtext("dongNm") or "").strip(),
+                "ho": (item.findtext("hoNm") or "").strip(),
+                "expos": item.findtext("exposPubuseGbCdNm") or "",
+                "atch": item.findtext("mainAtchGbCdNm") or "",
+                "purps": item.findtext("mainPurpsCdNm") or "",
+                "area": area,
+            }
+        )
     return items
 
 
 def _is_residential_purps(purps: str) -> bool:
     if not purps:
         return True  # 값 누락 시 수용 (주상복합 등)
-    return any(k in purps for k in ("아파트", "공동주택", "다세대주택", "연립주택", "도시형생활주택"))
+    return any(
+        k in purps
+        for k in ("아파트", "공동주택", "다세대주택", "연립주택", "도시형생활주택")
+    )
 
 
-def fetch_area_info(sigungu_cd: str, bjdong_cd: str, plat_gb: str,
-                    bun: str, ji: str) -> dict | None:
+def fetch_area_info(
+    sigungu_cd: str, bjdong_cd: str, plat_gb: str, bun: str, ji: str
+) -> dict | None:
     """주소 기반 호별 전유부 조회 → apt_area_info 컬럼 dict.
 
     반환: 전용/공급 min·max·avg + 전용 기준 면적 버킷 6종 + unit_count/area_types
@@ -312,11 +288,20 @@ def upsert_area_info(conn, pnu: str, info: dict) -> None:
         """,
         [
             pnu,
-            info["min_area"], info["max_area"], info["avg_area"],
-            info["min_supply_area"], info["max_supply_area"], info["avg_supply_area"],
-            info["unit_count"], info["area_types"],
-            info["cnt_under_40"], info["cnt_40_60"], info["cnt_60_85"],
-            info["cnt_85_115"], info["cnt_115_135"], info["cnt_over_135"],
+            info["min_area"],
+            info["max_area"],
+            info["avg_area"],
+            info["min_supply_area"],
+            info["max_supply_area"],
+            info["avg_supply_area"],
+            info["unit_count"],
+            info["area_types"],
+            info["cnt_under_40"],
+            info["cnt_40_60"],
+            info["cnt_60_85"],
+            info["cnt_85_115"],
+            info["cnt_115_135"],
+            info["cnt_over_135"],
             info.get("source", "bld_expos"),
         ],
     )
