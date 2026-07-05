@@ -1273,6 +1273,84 @@ def test_assigned_elementary_derived_neutralization():
 
 
 # ============================================================
+# 라이프점수 Phase 2 회귀 테스트 (2026-07-04) — 건축물대장 표제부
+# ============================================================
+
+
+@test("Phase2: apt_building_register 전수 수집(부분) 적재 + 중립화 회귀 가드")
+def test_building_register_table():
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        """SELECT COUNT(*) AS c,
+                  COUNT(*) FILTER (WHERE parking_per_hhld IS NOT NULL) AS with_ratio,
+                  COUNT(*) FILTER (
+                      WHERE parking_total_count = 0 AND parking_per_hhld IS NOT NULL
+                  ) AS zero_total_leaked
+           FROM apt_building_register"""
+    ).fetchone()
+    conn.close()
+    # 2026-07-05: 전수 수집 30,908건 중 19,287건(62%)에서 일일 API 호출 한도(HTTP 429) 도달 —
+    # 잔여 11,921건은 --missing-only 모드로 보충 예정. 임계는 실측 부분수집치 기준이며
+    # 보충 수집 완료 후 상향한다(후속 이슈, 진단 문서 §4 참조).
+    assert row["c"] >= 15_000, (
+        f"apt_building_register 적재 부족: {row['c']}행 (부분수집 기대치 15,000+)"
+    )
+    assert row["with_ratio"] >= 5_000, (
+        f"parking_per_hhld 적재 부족: {row['with_ratio']}행 (5,000+ 기대)"
+    )
+    # parking_total_count=0(동별 표제부 미등재)은 0점이 아닌 중립(NULL)으로 소급 보정됨 —
+    # 회귀 시 미등재 단지가 0점으로 깔려 cost/newlywed/senior 점수가 구조적으로 하락한다.
+    assert row["zero_total_leaked"] == 0, (
+        f"parking_total_count=0 인데 parking_per_hhld 가 NULL 이 아닌 행 "
+        f"{row['zero_total_leaked']}개 — 중립화 규칙 회귀"
+    )
+
+
+@test("Phase2: parking/elevator 정규화 경계값")
+def test_quality_score_normalization():
+    from services.scoring import (
+        parking_ratio_to_score,
+        elevator_to_score,
+        INFRA_MISSING_NEUTRAL_SCORE,
+    )
+
+    assert parking_ratio_to_score(None) == INFRA_MISSING_NEUTRAL_SCORE
+    assert parking_ratio_to_score(0.4) == 0.0
+    assert parking_ratio_to_score(1.3) == 100.0
+    assert parking_ratio_to_score(2.5) == 100.0, "이상치 클립"
+    mid = parking_ratio_to_score(0.85)
+    assert 0.0 < mid < 100.0
+    assert elevator_to_score(None, 500) == INFRA_MISSING_NEUTRAL_SCORE
+    assert elevator_to_score(0, 500) == 0.0, "승강기 없음 = 0점"
+    assert elevator_to_score(20, 500) == 100.0, "25세대/대 = 만점"
+    assert 0.0 < elevator_to_score(10, 500) < 100.0
+
+
+@test("Phase2: senior/cost 가중치에 품질 지표 반영 + 합 1.0")
+def test_quality_weights_applied():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, extra FROM common_code WHERE group_id = 'nudge_weight' "
+        "AND (code LIKE %s OR code LIKE %s OR code LIKE %s)",
+        ["senior:%", "cost:%", "newlywed:%"],
+    ).fetchall()
+    conn.close()
+    weights: dict[str, dict[str, float]] = {}
+    for r in rows:
+        nudge, subtype = r["code"].split(":", 1)
+        weights.setdefault(nudge, {})[subtype] = float(r["extra"])
+    assert weights["senior"].get("score_elevator", 0) >= 0.12
+    assert weights["cost"].get("score_parking", 0) >= 0.08
+    assert weights["newlywed"].get("score_parking", 0) >= 0.08
+    for nudge, w in weights.items():
+        assert abs(sum(w.values()) - 1.0) < 0.02, f"{nudge} 합 이탈: {sum(w.values())}"
+
+
+# ============================================================
 # 실행
 # ============================================================
 

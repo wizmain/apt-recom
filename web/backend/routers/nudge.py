@@ -1,5 +1,7 @@
 """Nudge scoring API."""
 
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Request
 from pydantic import BaseModel
 from database import DictConnection
@@ -12,10 +14,14 @@ from services.scoring import (
     get_region_profile,
     facility_score,
     jeonse_ratio_to_score,
+    elevator_to_score,
+    parking_ratio_to_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
     get_top_contributors,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -319,6 +325,40 @@ def nudge_score(
                             apt_facility_scores[pnu]["score_crime"] = sgg_crime[sgg]
             except Exception:
                 pass
+
+        # 4f. Building register scores (건축물대장 승강기/주차 — Phase 2-1)
+        quality_nudges = {"senior", "cost", "newlywed"}
+        if quality_nudges & set(req.nudges):
+            for i in range(0, len(pnu_list), chunk_size):
+                chunk = pnu_list[i : i + chunk_size]
+                ph = ",".join(["%s"] * len(chunk))
+                # try 는 조회만 감싼다 — 점수 함수 버그가 fallback 으로
+                # 위장되지 않도록 행 처리 루프는 try 밖에서 수행.
+                try:
+                    rows = conn.execute(
+                        f"SELECT pnu, elevator_count, parking_per_hhld, "
+                        f"register_hhld_cnt FROM apt_building_register WHERE pnu IN ({ph})",
+                        chunk,
+                    ).fetchall()
+                except Exception:
+                    # 테이블 미생성 환경(마이그레이션 전) — 4e 결측 중립화에 위임
+                    logger.warning(
+                        "apt_building_register 조회 실패 — 4e 중립화로 위임",
+                        exc_info=True,
+                    )
+                    rows = []
+                for row in rows:
+                    pnu = row["pnu"]
+                    fscores = apt_facility_scores.setdefault(pnu, {})
+                    hhld = row["register_hhld_cnt"] or apt_map[pnu].get(
+                        "total_hhld_cnt"
+                    )
+                    fscores["score_elevator"] = elevator_to_score(
+                        row["elevator_count"], hhld
+                    )
+                    fscores["score_parking"] = parking_ratio_to_score(
+                        row["parking_per_hhld"]
+                    )
 
         # 4e. score_* pseudo-subtype 결측 중립화 — 원천 테이블(apt_price_score /
         # apt_safety_score / sigungu_crime_detail)에 해당 아파트·시군구가 없으면

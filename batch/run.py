@@ -233,7 +233,7 @@ def run_backfill(args, logger, result):
     conn = get_connection()
     try:
         t0 = time.time()
-        max_calls = getattr(args, "max_calls", 900)
+        max_calls = args.max_calls if args.max_calls is not None else 900
         updated = backfill_trades(
             conn, logger, max_calls=max_calls, dry_run=args.dry_run
         )
@@ -283,6 +283,29 @@ def run_ml(args, logger, result):
         result.record("ML 파이프라인", "critical", error=str(e))
 
 
+def run_building_register(args, logger, result):
+    """건축물대장 표제부 수집 (라이프점수 Phase 2-1). 체크포인트 재개형."""
+    from batch.annual.collect_building_register import collect_building_register
+
+    conn = get_connection()
+    try:
+        t0 = time.time()
+        # 기본 0 = 무제한 전수 수집. backfill 과 달리 900 캡을 두지 않음.
+        max_calls = args.max_calls if args.max_calls is not None else 0
+        stats = collect_building_register(conn, logger, max_calls=max_calls)
+        result.record(
+            "건축물대장 수집",
+            "success",
+            rows=stats["upserted"],
+            duration=time.time() - t0,
+        )
+    except Exception as e:
+        logger.error(f"건축물대장 배치 실패: {e}")
+        result.record("건축물대장 배치", "critical", error=str(e))
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="집토리 배치 데이터 수집/갱신")
     parser.add_argument(
@@ -295,9 +318,10 @@ def main():
             "kapt_refresh",
             "backfill",
             "ml",
+            "building_register",
         ],
         required=True,
-        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비), kapt_refresh(K-APT 갱신), backfill(거래 백필), ml(재학습 파이프라인)",
+        help="배치 유형: trade(거래), quarterly(시설), annual(인구/범죄), mgmt_cost(관리비), kapt_refresh(K-APT 갱신), backfill(거래 백필), ml(재학습 파이프라인), building_register(건축물대장 표제부 수집)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="수집만 하고 DB 적재 생략"
@@ -310,8 +334,9 @@ def main():
     parser.add_argument(
         "--max-calls",
         type=int,
-        default=900,
-        help="백필 최대 API 호출 수. backfill 전용",
+        default=None,
+        help="최대 API 호출 수. backfill(거래 백필)/building_register(건축물대장 표제부) 공용. "
+        "타입별 기본: backfill 900, building_register 0(무제한)",
     )
     parser.add_argument(
         "--apply",
@@ -339,6 +364,8 @@ def main():
         run_backfill(args, logger, result)
     elif args.type == "ml":
         run_ml(args, logger, result)
+    elif args.type == "building_register":
+        run_building_register(args, logger, result)
 
     result.summary(logger)
     sys.exit(result.exit_code())
