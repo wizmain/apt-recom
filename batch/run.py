@@ -91,6 +91,43 @@ def run_trade(args, logger, result):
                 duration=time.time() - t0,
             )
 
+            # 6b. 신규 아파트의 파생/외부 데이터 축 즉시 등록 (2026-07-05 감사).
+            # 방치 시 배정초교는 다음 quarterly(최대 3개월), 건축물대장(승강기/주차)은
+            # 무기한 중립 50 상태로 남는다. 배정초교는 위 시설 집계의 school 최근접
+            # 거리를 프록시로 쓰므로 반드시 6단계 이후 실행. 실패는 거래 배치 본연
+            # 기능을 해치지 않도록 warning 으로 격리.
+            try:
+                from batch.quarterly.assigned_school import recalc_assigned_school
+
+                t0 = time.time()
+                stats = recalc_assigned_school(conn, logger, pnu_list=new_pnus)
+                result.record(
+                    "신규 배정초교 등록",
+                    "success",
+                    rows=stats["total"],
+                    duration=time.time() - t0,
+                )
+            except Exception as e:
+                logger.warning(f"신규 배정초교 등록 실패: {e}")
+                result.record("신규 배정초교 등록", "warning", error=str(e))
+
+            try:
+                from batch.annual.collect_building_register import (
+                    collect_building_register,
+                )
+
+                t0 = time.time()
+                stats = collect_building_register(conn, logger, pnu_list=new_pnus)
+                result.record(
+                    "신규 건축물대장 수집",
+                    "success",
+                    rows=stats["upserted"],
+                    duration=time.time() - t0,
+                )
+            except Exception as e:
+                logger.warning(f"신규 건축물대장 수집 실패: {e}")
+                result.record("신규 건축물대장 수집", "warning", error=str(e))
+
         if enriched > 0:
             from batch.ml.build_vectors import build_all_vectors
 

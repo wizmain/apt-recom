@@ -51,8 +51,13 @@ def _normalize_school_name(name: str) -> str:
     return name
 
 
-def recalc_assigned_school(conn, logger) -> dict:
-    """배정초교 거리 재계산. 반환: {"matched": n, "fallback": n, "total": n}."""
+def recalc_assigned_school(conn, logger, pnu_list: list[str] | None = None) -> dict:
+    """배정초교 거리 재계산. 반환: {"matched": n, "fallback": n, "total": n}.
+
+    pnu_list 지정 시 해당 아파트만 재계산 — trade 배치의 신규 아파트 경로용
+    (미지정 시 quarterly 전체 재계산; 신규 단지를 다음 quarterly 까지 최대
+    3개월 중립 50 으로 방치하지 않기 위한 즉시 등록 경로, 2026-07-05 감사).
+    """
     cur = conn.cursor()
 
     # 1. school POI 인덱스 (이름 → [(lat, lng), ...])
@@ -66,15 +71,21 @@ def recalc_assigned_school(conn, logger) -> dict:
     logger.info(f"school POI 인덱스: {len(school_index):,}개 이름")
 
     # 2. 아파트 좌표 + 배정초교명 + 최근접 school 거리(프록시용)
+    target_filter = ""
+    params: list = []
+    if pnu_list:
+        target_filter = " AND a.pnu = ANY(%s)"
+        params.append(list(pnu_list))
     cur.execute(
-        """
+        f"""
         SELECT a.pnu, a.lat, a.lng, z.elementary_school_name, s.nearest_distance_m
         FROM apartments a
         LEFT JOIN school_zones z ON a.pnu = z.pnu
         LEFT JOIN apt_facility_summary s
                ON a.pnu = s.pnu AND s.facility_subtype = 'school'
-        WHERE a.lat IS NOT NULL AND a.lng IS NOT NULL
-        """
+        WHERE a.lat IS NOT NULL AND a.lng IS NOT NULL{target_filter}
+        """,
+        params,
     )
     rows = cur.fetchall()
 
