@@ -1396,6 +1396,23 @@ def test_store_weights_applied():
         assert abs(sum(w.values()) - 1.0) < 0.02, f"{nudge} 합 이탈: {sum(w.values())}"
 
 
+@test("Phase2: 심평원 세분화 시설(소아과/산부인과/종합병원) 적재")
+def test_hira_facilities_loaded():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT facility_subtype, COUNT(*) AS c FROM facilities "
+        "WHERE facility_subtype = ANY(%s) AND is_active GROUP BY 1",
+        [["pediatric_clinic", "obgyn_clinic", "general_hospital"]],
+    ).fetchall()
+    conn.close()
+    counts = {r["facility_subtype"]: r["c"] for r in rows}
+    assert counts.get("pediatric_clinic", 0) >= 10_000, f"소아과 부족: {counts}"
+    assert counts.get("obgyn_clinic", 0) >= 3_000, f"산부인과 부족: {counts}"
+    assert counts.get("general_hospital", 0) >= 300, f"종합병원 부족: {counts}"
+
+
 # ============================================================
 # 실행
 # ============================================================
