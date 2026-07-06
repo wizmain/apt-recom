@@ -723,6 +723,65 @@ def recalc_for_new_apartments(conn, logger, pnu_list):
     logger.info(f"  신규 아파트 시설 집계 완료: summary={len(summary_rows)}, safety={len(safety_rows)}")
 
 
+_SUMMARY_UPSERT_SQL = """INSERT INTO apt_facility_summary
+    (pnu, facility_subtype, nearest_distance_m, count_1km, count_3km, count_5km)
+    VALUES %s
+    ON CONFLICT (pnu, facility_subtype) DO UPDATE SET
+        nearest_distance_m = EXCLUDED.nearest_distance_m,
+        count_1km = EXCLUDED.count_1km,
+        count_3km = EXCLUDED.count_3km,
+        count_5km = EXCLUDED.count_5km"""
+
+
+def recalc_summary_for_subtypes(conn, logger, subtypes: list[str]) -> int:
+    """지정 subtype만 전 아파트 대상으로 BallTree 재집계 (TRUNCATE 없이 upsert).
+
+    recalc_summary()는 전체 subtype을 TRUNCATE 후 재계산하므로 quarterly 정기
+    실행 주기(3개월)에는 신규 subtype도 자동 포함되지만, 상가 수집(quarterly
+    5단계)이 그보다 늦게 실행되어 즉시 반영이 필요한 경우 이 함수로 신규
+    subtype만 부분 upsert한다. 기존 subtype 데이터는 건드리지 않는다.
+
+    아파트 대상 필터는 recalc_summary()와 동일(lat/lng NOT NULL) —
+    TRADE_ 접두 임시 PNU도 제외하지 않는 기존 summary 관례를 그대로 따른다.
+
+    반환: upsert된 (pnu, subtype) 행 수.
+    """
+    apts = query_all(conn,
+        "SELECT pnu, lat, lng FROM apartments WHERE lat IS NOT NULL AND lng IS NOT NULL")
+    if not apts:
+        logger.info("아파트 데이터 없음 — subtype 부분 집계 생략")
+        return 0
+
+    apt_pnus = [a["pnu"] for a in apts]
+    apt_coords = np.radians(np.array([[a["lat"], a["lng"]] for a in apts]))
+
+    logger.info(
+        f"부분 집계(BallTree): {len(apt_pnus):,}개 아파트 x "
+        f"{len(subtypes)}개 subtype ({', '.join(subtypes)})"
+    )
+
+    rows = []
+    for subtype in subtypes:
+        tree, cnt = _build_balltree(conn, subtype)
+        if not tree:
+            logger.warning(f"  {subtype}: 활성 시설 없음 — 스킵")
+            continue
+
+        nearest, counts = _query_nearest_and_counts(tree, apt_coords, [1000, 3000, 5000])
+        for i, pnu in enumerate(apt_pnus):
+            rows.append((
+                pnu, subtype, round(float(nearest[i]), 1),
+                int(counts[1000][i]), int(counts[3000][i]), int(counts[5000][i])
+            ))
+        logger.info(f"  {subtype}: {cnt:,}개 시설 처리 완료")
+
+    if rows:
+        execute_values_chunked(conn, _SUMMARY_UPSERT_SQL, rows)
+
+    logger.info(f"부분 집계 완료: {len(rows):,}건 upsert")
+    return len(rows)
+
+
 def recalc_summary(conn, logger):
     """시설 변경 후 apt_facility_summary + apt_safety_score v3 재계산."""
     try:

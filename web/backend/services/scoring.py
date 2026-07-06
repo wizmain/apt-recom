@@ -92,6 +92,11 @@ _DEFAULT_FACILITY_DECAY: dict[str, float] = {
     "park": 300,
     "police": 250,
     "assigned_elementary": 400,  # 배정초교 — school 과 동일 감쇠 (도보 통학 거리 민감)
+    # 상가정보 유래 4종 (Phase 2-2) — decay 는 subtype 희소성에 비례
+    "cafe": 300,  # 초밀집 업종(전국 10만+) — 가까운 것만 유의미, 낮은 decay
+    "kids_cafe": 500,  # 희소 업종 — 다소 멀어도 접근성 가치 유지되도록 높은 decay
+    "pet_shop": 400,  # 중간 밀집도 — mart/hospital 과 유사한 감쇠
+    "fitness": 400,  # 중간 밀집도 — 동일 근거
 }
 
 # 시설별 밀도 환산 계수 (count_1km × factor → 0~100 점수)
@@ -114,6 +119,14 @@ _DEFAULT_DENSITY_FACTOR: dict[str, float] = {
     # 배정초교는 단일 시설이라 밀도 개념이 없음 — count_1km∈{0,1} 을
     # "1km 도보권 보너스"(0 또는 100)로 사용 (배치가 0/1 로 적재)
     "assigned_elementary": 100,
+    # 상가정보 유래 4종 (Phase 2-2) — factor 는 subtype 희소성에 반비례
+    # (Task 2 실측: count_1km 중앙값 66, 서울 96%가 캡(34개) 포화 →
+    #  카페는 캡 구조상 초밀집이라 낮은 factor 가 정합. 건물단위 dedup 도
+    #  근접편의 지표로 타당 판정 — 코드리뷰 기록)
+    "cafe": 3,
+    "kids_cafe": 20,  # 희소 업종 — 소수 존재만으로도 밀도 점수가 크게 오르도록 높은 factor
+    "pet_shop": 12,
+    "fitness": 10,
 }
 
 # 프로필별 배율 (metro=1.0 기준)
