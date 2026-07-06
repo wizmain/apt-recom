@@ -8,7 +8,7 @@ on:
 jobs:
   batch:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180  # 상가(5단계)·심평원 병원(6단계) 수집 추가로 상향
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -21,5 +21,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
           DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+          # 상가 수집(5단계)은 SECONDARY 전용(PRIMARY 403), THIRD 는 429 로테이션 풀
+          DATA_GO_KR_API_SECONDARY_KEY: ${{ secrets.DATA_GO_KR_API_SECONDARY_KEY }}
+          DATA_GO_KR_API_THIRD_KEY: ${{ secrets.DATA_GO_KR_API_THIRD_KEY }}
           KAKAO_API_KEY: ${{ secrets.KAKAO_API_KEY }}
           KOSIS_API_KEY: ${{ secrets.KOSIS_API_KEY }}
