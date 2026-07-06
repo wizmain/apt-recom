@@ -10,10 +10,8 @@
 `hospital`(전체 병의원) 은 유지하고, 신혼 넛지에는 소아과/산부인과 접근성,
 시니어 넛지에는 종합병원(응급/중증 대응) 접근성을 신규 축으로 추가한다.
 
-update_store_weights.py 골격을 그대로 재사용 — 한 넛지에 여러 subtype 을
-동시에 추가할 수 있도록 QUALITY_ADDITIONS 를 dict[nudge, dict[subtype, weight]]
-구조로 유지한다.
-
+재배분/가드/CLI 로직은 weight_update_lib 공통 모듈 사용
+(shrink 재배분, all-or-nothing 가드, 합 검증, 누적 희석 floor 가드).
 적용 후 백엔드 재기동 필요 (_load_nudge_weights 캐시).
 
 사용 (기본 dry-run):
@@ -24,100 +22,14 @@ update_store_weights.py 골격을 그대로 재사용 — 한 넛지에 여러 s
 
 from __future__ import annotations
 
-import argparse
-import os
-from pathlib import Path
+from weight_update_lib import run_cli
 
-import psycopg2
-from dotenv import load_dotenv
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(REPO_ROOT / ".env")
-
-GROUP = "nudge_weight"
-# 넛지별 {신규 subtype: 신규 가중치} — 다중 추가 지원
-QUALITY_ADDITIONS: dict[str, dict[str, float]] = {
+# 넛지별 {신규 subtype: 신규 가중치}
+HOSPITAL_ADDITIONS: dict[str, dict[str, float]] = {
     "newlywed": {"pediatric_clinic": 0.08, "obgyn_clinic": 0.03},
     "senior": {"general_hospital": 0.08},
 }
 
-UPSERT_SQL = """
-    INSERT INTO common_code (group_id, code, name, extra, sort_order)
-    VALUES (%s, %s, %s, %s, 0)
-    ON CONFLICT (group_id, code) DO UPDATE SET
-        name = EXCLUDED.name, extra = EXCLUDED.extra
-"""
-
-
-def get_conn(target: str):
-    env_key = "RAILWAY_DATABASE_URL" if target == "railway" else "DATABASE_URL"
-    url = os.getenv(env_key)
-    if not url:
-        raise SystemExit(f"{env_key} 미설정 (.env 확인)")
-    return psycopg2.connect(url)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", choices=["local", "railway"], default="local")
-    parser.add_argument("--apply", action="store_true", help="실제 반영 (기본 dry-run)")
-    args = parser.parse_args()
-
-    conn = get_conn(args.target)
-    conn.autocommit = False
-    cur = conn.cursor()
-
-    for nudge, additions in QUALITY_ADDITIONS.items():
-        cur.execute(
-            "SELECT code, name, extra FROM common_code "
-            "WHERE group_id = %s AND code LIKE %s",
-            [GROUP, f"{nudge}:%"],
-        )
-        current = {
-            code.split(":", 1)[1]: float(extra) for code, _, extra in cur.fetchall()
-        }
-
-        existing = {s for s in additions if s in current}
-        missing = set(additions) - existing
-        if existing and missing:
-            # all-or-nothing 가드: 일부만 존재하는 부분 상태에서 재실행하면
-            # 이미 반영된 subtype 까지 shrink 로 재축소되어 합이 조용히 깨진다.
-            raise SystemExit(
-                f"[{nudge}] 부분 반영 상태 감지 — 수동 정리 후 재실행 필요. "
-                f"존재: {sorted(existing)} / 부재: {sorted(missing)}"
-            )
-        if not missing:
-            for subtype in sorted(existing):
-                print(
-                    f"[{nudge}] {subtype} 이미 존재({current[subtype]}) — 재배분 스킵"
-                )
-            continue
-
-        shrink = 1.0 - sum(additions.values())
-        rebalanced = {s: round(w * shrink, 4) for s, w in current.items()}
-        rebalanced.update(additions)
-        total = sum(rebalanced.values())
-        print(f"[{nudge}] 재배분 합 = {total:.4f}")
-        if abs(total - 1.0) > 0.02:
-            raise SystemExit(f"{nudge} 가중치 합 이탈: {total}")
-
-        for subtype, weight in rebalanced.items():
-            print(
-                f"  {'APPLY' if args.apply else 'DRY-RUN'} {nudge}:{subtype} = {weight}"
-            )
-            if args.apply:
-                cur.execute(
-                    UPSERT_SQL, [GROUP, f"{nudge}:{subtype}", subtype, str(weight)]
-                )
-
-    if args.apply:
-        conn.commit()
-        print("반영 완료 — 백엔드 재기동 필요 (가중치 캐시)")
-    else:
-        conn.rollback()
-        print("dry-run 종료 — 반영하려면 --apply")
-    conn.close()
-
 
 if __name__ == "__main__":
-    main()
+    run_cli(HOSPITAL_ADDITIONS, description=__doc__)
