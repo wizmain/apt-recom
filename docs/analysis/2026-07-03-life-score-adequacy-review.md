@@ -116,7 +116,7 @@
 |---|--------|----------|-----------|----------|
 | 2-1 | **상가(상권)정보** 업종 소분류 247종 좌표 | 소상공인시장진흥공단 (data.go.kr/15083033, 분기) | cost·pet·newlywed·senior 등 5+ | 한 데이터로 다수 넛지 동시 보강, 기존 facilities 파이프라인에 그대로 적재 — ✅ **구현 (2026-07-06)**: 4업종 130,462점포 적재(카페 10.1만/피트니스 1.5만/펫샵 1.0만/키즈카페 0.4만), summary 142,784행, 가중치 pet+pet_shop .15 / newlywed+kids_cafe .08+cafe .04 / cost+cafe .05. hedonic: kids_cafe t=-8.2, fitness t=-7.7, pet_shop t=-3.2 유의(시장 프리미엄), cafe 는 밀도 혼재로 부호 반전(소액 가중치 수용) |
 | 2-2 | **건축물대장 표제부** (승강기·세대당 주차) | 국토부 건축HUB (data.go.kr/15134735) | senior·cost·newlywed | **PNU 직결 — 조인 비용 0**, 현재 전무한 "단지 내부 품질" 축 — ✅ 62% 수집(19,287/30,908, 일일 API 한도 도달), parking 미등재 49.6%→중립 처리, 잔여 11,921건 `--missing-only` 보충 예정 |
-| 2-3 | **병원정보서비스** (병원급·진료과목·응급) | 심평원 (data.go.kr/15001698/15001699, 월) | senior·newlywed | "병원 개수" → 소아과/산부인과/응급실 세분화 |
+| 2-3 | **병원정보서비스** (병원급·진료과목·응급) | 심평원 (data.go.kr/15001698/15001699, 월) | senior·newlywed | "병원 개수" → 소아과/산부인과/응급실 세분화 — ✅ **구현 (2026-07-06)**: 3 subtype(dgsbjtCd 표방과목 기준) 17,924건 적재(소아과 13,438/산부인과 4,101/종합병원 385, 응급실은 별도 API 없이 종합병원 프록시), summary 107,088행. density factor pediatric_clinic **8**(계획 10 → 포화율 실측 근거 하향, 전국 71.0%→60.1%로 완화해 cafe 대비 변별력 회복)/obgyn_clinic 15/general_hospital 60(유지). 가중치 newlywed{pediatric_clinic .08, obgyn_clinic .03}(기존 ×0.89)/senior{general_hospital .08}(기존 ×0.92). hedonic: general_hospital t=-7.82·obgyn_clinic t=-4.00 유의, pediatric_clinic t=-1.76 방향 일치·유의 미달(가중치는 계획 확정치 유지, 재조정은 별도 검토) |
 | 2-4 | **에어코리아 대기질** (연평균 PM2.5) | 환경공단 (data.go.kr/15073861) | nature·newlywed | nature 재설계의 핵심 축(§3.4). 도시공원 표준데이터(면적) + 산/하천 인접과 결합 |
 | 2-5 | **학교알리미 + NEIS 학원** | KERIS/교육부 (data.go.kr/15098092, 15096277) | education | 학군을 "거리"에서 "질(성취/진학) + 사교육 밀도"로 |
 
