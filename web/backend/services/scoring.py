@@ -97,6 +97,10 @@ _DEFAULT_FACILITY_DECAY: dict[str, float] = {
     "kids_cafe": 500,  # 희소 업종 — 다소 멀어도 접근성 가치 유지되도록 높은 decay
     "pet_shop": 400,  # 중간 밀집도 — mart/hospital 과 유사한 감쇠
     "fitness": 400,  # 중간 밀집도 — 동일 근거
+    # 심평원 병원 세분화 3종 (Phase 2-3) — decay 는 통원 성격에 비례
+    "pediatric_clinic": 500,  # 일상 통원(예방접종 등) — 도보~단거리 통원권 중심
+    "obgyn_clinic": 700,  # 정기 산전관리 — 소아과보다 넓은 통원권 허용
+    "general_hospital": 1500,  # 응급/중증 대응 — 광역 시설, provincial 배율로 추가 확장
 }
 
 # 시설별 밀도 환산 계수 (count_1km × factor → 0~100 점수)
@@ -127,6 +131,26 @@ _DEFAULT_DENSITY_FACTOR: dict[str, float] = {
     "kids_cafe": 20,  # 희소 업종 — 소수 존재만으로도 밀도 점수가 크게 오르도록 높은 factor
     "pet_shop": 12,
     "fitness": 10,
+    # 심평원 병원 세분화 3종 (Phase 2-3) — factor 결정 근거 (실측, 프로필별
+    # DENSITY_MULTIPLIER 적용 후 min(100, count_1km*factor) 포화율 기준):
+    #   pediatric_clinic: 계획 초안 factor=10 은 전국 71.0%/서울 91.1% 가 캡(100점)
+    #   포화 — cafe(factor=3, 전국 83.5%/서울 96.1%) 와 큰 차이가 없어 "카페만큼
+    #   초밀집"으로 취급하는 셈이 되고, 소아과는 신혼 넛지의 핵심 세분화 축이라
+    #   변별력이 필요하다. 또한 count_1km 7~12 구간이 전체의 24.2% 를 차지하는데
+    #   좌표충돌 skip(12.9%)으로 이 구간에서 count 가 ±1 흔들리면 포화 여부가
+    #   뒤집히는 임계 구간과 정확히 겹친다. factor=8 로 완화하면 포화율이 전국
+    #   60.1%/서울 84.7% 로 낮아져 cafe 대비 변별력을 회복하고, metro 프로필의
+    #   포화 임계(count_1km 10→13)가 밀집 구간에서 한 칸 멀어져 skip 민감도가
+    #   줄어든다. factor=7 은 포화율을 더 낮추지만(53.5%/78.7%) 신혼 넛지에서
+    #   비중 있는 신호로 두기엔 과소평가 — factor=8 채택.
+    "pediatric_clinic": 8,
+    #   obgyn_clinic: factor=15 유지 — 전국 33.5%/서울 58.6% 포화로 아직 변별력
+    #   구간(캡 미달)이 다수라 완화 불필요.
+    "obgyn_clinic": 15,
+    #   general_hospital: factor=60 유지 — 전국 385개 희소 시설, 포화 전국
+    #   9.2%/서울 6.7% 로 매우 낮아 "가까이 있으면 확실히 우대"하는 응급/중증
+    #   대응 성격에 부합.
+    "general_hospital": 60,
 }
 
 # 프로필별 배율 (metro=1.0 기준)

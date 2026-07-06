@@ -55,6 +55,10 @@ FEATURE_SUBTYPES = [
     "kids_cafe",
     "pet_shop",
     "fitness",
+    # 심평원 병원 세분화 3종 (Phase 2-3) — 시장 계수 측정용
+    "pediatric_clinic",
+    "obgyn_clinic",
+    "general_hospital",
 ]
 MIN_SAMPLES = 3000  # 이보다 적으면 회귀 신뢰 불가로 중단
 
