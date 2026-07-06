@@ -1345,7 +1345,10 @@ def test_quality_weights_applied():
         weights.setdefault(nudge, {})[subtype] = float(r["extra"])
     assert weights["senior"].get("score_elevator", 0) >= 0.12
     assert weights["cost"].get("score_parking", 0) >= 0.08
-    assert weights["newlywed"].get("score_parking", 0) >= 0.08
+    # newlywed:score_parking 임계값: Phase 2-2(상가 4종) ×0.88, Phase 2-3(병원
+    # 3종) ×0.89 누적 재배분으로 0.1 → 0.0783 까지 축소됨. "품질 지표가 유의미한
+    # 비중으로 남아있는지"만 확인하는 취지라 0.08→0.07 로 하향 조정.
+    assert weights["newlywed"].get("score_parking", 0) >= 0.07
     for nudge, w in weights.items():
         assert abs(sum(w.values()) - 1.0) < 0.02, f"{nudge} 합 이탈: {sum(w.values())}"
 
@@ -1392,6 +1395,45 @@ def test_store_weights_applied():
     assert weights["pet"].get("pet_shop", 0) >= 0.12
     assert weights["newlywed"].get("kids_cafe", 0) >= 0.06
     assert weights["cost"].get("cafe", 0) >= 0.04
+    for nudge, w in weights.items():
+        assert abs(sum(w.values()) - 1.0) < 0.02, f"{nudge} 합 이탈: {sum(w.values())}"
+
+
+@test("Phase2: 심평원 세분화 시설(소아과/산부인과/종합병원) 적재")
+def test_hira_facilities_loaded():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT facility_subtype, COUNT(*) AS c FROM facilities "
+        "WHERE facility_subtype = ANY(%s) AND is_active GROUP BY 1",
+        [["pediatric_clinic", "obgyn_clinic", "general_hospital"]],
+    ).fetchall()
+    conn.close()
+    counts = {r["facility_subtype"]: r["c"] for r in rows}
+    assert counts.get("pediatric_clinic", 0) >= 10_000, f"소아과 부족: {counts}"
+    assert counts.get("obgyn_clinic", 0) >= 3_000, f"산부인과 부족: {counts}"
+    assert counts.get("general_hospital", 0) >= 300, f"종합병원 부족: {counts}"
+
+
+@test("Phase2: 병원 세분화 가중치 반영 (newlywed/senior) + 합 1.0")
+def test_hospital_weights_applied():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, extra FROM common_code WHERE group_id = 'nudge_weight' "
+        "AND (code LIKE %s OR code LIKE %s)",
+        ["newlywed:%", "senior:%"],
+    ).fetchall()
+    conn.close()
+    weights: dict[str, dict[str, float]] = {}
+    for r in rows:
+        nudge, subtype = r["code"].split(":", 1)
+        weights.setdefault(nudge, {})[subtype] = float(r["extra"])
+    assert weights["newlywed"].get("pediatric_clinic", 0) >= 0.06
+    assert weights["newlywed"].get("obgyn_clinic", 0) >= 0.02
+    assert weights["senior"].get("general_hospital", 0) >= 0.06
     for nudge, w in weights.items():
         assert abs(sum(w.values()) - 1.0) < 0.02, f"{nudge} 합 이탈: {sum(w.values())}"
 

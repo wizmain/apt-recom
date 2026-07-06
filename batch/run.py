@@ -229,6 +229,43 @@ def run_quarterly(args, logger, result):
             logger.warning(f"상가 시설 수집/부분 집계 실패: {e}")
             result.record("상가 시설 수집/부분 집계", "warning", error=str(e))
 
+        # 6. 심평원 병원 세분화(소아과/산부인과/종합병원) 수집 + 부분 집계 (라이프점수
+        #    Phase 2-3). 5단계 상가와 동일한 이유로 부분 집계(6b)가 필요 —
+        #    recalc_summary(3단계)가 전체 subtype을 재계산하지만 이번 회차
+        #    수집분을 즉시 반영하려면 별도 호출이 필요하다. 실패해도 quarterly
+        #    본연 기능(시설/배정초교)을 해치지 않도록 warning으로 격리.
+        try:
+            from batch.quarterly.collect_hira_hospitals import (
+                HIRA_SUBTYPE_FILTERS,
+                collect_hira_hospitals,
+            )
+            from batch.quarterly.recalc_summary import recalc_summary_for_subtypes
+
+            t0 = time.time()
+            hira_stats = collect_hira_hospitals(conn, logger)
+            result.record(
+                "심평원 병원 세분화 수집",
+                "success",
+                rows=hira_stats["upserted"],
+                duration=time.time() - t0,
+            )
+
+            # 참고: 3단계 전체 recalc 가 (직전 회차) 병원 subtype 도 이미 집계하므로
+            # 여기서 이중 계산되지만(회차당 수 초), 6단계 수집 실패 시에도 3단계
+            # 산출물이 남는 resilience 를 위해 의도적으로 유지한다(5b와 동일 이유).
+            t0 = time.time()
+            hira_subtypes = list(HIRA_SUBTYPE_FILTERS.keys())
+            upserted = recalc_summary_for_subtypes(conn, logger, hira_subtypes)
+            result.record(
+                "병원 subtype 부분 집계",
+                "success",
+                rows=upserted,
+                duration=time.time() - t0,
+            )
+        except Exception as e:
+            logger.warning(f"심평원 병원 수집/부분 집계 실패: {e}")
+            result.record("심평원 병원 수집/부분 집계", "warning", error=str(e))
+
     except Exception as e:
         logger.error(f"Quarterly 배치 실패: {e}")
         result.record("Quarterly 배치", "critical", error=str(e))

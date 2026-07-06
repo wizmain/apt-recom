@@ -11,6 +11,8 @@
 초기값은 전문가 판단 — hedonic 검증(batch/ml/hedonic_validation.py) 결과로
 재조정한다. 적용 후 백엔드 재기동 필요 (_load_nudge_weights 모듈 캐시).
 
+주의: 로컬+Railway 반영 완료된 스크립트 — 신규 스크립트는 weight_update_lib 사용.
+
 사용 (기본 dry-run):
   .venv/bin/python scripts/update_education_weights.py
   .venv/bin/python scripts/update_education_weights.py --apply
