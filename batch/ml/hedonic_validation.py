@@ -50,6 +50,11 @@ FEATURE_SUBTYPES = [
     "cctv",
     "police",
     "fire_station",
+    # 상가정보 유래 4종 (Phase 2-2) — 시장 계수 측정용 (가중치는 별도 결정)
+    "cafe",
+    "kids_cafe",
+    "pet_shop",
+    "fitness",
 ]
 MIN_SAMPLES = 3000  # 이보다 적으면 회귀 신뢰 불가로 중단
 

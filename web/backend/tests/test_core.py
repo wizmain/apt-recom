@@ -1374,6 +1374,28 @@ def test_store_facilities_loaded():
         assert counts.get(st, 0) >= 300, f"{st} 부족: {counts}"
 
 
+@test("Phase2: 상가 축 가중치 반영 (pet/newlywed/cost) + 합 1.0")
+def test_store_weights_applied():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, extra FROM common_code WHERE group_id = 'nudge_weight' "
+        "AND (code LIKE %s OR code LIKE %s OR code LIKE %s)",
+        ["pet:%", "newlywed:%", "cost:%"],
+    ).fetchall()
+    conn.close()
+    weights: dict[str, dict[str, float]] = {}
+    for r in rows:
+        nudge, subtype = r["code"].split(":", 1)
+        weights.setdefault(nudge, {})[subtype] = float(r["extra"])
+    assert weights["pet"].get("pet_shop", 0) >= 0.12
+    assert weights["newlywed"].get("kids_cafe", 0) >= 0.06
+    assert weights["cost"].get("cafe", 0) >= 0.04
+    for nudge, w in weights.items():
+        assert abs(sum(w.values()) - 1.0) < 0.02, f"{nudge} 합 이탈: {sum(w.values())}"
+
+
 # ============================================================
 # 실행
 # ============================================================
