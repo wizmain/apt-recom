@@ -80,20 +80,25 @@ def main() -> None:
             code.split(":", 1)[1]: float(extra) for code, _, extra in cur.fetchall()
         }
 
-        pending = {
-            subtype: weight
-            for subtype, weight in additions.items()
-            if subtype not in current
-        }
-        already = set(additions) - set(pending)
-        for subtype in already:
-            print(f"[{nudge}] {subtype} 이미 존재({current[subtype]}) — 재배분 스킵")
-        if not pending:
+        existing = {s for s in additions if s in current}
+        missing = set(additions) - existing
+        if existing and missing:
+            # all-or-nothing 가드: 일부만 존재하는 부분 상태에서 재실행하면
+            # 이미 반영된 subtype 까지 shrink 로 재축소되어 합이 조용히 깨진다.
+            raise SystemExit(
+                f"[{nudge}] 부분 반영 상태 감지 — 수동 정리 후 재실행 필요. "
+                f"존재: {sorted(existing)} / 부재: {sorted(missing)}"
+            )
+        if not missing:
+            for subtype in sorted(existing):
+                print(
+                    f"[{nudge}] {subtype} 이미 존재({current[subtype]}) — 재배분 스킵"
+                )
             continue
 
-        shrink = 1.0 - sum(pending.values())
+        shrink = 1.0 - sum(additions.values())
         rebalanced = {s: round(w * shrink, 4) for s, w in current.items()}
-        rebalanced.update(pending)
+        rebalanced.update(additions)
         total = sum(rebalanced.values())
         print(f"[{nudge}] 재배분 합 = {total:.4f}")
         if abs(total - 1.0) > 0.02:
