@@ -191,6 +191,41 @@ def run_quarterly(args, logger, result):
             duration=time.time() - t0,
         )
 
+        # 5. 상가 시설(카페/키즈카페/펫샵/피트니스) 수집 + 부분 집계 (라이프점수
+        #    Phase 2-2). recalc_summary(3단계)는 TRUNCATE 후 전체 subtype을
+        #    재계산하므로 quarterly 정기 실행 시엔 상가 subtype도 자동
+        #    포함되지만, 상가 수집이 그보다 늦게(5단계) 실행되므로 이번 회차에
+        #    즉시 반영하려면 부분 집계(5b)가 필요하다. 실패해도 quarterly 본연
+        #    기능(시설/배정초교)을 해치지 않도록 warning으로 격리.
+        try:
+            from batch.quarterly.collect_store_facilities import (
+                STORE_SUBTYPE_CODES,
+                collect_store_facilities,
+            )
+            from batch.quarterly.recalc_summary import recalc_summary_for_subtypes
+
+            t0 = time.time()
+            store_stats = collect_store_facilities(conn, logger)
+            result.record(
+                "상가 시설 수집",
+                "success",
+                rows=store_stats["upserted"],
+                duration=time.time() - t0,
+            )
+
+            t0 = time.time()
+            store_subtypes = list(STORE_SUBTYPE_CODES.keys())
+            upserted = recalc_summary_for_subtypes(conn, logger, store_subtypes)
+            result.record(
+                "상가 subtype 부분 집계",
+                "success",
+                rows=upserted,
+                duration=time.time() - t0,
+            )
+        except Exception as e:
+            logger.warning(f"상가 시설 수집/부분 집계 실패: {e}")
+            result.record("상가 시설 수집/부분 집계", "warning", error=str(e))
+
     except Exception as e:
         logger.error(f"Quarterly 배치 실패: {e}")
         result.record("Quarterly 배치", "critical", error=str(e))
