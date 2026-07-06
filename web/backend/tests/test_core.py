@@ -1351,6 +1351,30 @@ def test_quality_weights_applied():
 
 
 # ============================================================
+# 라이프점수 Phase 2-2 (2026-07-06) — 상가정보 유래 시설
+# (Task 1: 표본 수집만 완료 — 전량 수집 후 GREEN 예정. Task 2 참조)
+# ============================================================
+
+
+@test("Phase2: 상가 유래 시설(cafe/kids_cafe/pet_shop/fitness) 적재")
+def test_store_facilities_loaded():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT facility_subtype, COUNT(*) AS c FROM facilities "
+        "WHERE facility_subtype = ANY(%s) AND is_active GROUP BY 1",
+        [["cafe", "kids_cafe", "pet_shop", "fitness"]],
+    ).fetchall()
+    conn.close()
+    counts = {r["facility_subtype"]: r["c"] for r in rows}
+    # 전국 규모 기대 하한 (표본 아님): 카페는 수만, 나머지는 수백~수천
+    assert counts.get("cafe", 0) >= 10_000, f"cafe 부족: {counts}"
+    for st in ("kids_cafe", "pet_shop", "fitness"):
+        assert counts.get(st, 0) >= 300, f"{st} 부족: {counts}"
+
+
+# ============================================================
 # 실행
 # ============================================================
 
