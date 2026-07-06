@@ -40,6 +40,7 @@ STORE_API_URL = "http://apis.data.go.kr/B553077/api/open/sdsc2/storeListInUpjong
 MAX_ROWS_PER_PAGE = 1000  # PoC 실측(2026-07-06): API 상한, 초과 요청해도 캡됨
 NODATA_RESULT_CODE = "03"
 SUCCESS_RESULT_CODE = "00"
+MAX_RETRIES = 2  # transient 오류 백오프 재시도 (collect_building_register 관례)
 
 # 소분류 코드 확정 근거 (PoC 2026-07-06, sdsc2 middleUpjongList/smallUpjongList
 # 실측 + storeListInRadius 좌표 역검증). 각 항목은 대분류/중분류 경로와
@@ -79,7 +80,12 @@ class RateLimitExceeded(RuntimeError):
 
 
 def _fetch_page(code: str, page: int) -> tuple[list[dict], int]:
-    """소분류 코드 1페이지 조회. (items, totalCount) 반환."""
+    """소분류 코드 1페이지 조회. (items, totalCount) 반환.
+
+    transient 오류(네트워크/일시적 5xx/파싱)는 MAX_RETRIES 회 백오프 재시도
+    (collect_building_register 관례 준용). 단 HTTP 429(일일 한도)는 재시도해도
+    자정까지 회복되지 않으므로 즉시 RateLimitExceeded 로 조기 중단시킨다.
+    """
     params = {
         "serviceKey": DATA_GO_KR_API_SECONDARY_KEY,
         "type": "json",
@@ -88,21 +94,32 @@ def _fetch_page(code: str, page: int) -> tuple[list[dict], int]:
         "numOfRows": str(MAX_ROWS_PER_PAGE),
         "pageNo": str(page),
     }
-    resp = requests.get(STORE_API_URL, params=params, timeout=30)
-    if resp.status_code == 429:
-        raise RateLimitExceeded(f"{code} {page}p: HTTP 429 (일일 한도 소진)")
-    resp.raise_for_status()
-    data = resp.json()
-    header = data.get("header", {})
-    result_code = header.get("resultCode")
-    if result_code == NODATA_RESULT_CODE:
-        return [], 0
-    if result_code != SUCCESS_RESULT_CODE:
-        raise RuntimeError(
-            f"{code} {page}p: resultCode {result_code} ({header.get('resultMsg')})"
-        )
-    body = data.get("body", {})
-    return body.get("items", []), int(body.get("totalCount") or 0)
+    attempt = 0
+    while True:
+        try:
+            resp = requests.get(STORE_API_URL, params=params, timeout=30)
+            if resp.status_code == 429:
+                raise RateLimitExceeded(f"{code} {page}p: HTTP 429 (일일 한도 소진)")
+            resp.raise_for_status()
+            data = resp.json()
+            header = data.get("header", {})
+            result_code = header.get("resultCode")
+            if result_code == NODATA_RESULT_CODE:
+                return [], 0
+            if result_code != SUCCESS_RESULT_CODE:
+                raise RuntimeError(
+                    f"{code} {page}p: resultCode {result_code} "
+                    f"({header.get('resultMsg')})"
+                )
+            body = data.get("body", {})
+            return body.get("items", []), int(body.get("totalCount") or 0)
+        except RateLimitExceeded:
+            raise  # 한도 소진 — 재시도 대상 아님, 상위에서 조기 중단
+        except Exception:  # noqa: BLE001 — transient 대비 재시도 후 상위 전파
+            attempt += 1
+            if attempt > MAX_RETRIES:
+                raise
+            time.sleep(attempt)  # 1s, 2s 백오프
 
 
 def _to_row(item: dict, facility_type: str, subtype: str) -> tuple | None:
@@ -278,6 +295,12 @@ def main() -> None:
         logger.info(
             f"전체 완료: 호출 {result['fetched']:,} / 적재 {result['upserted']:,} "
             f"/ 비활성화 {result['deactivated']:,}"
+        )
+    except RateLimitExceeded as e:
+        # 부분 성공 — 페이지 단위 커밋이라 여기까지의 적재는 유지된다.
+        # 재실행 시 upsert 로 이어받으므로 raw traceback 없이 정상 종료.
+        logger.warning(
+            f"일일 호출 한도 도달({e}) — 자정 이후 재실행 필요, 부분 커밋 유지됨"
         )
     finally:
         conn.close()
