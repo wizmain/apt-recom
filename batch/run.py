@@ -213,6 +213,9 @@ def run_quarterly(args, logger, result):
                 duration=time.time() - t0,
             )
 
+            # 참고: 3단계 전체 recalc 가 (직전 회차) 상가 subtype 도 이미 집계하므로
+            # 여기서 이중 계산되지만(회차당 수 초), 5단계 수집 실패 시에도 3단계
+            # 산출물이 남는 resilience 를 위해 의도적으로 유지한다.
             t0 = time.time()
             store_subtypes = list(STORE_SUBTYPE_CODES.keys())
             upserted = recalc_summary_for_subtypes(conn, logger, store_subtypes)
