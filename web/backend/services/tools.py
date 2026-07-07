@@ -245,7 +245,11 @@ def _infer_nudges_from_keyword(keyword: str) -> list[str]:
 
 
 def _fetch_apartments_by_region(conn, keyword: str, sgg_codes: list[str]) -> list[dict]:
-    """주소/단지명 LIKE 와 시군구코드 매칭을 OR 로 결합해 아파트를 조회한다 (nudge.py 와 동일 semantics).
+    """주소/단지명 LIKE 와 시군구코드 매칭을 OR 로 결합해 아파트를 조회한다.
+
+    조회 조건(WHERE 절)은 nudge.py 의 키워드 매칭과 동일 semantics 이나,
+    LIMIT 100 은 MCP 검색 도구(top_n 소규모 응답) 관례로 여기서만 적용한 것이며
+    nudge.py 는 결과 개수 제한 없이 전체를 조회한다 — 차이 유의.
 
     발동 조건: search_engine.search() 의 region_candidates 가 실제로는 동명이인이
     아니라 상위 지역 하나(예: 청주시)가 외부 API 통합코드 미지원으로 하위 구
@@ -475,6 +479,9 @@ async def get_apartment_detail(query: str) -> str:
 
         # 시설/가격/안전/범죄/건축물대장/대기질 점수 조립 — 웹(nudge.py)과 공용 서비스로 위임.
         # 전체 넛지 점수를 계산하므로 nudge_ids 는 등록된 넛지 전체를 넘긴다.
+        # 단일 pnu 만 조회하는 풀이므로 build_facility_scores 의 4a(지역 프로필 중립화)는
+        # "이 아파트에 apt_facility_summary 행이 없는 축 = 중립(50)"으로 동작한다.
+        # 목록 검색(search_apartments, 후보군 풀 전체 대상)과는 중립화 semantics 가 다를 수 있음 — 의도된 선택.
         all_nudge_ids = list(get_nudge_weights().keys())
         facility_scores = build_facility_scores(
             conn, [pnu], all_nudge_ids, {pnu: apt}
