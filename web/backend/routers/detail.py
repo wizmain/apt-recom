@@ -17,7 +17,9 @@ from services import vworld_image
 router = APIRouter()
 
 AERIAL_IMAGE_ZOOM_MIN = 14
-AERIAL_IMAGE_ZOOM_MAX = 19
+# V-World Image API 유효 zoom 범위는 7~18 (2026-07-08 실측: 19 요청 시
+# INVALID_RANGE 에러 응답) — 19 는 항상 실패하므로 상한을 18 로 클램프.
+AERIAL_IMAGE_ZOOM_MAX = 18
 AERIAL_IMAGE_CACHE_CONTROL = "public, max-age=86400"
 
 
@@ -589,7 +591,7 @@ def apartment_aerial_image(
     pnu: str,
     zoom: int = Query(
         vworld_image.DEFAULT_ZOOM,
-        description="V-World 줌 레벨 (14~19 범위로 클램프)",
+        description="V-World 줌 레벨 (14~18 범위로 클램프)",
     ),
 ):
     """PNU 기준 좌표의 V-World 항공영상을 프록시로 반환.
