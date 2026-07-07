@@ -6,11 +6,10 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from database import DictConnection
 from services.activity_log import log_event
 from services.identity import get_user_identifier
+from services.facility_scores import build_facility_scores
 from services.mgmt_cost_calc import compute_by_area
 from services.scoring import (
     get_nudge_weights,
-    get_region_profile,
-    facility_score,
     calculate_nudge_score,
 )
 
@@ -145,27 +144,23 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             for row in summary_rows
         }
 
-        profile = get_region_profile(basic.get("sigungu_code"))
-        facility_scores = {
-            row["facility_subtype"]: facility_score(
-                row["nearest_distance_m"],
-                row["count_1km"],
-                row["facility_subtype"],
-                profile=profile,
-            )
-            for row in summary_rows
-        }
+        # 시설/가격/안전/범죄/건축물대장/대기질 점수 조립 — 웹 목록(nudge.py)·MCP(tools.py)와
+        # 공용 파이프라인. 단일 pnu 풀이므로 4a(후보군 전체 결측 중립화)는 이 아파트에서
+        # 관측되지 않은 시설 축 전부에 적용된다 (tools.get_apartment_detail 과 동일 semantics).
+        all_nudge_ids = list(get_nudge_weights().keys())
+        facility_scores = build_facility_scores(
+            conn, [pnu], all_nudge_ids, {pnu: basic}
+        ).get(pnu, {})
 
-        # Price/safety scores
+        # Price info (표시용 price_per_m2) — score_price/score_jeonse 는 공용 조립이 처리
         price_row = conn.execute(
-            "SELECT price_score, jeonse_ratio, price_per_m2 FROM apt_price_score WHERE pnu = %s",
+            "SELECT price_per_m2 FROM apt_price_score WHERE pnu = %s",
             [pnu],
         ).fetchone()
         if price_row:
-            facility_scores["score_price"] = price_row["price_score"] or 50.0
-            facility_scores["score_jeonse"] = price_row["jeonse_ratio"] or 50.0
             basic["price_per_m2"] = price_row["price_per_m2"]
 
+        # 안전 상세(v2/v3 세부 점수) — safety 응답 영역 표시용 (score_safety 조립과 별개)
         safety_row = None
         try:
             safety_row = conn.execute(
@@ -179,12 +174,9 @@ def apartment_detail(pnu: str, request: Request, background_tasks: BackgroundTas
             ).fetchone()
         except Exception:
             pass
-        if safety_row:
-            facility_scores["score_safety"] = safety_row["safety_score"] or 50.0
 
         scores = {
-            nid: calculate_nudge_score(facility_scores, nid)
-            for nid in get_nudge_weights()
+            nid: calculate_nudge_score(facility_scores, nid) for nid in all_nudge_ids
         }
 
         # Nearby facilities — 아파트 좌표 기반으로 시설 유형별 최근접 3개 조회.
