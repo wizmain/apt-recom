@@ -581,6 +581,9 @@ def create_tables(conn) -> None:
         );
         -- 최초 배포 시 VARCHAR(19)로 생성된 환경(2026-07-07 이전) 보정용 —
         -- 이미 TEXT 인 경우 no-op, 멱등.
+        -- [제거 조건] 로컬 + Railway 전 환경의 pnu 가 TEXT 로 반영된 것을 확인한
+        -- 뒤 다음 스키마 정리 시 이 문장을 삭제할 것 (위 CREATE 가 이미 TEXT 라
+        -- 신규 환경에는 처음부터 불필요한 문장).
         ALTER TABLE apt_air_score ALTER COLUMN pnu TYPE TEXT;
 
         CREATE TABLE IF NOT EXISTS apt_vectors (

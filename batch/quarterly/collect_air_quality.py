@@ -12,15 +12,17 @@ PoC 확정 (2026-07-07, 실측):
 - `MsrstnInfoInqireSvc/getMsrstnList` — returnType=json, totalCount 673,
   numOfRows=1000 요청 시 1페이지에 전량 반환. 필드 stationName/addr/
   dmX/dmY/mangName/item/year. **dmX가 위도, dmY가 경도 (명명 반전 주의)**.
-- `ArpltnStatsSvc/getMsrstnAcctoRMmrg` — msrstnName 필터 없이 조회할 때
-  **inqBginMm == inqEndMm(단일 월)이면 전 측정소 데이터가 정상 반환되지만,
-  범위 조회(inqBginMm != inqEndMm)는 totalCount 는 채워지면서 items 가
-  항상 빈 배열로 온다** (서버측 제약으로 추정, 스펙 문서에 명시 없음).
-  그래서 fetch_monthly() 는 계획서의 "무필터 범위 페이징"이 아니라
-  월 단위로 개별 호출한다(월별 1회, 실효상 1페이지로 충분 — totalCount
-  <= 673 < numOfRows 1000).
-- 보유 윈도우 실측: 202603~202606 (4개월), 그 밖 월은 totalCount=0
-  (resultCode 는 정상 "00" — 에러 아님, 자연 skip).
+- `ArpltnStatsSvc/getMsrstnAcctoRMmrg` — msrstnName 필터 없이 기간
+  (inqBginMm~inqEndMm) 무필터 페이징이 정상 동작한다. 단, **페이지
+  오프셋이 요청 구간의 빈 월(보유 윈도우 밖 과거 월)까지 슬롯으로
+  포함해 계산되어, begin 이 윈도우보다 과거면 앞쪽 페이지가 부분/전부
+  빈 items 로 오고 실데이터는 뒤 페이지로 밀린다** (2026-07-07 실측:
+  202601~202607 조회 시 1p=0건, 2p~5p 에 2,668건 전량; totalCount 는
+  실데이터 행수만 반영). 따라서 종료 판정은 "빈 페이지" 나
+  "page*numOfRows >= totalCount" 가 아니라 **누적 수신 행수 >=
+  totalCount** 로 해야 뒤 페이지의 실데이터를 놓치지 않는다.
+- 보유 윈도우 실측: 202603~202606 (4개월). 윈도우 밖 과거 월은
+  응답에 행이 없다 (resultCode 는 정상 "00" — 에러 아님, 자연 skip).
 - pm25Value 등은 문자열이며 결측 시 ''/'-' 로 옴 → float 변환 실패/결측
   패턴 매칭 시 NULL 저장 (0 강제 금지).
 
@@ -52,6 +54,10 @@ MAX_ROWS_PER_PAGE = (
 SUCCESS_RESULT_CODE = "00"
 MAX_RETRIES = 2  # transient 오류 백오프 재시도 (STORE/HIRA 수집기 관례)
 DEFAULT_LOOKBACK_MONTHS = 6  # 보유 4개월 + 여유 — 0건 월은 자연 skip
+# 월평균 페이징 안전 상한 — 실데이터(측정소 673 × 조회 월수) + 빈 월 슬롯
+# (모듈 docstring 참조)을 합쳐도 lookback 6개월 기준 최대 ~9페이지.
+# 종료 판정(누적 >= totalCount)이 서버 이상으로 영영 안 맞을 때의 무한루프 방지.
+MAX_MONTHLY_PAGES = 20
 
 # 주거지 대표성 있는 측정망만 apt_air_score 매핑 대상으로 사용 (plan §Global Constraints).
 RESIDENTIAL_MANG_NAMES = ("도시대기", "교외대기")
@@ -197,15 +203,17 @@ MONTHLY_UPSERT_SQL = """INSERT INTO air_quality_monthly
         no2 = EXCLUDED.no2"""
 
 
-def _fetch_monthly_page(mm: str, page: int) -> tuple[list[dict], int]:
-    """단일 월(mm) 무필터 페이지 조회 — inqBginMm=inqEndMm=mm (모듈 docstring 근거 참조)."""
+def _fetch_monthly_page(
+    begin_mm: str, end_mm: str, page: int
+) -> tuple[list[dict], int]:
+    """기간(begin_mm~end_mm) 무필터 페이지 조회. (items, totalCount) 반환."""
     params = {
         "serviceKey": DATA_GO_KR_API_KEY,
         "returnType": "json",
         "numOfRows": str(MAX_ROWS_PER_PAGE),
         "pageNo": str(page),
-        "inqBginMm": mm,
-        "inqEndMm": mm,
+        "inqBginMm": begin_mm,
+        "inqEndMm": end_mm,
     }
     body = _request_json(MONTHLY_STATS_URL, params)
     return body.get("items", []), int(body.get("totalCount", 0))
@@ -238,19 +246,6 @@ def _to_monthly_row(item: dict) -> tuple | None:
     )
 
 
-def _month_list(begin_mm: str, end_mm: str) -> list[str]:
-    """'YYYYMM' 구간(포함) → 월 목록."""
-    y, m = int(begin_mm[:4]), int(begin_mm[4:6])
-    end_y, end_m = int(end_mm[:4]), int(end_mm[4:6])
-    months = []
-    while (y, m) <= (end_y, end_m):
-        months.append(f"{y:04d}{m:02d}")
-        m += 1
-        if m > 12:
-            m, y = 1, y + 1
-    return months
-
-
 def _default_month_window(months_back: int) -> tuple[str, str]:
     """오늘 기준 최근 months_back개월 'YYYYMM' 구간(포함)."""
     today = date.today()
@@ -265,42 +260,54 @@ def _default_month_window(months_back: int) -> tuple[str, str]:
 def fetch_monthly(
     conn, logger, begin_mm: str | None = None, end_mm: str | None = None
 ) -> dict:
-    """월평균 수집. 기본 구간: 최근 DEFAULT_LOOKBACK_MONTHS개월.
+    """월평균 기간(begin_mm~end_mm) 무필터 페이징 수집. 기본: 최근 DEFAULT_LOOKBACK_MONTHS개월.
 
-    보유 윈도우가 실제로는 ~4개월뿐이라(PoC 실측) 그 밖 월은 totalCount=0 으로
-    자연 skip 된다 — 에러 아님. 월 단위 개별 호출(모듈 docstring 근거 참조).
+    보유 윈도우가 실제로는 ~4개월뿐이라(PoC 실측) 그 밖 과거 월은 응답에
+    행이 없다 — 에러 아님, 자연 skip. 페이지 오프셋이 빈 월 슬롯을 포함해
+    계산되므로 앞쪽 페이지가 비어 있어도 뒤 페이지에 실데이터가 올 수 있다
+    (모듈 docstring 실측 근거 참조) — 종료 판정은 누적 수신 >= totalCount.
     """
     if end_mm is None or begin_mm is None:
         default_begin, default_end = _default_month_window(DEFAULT_LOOKBACK_MONTHS)
         begin_mm = begin_mm or default_begin
         end_mm = end_mm or default_end
 
-    fetched = skipped = upserted = 0
-    for mm in _month_list(begin_mm, end_mm):
-        month_rows: list[tuple] = []
-        page = 1
-        while True:
-            items, total = _fetch_monthly_page(mm, page)
-            time.sleep(DATA_GO_KR_RATE)
-            if not items:
-                break
-            for item in items:
-                fetched += 1
-                row = _to_monthly_row(item)
-                if row is None:
-                    skipped += 1
-                    continue
-                month_rows.append(row)
-            if page * MAX_ROWS_PER_PAGE >= total:
-                break
-            page += 1
+    fetched = skipped = 0
+    rows: list[tuple] = []
+    page = 1
+    while page <= MAX_MONTHLY_PAGES:
+        items, total = _fetch_monthly_page(begin_mm, end_mm, page)
+        time.sleep(DATA_GO_KR_RATE)
+        if total == 0:
+            break
+        for item in items:
+            fetched += 1
+            row = _to_monthly_row(item)
+            if row is None:
+                skipped += 1
+                continue
+            rows.append(row)
+        logger.info(
+            f"  {begin_mm}~{end_mm} {page}p: {len(items):,}건 (누적 {fetched:,}/{total:,})"
+        )
+        if fetched >= total:
+            break
+        page += 1
+    else:
+        # 페이지 상한 도달 — totalCount 미달인데 종료. 서버 페이징 이상 신호.
+        logger.warning(
+            f"월평균 페이징 상한(MAX_MONTHLY_PAGES={MAX_MONTHLY_PAGES}) 도달 — "
+            f"수신 {fetched:,}/{total:,}건, 부분 적재로 진행"
+        )
 
-        if month_rows:
-            upserted += execute_values_chunked(conn, MONTHLY_UPSERT_SQL, month_rows)
-        logger.info(f"  {mm}: {len(month_rows):,}건 upsert (totalCount {total:,})")
+    upserted = execute_values_chunked(conn, MONTHLY_UPSERT_SQL, rows) if rows else 0
 
+    month_counts: dict[str, int] = {}
+    for row in rows:
+        month_counts[row[1]] = month_counts.get(row[1], 0) + 1
     logger.info(
-        f"월평균 수집 완료: 조회 {fetched:,} / 적재 {upserted:,} / 식별자결측skip {skipped:,}"
+        f"월평균 수집 완료: 조회 {fetched:,} / 적재 {upserted:,} / 식별자결측skip {skipped:,} "
+        f"/ 월별 {dict(sorted(month_counts.items()))}"
     )
     return {"fetched": fetched, "upserted": upserted, "skipped": skipped}
 
