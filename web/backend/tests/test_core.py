@@ -1465,6 +1465,21 @@ def test_air_quality_loaded():
     assert 40 <= scored["avg"] <= 60, f"백분위 평균 이탈: {scored['avg']}"
 
 
+@test("Phase2: nature 재설계 가중치 (park+score_air)")
+def test_nature_weights_redesigned():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, extra FROM common_code WHERE code LIKE %s", ["nature:%"]
+    ).fetchall()
+    conn.close()
+    weights = {r["code"].split(":", 1)[1]: float(r["extra"]) for r in rows}
+    assert set(weights) == {"park", "score_air"}, f"축 구성 이탈: {set(weights)}"
+    assert weights["park"] >= 0.55 and weights["score_air"] >= 0.35
+    assert abs(sum(weights.values()) - 1.0) < 0.02
+
+
 # ============================================================
 # 실행
 # ============================================================

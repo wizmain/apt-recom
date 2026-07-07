@@ -6,6 +6,9 @@ const SYNTHETIC_LABELS: Record<string, string> = {
   score_jeonse: '전세가율',
   score_safety: '안전점수',
   score_crime: '치안',
+  score_air: '대기질',
+  score_elevator: '승강기',
+  score_parking: '주차 여유',
 };
 
 /** 순위 배지(1~3위), 그 외 숫자 */
