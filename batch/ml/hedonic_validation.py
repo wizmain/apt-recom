@@ -184,10 +184,18 @@ def load_dataset(conn, logger):
         )
         bldg[pnu] = (float(ratio) if ratio is not None else None, elevator_ratio)
 
+    # 대기질 축 (Phase 2-4) — apt_air_score.avg_pm25(측정소 최근접 매핑 보유월 평균).
+    # bldg_parking_ratio 와 동일 패턴: 결측(측정소 무매핑/데이터 없음)은 표본
+    # 중앙값으로 대체 — 0 대체는 "대기질 최상"으로 오인되어 계수를 왜곡한다.
+    cur.execute("SELECT pnu, avg_pm25 FROM apt_air_score")
+    air_pm25_map: dict[str, float | None] = {
+        pnu: float(pm25) if pm25 is not None else None for pnu, pm25 in cur.fetchall()
+    }
+
     feature_names = []
     for s in FEATURE_SUBTYPES:
         feature_names += [f"dist_{s}", f"cnt1km_{s}"]
-    feature_names += ["bldg_parking_ratio", "bldg_elevator_ratio"]
+    feature_names += ["bldg_parking_ratio", "bldg_elevator_ratio", "air_pm25"]
     feature_names += ["age", "hhld", "floor", "area"]
 
     rows_y, rows_x, sggs = [], [], []
@@ -205,13 +213,14 @@ def load_dataset(conn, logger):
             xrow.append(float(cnt or 0))
         parking_ratio, elevator_ratio = bldg.get(pnu, (None, None))
         xrow += [parking_ratio, elevator_ratio]  # None 은 아래에서 중앙값 대체
+        xrow.append(air_pm25_map.get(pnu))  # None 은 아래에서 중앙값 대체
         xrow += [float(age), float(hhld), float(floor), float(area)]
         rows_y.append(math.log(price))
         rows_x.append(xrow)
         sggs.append(sgg[:5])
 
     x_arr = np.array(rows_x, dtype=float)  # None → np.nan
-    for col_name in ("bldg_parking_ratio", "bldg_elevator_ratio"):
+    for col_name in ("bldg_parking_ratio", "bldg_elevator_ratio", "air_pm25"):
         idx = feature_names.index(col_name)
         col = x_arr[:, idx]
         median = float(np.nanmedian(col)) if not np.all(np.isnan(col)) else 0.0

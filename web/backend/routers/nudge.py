@@ -360,6 +360,29 @@ def nudge_score(
                         row["parking_per_hhld"]
                     )
 
+        # 4g. Air quality scores (에어코리아 PM2.5 백분위 — Phase 2-4)
+        nature_nudges = {"nature"}
+        if nature_nudges & set(req.nudges):
+            for i in range(0, len(pnu_list), chunk_size):
+                chunk = pnu_list[i : i + chunk_size]
+                ph = ",".join(["%s"] * len(chunk))
+                # try 는 조회만 감싼다 — 4f 와 동일하게 테이블 미생성 환경은
+                # 4e 결측 중립화에 위임하고, 행 처리 로직 버그는 감추지 않는다.
+                try:
+                    rows = conn.execute(
+                        f"SELECT pnu, score_air FROM apt_air_score WHERE pnu IN ({ph})",
+                        chunk,
+                    ).fetchall()
+                except Exception:
+                    logger.warning(
+                        "apt_air_score 조회 실패 — 4e 중립화로 위임", exc_info=True
+                    )
+                    rows = []
+                for row in rows:
+                    pnu = row["pnu"]
+                    fscores = apt_facility_scores.setdefault(pnu, {})
+                    fscores["score_air"] = row["score_air"] or 50.0
+
         # 4e. score_* pseudo-subtype 결측 중립화 — 원천 테이블(apt_price_score /
         # apt_safety_score / sigungu_crime_detail)에 해당 아파트·시군구가 없으면
         # 데이터 미보유이므로 0점 페널티 대신 중립 점수를 적용한다 (4a 와 동일 정책).
