@@ -1524,6 +1524,23 @@ def test_vworld_image_params():
         vi.VWORLD_API_KEY = orig
 
 
+@test("MCP detail 이미지 첨부: 텍스트 JSON + 이미지 블록")
+def test_mcp_detail_with_image():
+    import json as _json
+
+    from mcp.server.fastmcp import Image as McpImage
+
+    import mcp_server
+
+    result = asyncio.run(mcp_server.get_apartment_detail.__wrapped__("정원파인즈15차"))
+    # log_mcp_call 데코레이터 아래의 원함수 규약: [str(JSON), Image] 또는 [str]
+    assert isinstance(result, list) and result, "콘텐츠 블록 리스트여야 함"
+    detail = _json.loads(result[0])
+    assert "basic" in detail, "기존 JSON 텍스트 계약 유지"
+    images = [b for b in result if isinstance(b, McpImage)]
+    assert images, "좌표 보유 단지는 이미지 블록 포함 (V-World 정상 시)"
+
+
 # ============================================================
 # 실행
 # ============================================================
