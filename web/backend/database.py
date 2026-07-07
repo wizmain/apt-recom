@@ -536,6 +536,53 @@ def create_tables(conn) -> None:
             updated_at TIMESTAMPTZ DEFAULT NOW()
         );
 
+        -- 에어코리아 대기질 (라이프점수 Phase 2-4: score_air pseudo-subtype)
+        -- 수집: batch/quarterly/collect_air_quality.py (측정소 + 월평균 누적 → apt 점수)
+        -- 통계 API 보유 윈도우가 최근 ~4개월뿐이라 quarterly 마다 월평균을 upsert
+        -- 누적하며, score_air 는 보유 구간 평균의 백분위(역방향)로 계산한다.
+        CREATE TABLE IF NOT EXISTS air_quality_station (
+            station_name TEXT PRIMARY KEY,           -- API msrstnName (자연키, 원본 키 보존)
+            addr TEXT,
+            lat DOUBLE PRECISION NOT NULL,           -- API dmX (명명 반전 주의)
+            lng DOUBLE PRECISION NOT NULL,           -- API dmY
+            mang_name TEXT,                          -- 측정망 구분 (도시대기/도로변대기/...)
+            measured_items TEXT,                     -- API item 원문 (PM2.5 미측정소 식별용)
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS air_quality_monthly (
+            id SERIAL PRIMARY KEY,
+            station_name TEXT NOT NULL,
+            measure_month CHAR(7) NOT NULL,          -- API msurMm 'YYYY-MM' 원형
+            pm25 DOUBLE PRECISION,                   -- 결측 NULL (0 강제 금지)
+            pm10 DOUBLE PRECISION,
+            o3 DOUBLE PRECISION,
+            no2 DOUBLE PRECISION,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (station_name, measure_month)
+        );
+        CREATE INDEX IF NOT EXISTS idx_air_monthly_station ON air_quality_monthly (station_name);
+
+        CREATE TABLE IF NOT EXISTS apt_air_score (
+            -- pnu TEXT (apt_safety_score/apt_building_register 관례 준용) —
+            -- apartments.pnu 는 TEXT 이며 정식 PNU(19자리) 외에 합성 키
+            -- ('TRADE_...', 최대 45자)도 존재해 VARCHAR(19)로는 저장이
+            -- 불가능하다(2026-07-07 실측: StringDataRightTruncation).
+            pnu TEXT PRIMARY KEY,
+            station_name TEXT,
+            station_distance_m DOUBLE PRECISION,
+            avg_pm25 DOUBLE PRECISION,               -- 보유 월평균 단순 평균
+            month_count INTEGER,                     -- 평균에 쓰인 월 수 (윈도우 성숙도)
+            score_air DOUBLE PRECISION,              -- (1 - pctrank(avg_pm25)) * 100
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        -- 최초 배포 시 VARCHAR(19)로 생성된 환경(2026-07-07 이전) 보정용 —
+        -- 이미 TEXT 인 경우 no-op, 멱등.
+        ALTER TABLE apt_air_score ALTER COLUMN pnu TYPE TEXT;
+
         CREATE TABLE IF NOT EXISTS apt_vectors (
             pnu TEXT PRIMARY KEY,
             vector DOUBLE PRECISION[] NOT NULL,

@@ -293,7 +293,7 @@ def test_tool_search_with_filter():
     results = data.get("results", [])
     for r in results:
         assert "우성아파트상가" not in r["bld_nm"], (
-            f"챗봇 search: 우성아파트상가(1984)가 2011이후 필터 통과"
+            "챗봇 search: 우성아파트상가(1984)가 2011이후 필터 통과"
         )
 
 
@@ -1439,6 +1439,33 @@ def test_hospital_weights_applied():
 
 
 # ============================================================
+# 라이프점수 Phase 2-4 (2026-07-07) — 에어코리아 대기질
+# ============================================================
+
+
+@test("Phase2: 대기질 측정소/월평균/아파트 점수 적재")
+def test_air_quality_loaded():
+    from database import DictConnection
+
+    conn = DictConnection()
+    stations = conn.execute(
+        "SELECT COUNT(*) AS c FROM air_quality_station WHERE is_active"
+    ).fetchone()["c"]
+    monthly = conn.execute(
+        "SELECT COUNT(DISTINCT measure_month) AS c FROM air_quality_monthly"
+    ).fetchone()["c"]
+    scored = conn.execute(
+        "SELECT COUNT(*) AS c, AVG(score_air) AS avg FROM apt_air_score "
+        "WHERE score_air IS NOT NULL"
+    ).fetchone()
+    conn.close()
+    assert stations >= 500, f"측정소 부족: {stations}"
+    assert monthly >= 3, f"월평균 누적 부족: {monthly}개월"
+    assert scored["c"] >= 30_000, f"아파트 점수 부족: {scored['c']}"
+    assert 40 <= scored["avg"] <= 60, f"백분위 평균 이탈: {scored['avg']}"
+
+
+# ============================================================
 # 실행
 # ============================================================
 
@@ -1858,7 +1885,7 @@ if __name__ == "__main__":
     print(f"\n{'=' * 60}")
     print(f"결과: ✅ {passed} 통과 / ❌ {failed} 실패 / 총 {passed + failed}")
     if errors:
-        print(f"\n실패 목록:")
+        print("\n실패 목록:")
         for e in errors:
             print(f"  • {e}")
     print("=" * 60)

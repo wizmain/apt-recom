@@ -266,6 +266,26 @@ def run_quarterly(args, logger, result):
             logger.warning(f"심평원 병원 수집/부분 집계 실패: {e}")
             result.record("심평원 병원 수집/부분 집계", "warning", error=str(e))
 
+        # 7. 에어코리아 대기질(PM2.5) 수집 + apt_air_score 재계산 (라이프점수
+        #    Phase 2-4). 측정소/월평균 수집부터 score_air 산출까지 단일 함수로
+        #    캡슐화되어 있어 5/6단계와 달리 별도 부분 집계 호출이 불필요하다.
+        #    실패해도 quarterly 본연 기능(시설/배정초교)을 해치지 않도록
+        #    warning 으로 격리.
+        try:
+            from batch.quarterly.collect_air_quality import collect_air_quality
+
+            t0 = time.time()
+            air_stats = collect_air_quality(conn, logger)
+            result.record(
+                "에어코리아 대기질 수집 + apt_air_score",
+                "success",
+                rows=air_stats["scored"],
+                duration=time.time() - t0,
+            )
+        except Exception as e:
+            logger.warning(f"대기질 수집/점수 재계산 실패: {e}")
+            result.record("대기질 수집/점수 재계산", "warning", error=str(e))
+
     except Exception as e:
         logger.error(f"Quarterly 배치 실패: {e}")
         result.record("Quarterly 배치", "critical", error=str(e))
