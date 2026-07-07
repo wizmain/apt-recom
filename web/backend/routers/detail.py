@@ -2,7 +2,7 @@
 
 import threading
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
 from database import DictConnection
 from services.activity_log import log_event
 from services.identity import get_user_identifier
@@ -12,8 +12,13 @@ from services.scoring import (
     get_nudge_weights,
     calculate_nudge_score,
 )
+from services import vworld_image
 
 router = APIRouter()
+
+AERIAL_IMAGE_ZOOM_MIN = 14
+AERIAL_IMAGE_ZOOM_MAX = 19
+AERIAL_IMAGE_CACHE_CONTROL = "public, max-age=86400"
 
 
 # 시군구·월 단위 관리비 percentile 결과 캐시 (process-lifetime).
@@ -577,3 +582,43 @@ def apartment_trades(
         return {"trades": [dict(r) for r in trades], "rents": [dict(r) for r in rents]}
     finally:
         conn.close()
+
+
+@router.get("/apartment/{pnu}/aerial-image")
+def apartment_aerial_image(
+    pnu: str,
+    zoom: int = Query(
+        vworld_image.DEFAULT_ZOOM,
+        description="V-World 줌 레벨 (14~19 범위로 클램프)",
+    ),
+):
+    """PNU 기준 좌표의 V-World 항공영상을 프록시로 반환.
+
+    - 아파트 좌표 미보유(404): 상세 조회 자체가 불가능한 케이스.
+    - V-World 실패(503): 키 미설정/장애/응답 이상 — 이미지는 부가 정보이므로
+      프론트가 이미지 영역을 생략할 수 있도록 구분된 상태코드로 응답.
+    """
+    clamped_zoom = max(AERIAL_IMAGE_ZOOM_MIN, min(AERIAL_IMAGE_ZOOM_MAX, zoom))
+
+    conn = DictConnection()
+    try:
+        row = conn.execute(
+            "SELECT lat, lng FROM apartments WHERE pnu = %s", [pnu]
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row or row["lat"] is None or row["lng"] is None:
+        raise HTTPException(status_code=404, detail="Apartment coordinates not found")
+
+    image_bytes = vworld_image.fetch_aerial_image(
+        row["lat"], row["lng"], zoom=clamped_zoom
+    )
+    if image_bytes is None:
+        raise HTTPException(status_code=503, detail="Aerial image unavailable")
+
+    return Response(
+        content=image_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": AERIAL_IMAGE_CACHE_CONTROL},
+    )
