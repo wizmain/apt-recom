@@ -297,6 +297,24 @@ def test_tool_search_with_filter():
         )
 
 
+@test("MCP executor 와 웹 점수 조립 동등성 (score_air 반영)")
+def test_mcp_web_score_parity():
+    from services import tools
+
+    r = json.loads(
+        asyncio.run(tools.search_apartments(keyword="제주시", nudges=["nature"], top_n=3))
+    )
+    rows = r["results"]
+    assert rows, "제주시 nature 검색 0건"
+    # score_air(가중 .40)가 조립에 포함되면 park 단독 상한(60점 내외)을 넘는다
+    assert rows[0]["score"] > 80, f"MCP nature 에 score_air 미반영 의심: {rows[0]}"
+
+    r2 = json.loads(
+        asyncio.run(tools.search_apartments(keyword="청주", nudges=["senior"], top_n=3))
+    )
+    assert r2["results"], "시군구명 '청주' 매칭 실패 (resolve_sigungu_codes 미적용)"
+
+
 @test("챗봇: search_commute 실행 (ODSay)")
 def test_tool_commute():
     from services.tools import search_commute

@@ -3,10 +3,9 @@
 import json
 
 from database import DictConnection
+from services.facility_scores import build_facility_scores, resolve_sigungu_codes
 from services.scoring import (
     get_nudge_weights,
-    get_region_profile,
-    facility_score,
     calculate_nudge_score,
     calculate_multi_nudge_score,
 )
@@ -245,6 +244,42 @@ def _infer_nudges_from_keyword(keyword: str) -> list[str]:
     return inferred
 
 
+def _fetch_apartments_by_region(conn, keyword: str, sgg_codes: list[str]) -> list[dict]:
+    """주소/단지명 LIKE 와 시군구코드 매칭을 OR 로 결합해 아파트를 조회한다.
+
+    조회 조건(WHERE 절)은 nudge.py 의 키워드 매칭과 동일 semantics 이나,
+    LIMIT 100 은 MCP 검색 도구(top_n 소규모 응답) 관례로 여기서만 적용한 것이며
+    nudge.py 는 결과 개수 제한 없이 전체를 조회한다 — 차이 유의.
+
+    발동 조건: search_engine.search() 의 region_candidates 가 실제로는 동명이인이
+    아니라 상위 지역 하나(예: 청주시)가 외부 API 통합코드 미지원으로 하위 구
+    단위 코드 여러 개로 쪼개져 있어서 발생한 경우. 이때는 사용자에게 재확인을
+    요구하지 않고 시군구코드 전체를 병합해 재조회한다.
+    """
+    import re
+
+    norm_kw = re.sub(r"[\s()\-·]", "", keyword)
+    pattern = f"%{keyword}%"
+    or_clauses = [
+        "(new_plat_plc LIKE %s OR plat_plc LIKE %s OR bld_nm LIKE %s OR bld_nm_norm LIKE %s OR display_name LIKE %s)"
+    ]
+    params: list = [pattern, pattern, pattern, f"%{norm_kw}%", pattern]
+    if sgg_codes:
+        ph_sgg = ",".join(["%s"] * len(sgg_codes))
+        or_clauses.append(f"sigungu_code IN ({ph_sgg})")
+        params.extend(sgg_codes)
+
+    sql = (
+        "SELECT pnu, COALESCE(display_name, bld_nm) AS bld_nm, lat, lng, "
+        "total_hhld_cnt, new_plat_plc, sigungu_code FROM apartments "
+        "WHERE lat IS NOT NULL AND pnu NOT LIKE 'TRADE_%%' AND total_hhld_cnt > 0 "
+        "AND use_apr_day IS NOT NULL AND use_apr_day != '' "
+        f"AND ({' OR '.join(or_clauses)}) LIMIT 100"
+    )
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
 async def search_apartments(
     keyword: str,
     nudges: list[str] | None = None,
@@ -272,7 +307,19 @@ async def search_apartments(
         raw_results = search_result["results"]
         region_candidates = search_result.get("region_candidates")
 
-        # 다중 지역 후보가 있으면 사용자에게 선택 요청
+        # 상위 지역 하나가 하위 시군구코드 여러 개로 쪼개져 후보로 잡힌 경우
+        # (예: 청주시 → 상당구/서원구/흥덕구/청원구, API 통합코드 미지원) 는
+        # 진짜 동명이인이 아니므로 사용자 확인 없이 병합해 재조회한다.
+        if region_candidates:
+            region_prefixes = {
+                c["label"].rsplit(" ", 1)[0] for c in region_candidates if c.get("label")
+            }
+            if len(region_prefixes) == 1:
+                sgg_codes = resolve_sigungu_codes(conn, [keyword])
+                raw_results = _fetch_apartments_by_region(conn, keyword, sgg_codes)
+                region_candidates = None
+
+        # 다중 지역 후보(서로 다른 지역 간 동명이인)가 남아있으면 사용자에게 선택 요청
         if region_candidates:
             # 각 후보에 재검색 keyword 추가 (LLM이 바로 사용 가능)
             for c in region_candidates:
@@ -347,82 +394,8 @@ async def search_apartments(
         pnu_list = [a["pnu"] for a in apartments]
         apt_map = {a["pnu"]: a for a in apartments}
 
-        # Collect relevant subtypes
-        all_subtypes = set()
-        for nid in nudges:
-            all_subtypes.update(get_nudge_weights().get(nid, {}).keys())
-
-        # Load facility summaries
-        chunk_size = 500
-        summary_rows = []
-        for i in range(0, len(pnu_list), chunk_size):
-            chunk = pnu_list[i : i + chunk_size]
-            ph_pnu = ",".join("%s" for _ in chunk)
-            ph_sub = ",".join("%s" for _ in all_subtypes)
-            if all_subtypes:
-                rows = conn.execute(
-                    f"SELECT pnu, facility_subtype, nearest_distance_m, count_1km "
-                    f"FROM apt_facility_summary "
-                    f"WHERE pnu IN ({ph_pnu}) AND facility_subtype IN ({ph_sub})",
-                    chunk + list(all_subtypes),
-                ).fetchall()
-                summary_rows.extend(rows)
-
-        # Build facility scores (프로필별 파라미터 적용)
-        pnu_profiles = {
-            pnu: get_region_profile(apt_map[pnu].get("sigungu_code"))
-            for pnu in pnu_list
-        }
-        apt_facility_scores: dict[str, dict[str, float]] = {}
-        for row in summary_rows:
-            pnu = row["pnu"]
-            if pnu not in apt_facility_scores:
-                apt_facility_scores[pnu] = {}
-            apt_facility_scores[pnu][row["facility_subtype"]] = facility_score(
-                row["nearest_distance_m"],
-                row["count_1km"],
-                row["facility_subtype"],
-                profile=pnu_profiles.get(pnu, "metro"),
-            )
-
-        # Load price scores if needed
-        price_nudges = {"cost", "investment"}
-        if price_nudges & set(nudges):
-            for i in range(0, len(pnu_list), chunk_size):
-                chunk = pnu_list[i : i + chunk_size]
-                ph = ",".join("%s" for _ in chunk)
-                try:
-                    rows = conn.execute(
-                        f"SELECT pnu, price_score, jeonse_ratio FROM apt_price_score WHERE pnu IN ({ph})",
-                        chunk,
-                    ).fetchall()
-                    for row in rows:
-                        pnu = row["pnu"]
-                        if pnu not in apt_facility_scores:
-                            apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["score_price"] = row["price_score"] or 50.0
-                        apt_facility_scores[pnu]["score_jeonse"] = row["jeonse_ratio"] or 50.0
-                except Exception:
-                    pass
-
-        # Load safety scores if needed
-        safety_nudges = {"cost", "newlywed", "senior"}
-        if safety_nudges & set(nudges):
-            for i in range(0, len(pnu_list), chunk_size):
-                chunk = pnu_list[i : i + chunk_size]
-                ph = ",".join("%s" for _ in chunk)
-                try:
-                    rows = conn.execute(
-                        f"SELECT pnu, safety_score FROM apt_safety_score WHERE pnu IN ({ph})",
-                        chunk,
-                    ).fetchall()
-                    for row in rows:
-                        pnu = row["pnu"]
-                        if pnu not in apt_facility_scores:
-                            apt_facility_scores[pnu] = {}
-                        apt_facility_scores[pnu]["score_safety"] = row["safety_score"] or 50.0
-                except Exception:
-                    pass
+        # 시설/가격/안전/범죄/건축물대장/대기질 점수 조립 — 웹(nudge.py)과 공용 서비스로 위임
+        apt_facility_scores = build_facility_scores(conn, pnu_list, nudges, apt_map)
 
         # Calculate scores
         results = []
@@ -504,39 +477,25 @@ async def get_apartment_detail(query: str) -> str:
             for row in summary_rows
         }
 
-        detail_profile = get_region_profile(apt.get("sigungu_code"))
-        facility_scores = {
-            row["facility_subtype"]: facility_score(
-                row["nearest_distance_m"],
-                row["count_1km"],
-                row["facility_subtype"],
-                profile=detail_profile,
-            )
-            for row in summary_rows
-        }
+        # 시설/가격/안전/범죄/건축물대장/대기질 점수 조립 — 웹(nudge.py)과 공용 서비스로 위임.
+        # 전체 넛지 점수를 계산하므로 nudge_ids 는 등록된 넛지 전체를 넘긴다.
+        # 단일 pnu 만 조회하는 풀이므로 build_facility_scores 의 4a(지역 프로필 중립화)는
+        # "이 아파트에 apt_facility_summary 행이 없는 축 = 중립(50)"으로 동작한다.
+        # 목록 검색(search_apartments, 후보군 풀 전체 대상)과는 중립화 semantics 가 다를 수 있음 — 의도된 선택.
+        all_nudge_ids = list(get_nudge_weights().keys())
+        facility_scores = build_facility_scores(
+            conn, [pnu], all_nudge_ids, {pnu: apt}
+        ).get(pnu, {})
 
-        # Price score
+        # Price info (표시용 — price_per_m2 는 score 조립에 쓰이지 않으므로 별도 조회)
         price_row = conn.execute(
             "SELECT price_score, jeonse_ratio, price_per_m2 FROM apt_price_score WHERE pnu = %s",
             [pnu],
         ).fetchone()
-        if price_row:
-            facility_scores["score_price"] = price_row["price_score"] or 50.0
-            facility_scores["score_jeonse"] = price_row["jeonse_ratio"] or 50.0
-
-        # Safety score
-        try:
-            safety_row = conn.execute(
-                "SELECT safety_score FROM apt_safety_score WHERE pnu = %s", [pnu]
-            ).fetchone()
-            if safety_row:
-                facility_scores["score_safety"] = safety_row["safety_score"] or 50.0
-        except Exception:
-            safety_row = None
 
         # Nudge scores
         scores = {
-            nid: calculate_nudge_score(facility_scores, nid) for nid in get_nudge_weights()
+            nid: calculate_nudge_score(facility_scores, nid) for nid in all_nudge_ids
         }
 
         # School zone

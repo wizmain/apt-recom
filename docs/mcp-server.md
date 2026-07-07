@@ -118,6 +118,7 @@ agent:
 - 마운트: `main.py` 에서 `app.mount("/mcp", mcp_asgi_app)`
 - Lifespan: FastAPI 메인 lifespan 이 `_mcp.session_manager.run()` 을 감싸 관리
 - Tool 실행: 기존 `services/tools.py` 의 async executor 를 얇게 래핑 (중복 코드 없음)
+- 점수 산출: `services/facility_scores.py` 공용 모듈로 웹(`routers/nudge.py`)과 동일 파이프라인을 사용 — nature 재설계 등 스코어링 개선이 MCP/챗봇에도 자동 반영된다.
 
 ## 로드맵
 
