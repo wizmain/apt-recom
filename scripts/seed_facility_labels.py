@@ -1,9 +1,9 @@
-"""common_code(facility_label) 누락 라벨 시드 — Phase 1~2 신규 subtype 8종.
+"""common_code(facility_label) 누락 라벨 시드 — Phase 1~2 신규 subtype 9종.
 
 아파트 상세 주변시설/가중치 UI 는 common_code('facility_label') 로 표시명을
-매핑하는데(useCodes), Phase 1(배정초교)·Phase 2(상가/병원) subtype 은 라벨이
-누락되어 영문 subtype 이 그대로 노출된다. 관례: code=subtype, name=한글 표시명,
-extra=facility_type (facilities 테이블의 실제 type 과 일치).
+매핑하는데(useCodes), Phase 1(배정초교)·Phase 2(상가/병원/학원) subtype 은
+라벨이 누락되어 영문 subtype 이 그대로 노출된다. 관례: code=subtype, name=한글
+표시명, extra=facility_type (facilities 테이블의 실제 type 과 일치).
 
 멱등: ON CONFLICT (group_id, code) DO UPDATE — 재실행 안전.
 
@@ -33,6 +33,7 @@ FACILITY_LABELS = [
     ("pediatric_clinic", "소아청소년과", "medical"),
     ("obgyn_clinic", "산부인과", "medical"),
     ("general_hospital", "종합병원", "medical"),
+    ("academy", "학원", "education"),
 ]
 
 UPSERT_SQL = (

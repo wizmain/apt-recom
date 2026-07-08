@@ -101,6 +101,12 @@ _DEFAULT_FACILITY_DECAY: dict[str, float] = {
     "pediatric_clinic": 500,  # 일상 통원(예방접종 등) — 도보~단거리 통원권 중심
     "obgyn_clinic": 700,  # 정기 산전관리 — 소아과보다 넓은 통원권 허용
     "general_hospital": 1500,  # 응급/중증 대응 — 광역 시설, provincial 배율로 추가 확장
+    # NEIS 학원(입시.검정 및 보습) (Phase 2-5) — decay 는 school(400)/library(350)
+    # 보다 넓게 잡는다: 학원은 "가장 가까운 곳"이 아니라 강사진/입시 실적 등으로
+    # 동네 경계를 넘어 선택하는 통학권이 흔함(obgyn_clinic=700 과 동일한 넓은
+    # 통원권 성격) — 도보 통학권보다 관대한 감쇠로 원거리 유명 학원가도
+    # 일정 점수를 유지하도록 한다.
+    "academy": 700,
 }
 
 # 시설별 밀도 환산 계수 (count_1km × factor → 0~100 점수)
@@ -151,6 +157,24 @@ _DEFAULT_DENSITY_FACTOR: dict[str, float] = {
     #   9.2%/서울 6.7% 로 매우 낮아 "가까이 있으면 확실히 우대"하는 응급/중증
     #   대응 성격에 부합.
     "general_hospital": 60,
+    # NEIS 학원(입시.검정 및 보습) (Phase 2-5) — factor 결정 근거 (전국 실측,
+    # apt_facility_summary 35,696행, count_1km 분포: p10=7/p25=17/p50=32/p75=52/
+    # p90=77/p95=97/p99=146/max=461. 압축 semantics 주의: facilities 는 좌표
+    # UNIQUE 로 같은 건물 학원을 대표 1건으로 압축하므로 count_1km 은 "학원 실개수"가
+    # 아니라 "학원 보유 지점 수"다.
+    #   DENSITY_MULTIPLIER 적용 후 min(100, count_1km*factor*mult) 포화율(캡 도달
+    #   비율, factor 후보별):
+    #     factor=2 → 전국 39.1%/서울 54.7%, factor=1.5 → 24.8%/36.4%,
+    #     factor=1 → 전국 9.5%/서울 12.5% (metro 5.9%/major_city 16.6%/
+    #     provincial 10.7%), factor=0.75 → 3.8%/5.4%.
+    #   cafe(factor=3, 전국 83.5%/서울 96.1%)나 최초 채택 전 pediatric_clinic
+    #   후보(factor=10, 71.0%/91.1%)수준의 포화는 "카페급 변별력 상실"에
+    #   해당한다 — 학원은 count_1km 원본 스케일 자체가 병원/상가류보다 한 자릿수
+    #   위(중앙값 32 vs 병원류 단자릿수)라 같은 factor 크기를 적용하면 즉시
+    #   과포화된다. factor=1 은 nationwide 포화가 p95(97)~p99(146) 구간, 즉
+    #   "실제 학원가(대치동 등 상위 5% 지점)"에서만 만점에 도달하고 중앙값(32)
+    #   근방 다수 아파트는 32~52점대로 완만하게 분포해 변별력을 유지한다.
+    "academy": 1,
 }
 
 # 프로필별 배율 (metro=1.0 기준)
