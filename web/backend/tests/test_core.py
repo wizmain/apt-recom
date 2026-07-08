@@ -1500,6 +1500,19 @@ def test_nature_weights_redesigned():
     assert abs(sum(weights.values()) - 1.0) < 0.02
 
 
+@test("Phase2: NEIS 학원(입시·보습) 적재")
+def test_academy_facilities_loaded():
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        "SELECT COUNT(*) AS c FROM facilities "
+        "WHERE facility_subtype = 'academy' AND is_active",
+    ).fetchone()
+    conn.close()
+    assert row["c"] >= 60_000, f"학원 부족: {row['c']}"
+
+
 # ============================================================
 # V-World 항공영상 (2026-07-08)
 # ============================================================
