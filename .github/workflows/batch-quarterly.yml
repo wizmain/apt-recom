@@ -26,3 +26,5 @@ jobs:
           DATA_GO_KR_API_THIRD_KEY: ${{ secrets.DATA_GO_KR_API_THIRD_KEY }}
           KAKAO_API_KEY: ${{ secrets.KAKAO_API_KEY }}
           KOSIS_API_KEY: ${{ secrets.KOSIS_API_KEY }}
+          # 8단계(NEIS 학원, Phase 2-5) — 없으면 빈 키로 조용히 실패(요청 자체가 안 됨)
+          NEIS_API_KEY: ${{ secrets.NEIS_API_KEY }}

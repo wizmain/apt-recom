@@ -300,6 +300,10 @@ def _collect_office(
                 if coord is None:
                     geocode_failed += 1
                     skipped += 1
+                    logger.info(
+                        f"  지오코딩 실패(수동 추적용): facility_id={facility_id} "
+                        f"주소='{road}'"
+                    )
                     continue
                 lat, lng = coord
                 geocoded += 1
