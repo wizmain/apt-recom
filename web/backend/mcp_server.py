@@ -20,12 +20,14 @@ Tool 선정 기준
 
 from __future__ import annotations
 
+import json
 import os
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.transport_security import TransportSecuritySettings
 
 from services import tools as tool_executors
+from services import vworld_image
 from services.mcp_logger import log_mcp_call, mcp_logging_middleware
 
 
@@ -41,8 +43,10 @@ def _build_transport_security() -> TransportSecuritySettings:
     추가 host 는 `MCP_ALLOWED_HOSTS` 환경변수 (콤마 구분) 로 확장.
     """
     defaults = [
-        "localhost:8000", "127.0.0.1:8000",
-        "localhost:8765", "127.0.0.1:8765",  # 로컬 테스트용 포트
+        "localhost:8000",
+        "127.0.0.1:8000",
+        "localhost:8765",
+        "127.0.0.1:8765",  # 로컬 테스트용 포트
         "api.apt-recom.kr",
     ]
     extra_hosts = os.getenv("MCP_ALLOWED_HOSTS", "").strip()
@@ -123,12 +127,14 @@ async def search_apartments(
 
 @mcp.tool()
 @log_mcp_call
-async def get_apartment_detail(query: str) -> str:
-    """특정 아파트의 상세 정보(기본·점수·시설·학군·거래이력 요약).
+async def get_apartment_detail(query: str, include_image: bool = True) -> list:
+    """특정 아파트의 상세 정보(기본·점수·시설·학군·거래이력 요약) + 항공영상.
 
     무엇:
         - 아파트 이름 또는 PNU 코드로 단일 단지의 전체 프로필을 반환.
         - NUDGE 점수, 시설 거리, 학군 배정, 최근 거래 요약 포함.
+        - 좌표 보유 단지는 V-World(국토부) 항공영상을 이미지 블록으로 함께 첨부.
+          항공영상에는 V-World 워터마크가 포함된다.
 
     언제:
         - 사용자가 "○○ 아파트 알려줘" / "이 단지 상세 보여줘" 라고 할 때.
@@ -137,8 +143,30 @@ async def get_apartment_detail(query: str) -> str:
     인자:
         query: 단지명(부분 일치 가능) 또는 19자리 PNU 코드.
             예: '래미안대치팰리스', '1168010100100010000'.
+        include_image: True(기본) 면 항공영상 이미지 블록을 함께 반환.
+            False 면 JSON 텍스트만 반환 (응답 크기를 줄이고 싶을 때).
+
+    반환:
+        [JSON 텍스트, (선택) 항공영상 이미지] 콘텐츠 블록 리스트.
+        좌표 없음 / V-World 장애 / include_image=False 인 경우 텍스트 블록만
+        반환한다 — 항공영상은 부가 정보이므로 이 조회 자체를 실패시키지 않는다.
     """
-    return await tool_executors.get_apartment_detail(query)
+    detail_json = await tool_executors.get_apartment_detail(query)
+    content: list = [detail_json]
+
+    if include_image:
+        try:
+            detail = json.loads(detail_json)
+        except (TypeError, ValueError):
+            detail = {}
+        basic = detail.get("basic") or {}
+        lat, lng = basic.get("lat"), basic.get("lng")
+        if lat is not None and lng is not None:
+            image_bytes = vworld_image.fetch_aerial_image(lat, lng)
+            if image_bytes is not None:
+                content.append(Image(data=image_bytes, format="jpeg"))
+
+    return content
 
 
 @mcp.tool()

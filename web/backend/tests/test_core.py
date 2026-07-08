@@ -302,7 +302,9 @@ def test_mcp_web_score_parity():
     from services import tools
 
     r = json.loads(
-        asyncio.run(tools.search_apartments(keyword="제주시", nudges=["nature"], top_n=3))
+        asyncio.run(
+            tools.search_apartments(keyword="제주시", nudges=["nature"], top_n=3)
+        )
     )
     rows = r["results"]
     assert rows, "제주시 nature 검색 0건"
@@ -1496,6 +1498,47 @@ def test_nature_weights_redesigned():
     assert set(weights) == {"park", "score_air"}, f"축 구성 이탈: {set(weights)}"
     assert weights["park"] >= 0.55 and weights["score_air"] >= 0.35
     assert abs(sum(weights.values()) - 1.0) < 0.02
+
+
+# ============================================================
+# V-World 항공영상 (2026-07-08)
+# ============================================================
+
+
+@test("VWorld 이미지: URL 파라미터 조립 + 키 미설정 None")
+def test_vworld_image_params():
+    import services.vworld_image as vi
+
+    params = vi.build_request_params(33.4856, 126.4768)
+    assert params["center"] == "126.4768,33.4856", "center 는 lng,lat 순서"
+    assert params["basemap"] == vi.DEFAULT_BASEMAP
+    assert params["crs"] == "EPSG:4326"
+    assert "key" in params
+
+    # 키 미설정 시 네트워크 시도 없이 None
+    orig = vi.VWORLD_API_KEY
+    try:
+        vi.VWORLD_API_KEY = ""
+        assert vi.fetch_aerial_image(33.4856, 126.4768) is None
+    finally:
+        vi.VWORLD_API_KEY = orig
+
+
+@test("MCP detail 이미지 첨부: 텍스트 JSON + 이미지 블록")
+def test_mcp_detail_with_image():
+    import json as _json
+
+    from mcp.server.fastmcp import Image as McpImage
+
+    import mcp_server
+
+    result = asyncio.run(mcp_server.get_apartment_detail.__wrapped__("정원파인즈15차"))
+    # log_mcp_call 데코레이터 아래의 원함수 규약: [str(JSON), Image] 또는 [str]
+    assert isinstance(result, list) and result, "콘텐츠 블록 리스트여야 함"
+    detail = _json.loads(result[0])
+    assert "basic" in detail, "기존 JSON 텍스트 계약 유지"
+    images = [b for b in result if isinstance(b, McpImage)]
+    assert images, "좌표 보유 단지는 이미지 블록 포함 (V-World 정상 시)"
 
 
 # ============================================================

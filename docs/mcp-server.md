@@ -14,7 +14,7 @@
 | 이름 | 설명 |
 |---|---|
 | `search_apartments` | 지역·단지명 키워드 + 라이프스타일 항목으로 NUDGE 스코어 순 추천 |
-| `get_apartment_detail` | 단일 아파트 전체 프로필 (기본정보·점수·시설·학군·최근 거래) |
+| `get_apartment_detail` | 단일 아파트 전체 프로필 (기본정보·점수·시설·학군·최근 거래) + 항공영상(좌표 보유 시, `include_image=False` 로 생략 가능) |
 | `compare_apartments` | 2~5개 단지 매트릭스 비교 |
 | `get_similar_apartments` | 위치/가격/라이프스타일/종합 기준 유사 단지 추천 |
 | `get_market_trend` | 지역(시군구) 월별 거래량·평균가 추이 |
@@ -22,6 +22,8 @@
 | `get_dashboard_info` | 시군구 거래 동향 대시보드 — 이번 달/전월 요약 + 월별 추이 |
 
 전체 스키마는 MCP 클라이언트의 `list_tools` 응답에서 확인.
+
+`get_apartment_detail` 의 항공영상은 국토부 V-World Open API(이용허락 제한 없음) 정사영상을 실시간 프록시로 가져오며, V-World 워터마크가 포함된다.
 
 ## 클라이언트 설정
 
@@ -108,7 +110,7 @@ agent 내부 동작:
 
 agent:
 1. `get_apartment_detail(query="쌍용플래티넘")` 호출
-2. `basic`, `nudge_scores`, `facility_summary`, `school`, `recent_trades` 분석
+2. `basic`, `nudge_scores`, `facility_summary`, `school`, `recent_trades` 분석 + 항공영상(좌표 보유 시) 확인
 3. 구조화된 요약 응답
 
 ## 서버 측 구현

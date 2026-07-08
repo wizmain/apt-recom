@@ -85,6 +85,7 @@ def parse_client_kind(user_agent: str | None) -> str:
 
 # ── IP 마스킹 ───────────────────────────────────────────────────────────────
 
+
 def _mask_ip(raw_ip: str | None) -> str | None:
     """IPv4 는 /24, IPv6 는 /48 프리픽스로 마스킹.
 
@@ -107,6 +108,7 @@ def _mask_ip(raw_ip: str | None) -> str | None:
 
 
 # ── ASGI 미들웨어 ──────────────────────────────────────────────────────────
+
 
 def _extract_request_meta(scope: dict) -> McpRequestMeta:
     """ASGI scope 의 헤더에서 (IP, UA, kind) 추출."""
@@ -155,6 +157,7 @@ def mcp_logging_middleware(app):
 
 
 # ── 데코레이터 ──────────────────────────────────────────────────────────────
+
 
 def _safe_json_arguments(kwargs: dict) -> str:
     """tool 인자를 JSONB 적재 가능한 문자열로 직렬화. 실패 시 _repr fallback."""
@@ -209,8 +212,15 @@ def log_mcp_call(func):
         @mcp.tool()
         @log_mcp_call
         async def search_apartments(...): ...
+
+    ``eval_str=True`` 필수: mcp_server.py 는 ``from __future__ import annotations``
+    를 쓰므로 어노테이션이 문자열로 저장된다. eval_str 없이 시그니처를 캡처하면
+    FastMCP 가 반환 타입을 실제 타입이 아닌 문자열("list" 등)로 인식해 의도치 않게
+    구조화 출력(output_schema)을 생성하고, `Image` 처럼 JSON 직렬화 불가능한 값이
+    포함된 반환값에서 "Unable to serialize unknown type" 오류로 도구 호출 자체가
+    실패한다 (get_apartment_detail 이미지 첨부 구현 중 발견).
     """
-    sig = inspect.signature(func)
+    sig = inspect.signature(func, eval_str=True)
 
     @functools.wraps(func)
     async def wrapper(**kwargs):
