@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from database import DictConnection
 from datetime import datetime, timedelta
+from routers.apartments import APARTMENT_VISIBLE_CONDITIONS
 
 router = APIRouter()
 
@@ -26,10 +27,29 @@ def _get_sgg_names(conn):
 
 @router.get("/dashboard/regions")
 def dashboard_regions(q: str = Query("", description="검색어")):
-    """시군구 목록 검색."""
+    """시군구 목록 검색.
+
+    apt_count: 노출 가능한 단지 수 (/apartments 목록과 동일 기준 —
+    APARTMENT_VISIBLE_CONDITIONS 공유). 강원·전북 행정코드 개편으로 신구 코드가
+    공존하는 시군구(구코드는 단지 0)가 있어, 프론트(/region)가 빈 지역을
+    목록에서 거를 수 있도록 함께 반환한다.
+    """
+    visible_where = " AND ".join(APARTMENT_VISIBLE_CONDITIONS)
     conn = DictConnection()
     rows = conn.execute(
-        "SELECT code, name, extra FROM common_code WHERE group_id = %s", ["sigungu"]
+        f"""
+        SELECT c.code, c.name, c.extra, COALESCE(ac.apt_count, 0) AS apt_count
+        FROM common_code c
+        LEFT JOIN (
+            SELECT a.sigungu_code, COUNT(*) AS apt_count
+            FROM apartments a
+            LEFT JOIN apt_kapt_info k ON a.pnu = k.pnu
+            WHERE {visible_where}
+            GROUP BY a.sigungu_code
+        ) ac ON ac.sigungu_code = c.code
+        WHERE c.group_id = %s
+        """,
+        ["sigungu"],
     ).fetchall()
     conn.close()
     results = [
@@ -38,6 +58,7 @@ def dashboard_regions(q: str = Query("", description="검색어")):
             "name": f"{r['name']}({r['extra']})"
             if r["extra"] and r["extra"] != r["name"]
             else r["name"],
+            "apt_count": r["apt_count"],
         }
         for r in rows
     ]

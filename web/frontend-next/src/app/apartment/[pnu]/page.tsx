@@ -5,6 +5,7 @@ import type {
   ApartmentDetail,
   TradesResponse,
 } from "@/types/apartment";
+import { fetchRegions, parseRegionName } from "@/app/region/_data";
 import { ApartmentDetailView } from "./_view";
 
 /**
@@ -52,6 +53,32 @@ async function fetchTrades(pnu: string): Promise<TradesResponse> {
 export async function generateStaticParams(): Promise<Array<{ pnu: string }>> {
   // TODO(Phase B 후반): 상위 도시 PNU pre-render. 현재는 on-demand ISR 전용.
   return [];
+}
+
+/** _view.tsx 와 공유하는 지역 링크 계약 — 두 곳에서 함께 변경될 가능성이 높아 단일 정의. */
+export interface ResolvedRegion {
+  code: string;
+  label: string;
+}
+
+/**
+ * 단지의 sigungu_code → 지역 허브 링크용 {code, label} 해석.
+ * region/[code]/page.tsx 의 resolveRegionName() 과 동일한 dashboard/regions
+ * 목록 조회 방식 — 별도 "코드 단건 조회" 엔드포인트가 없어 목록에서 찾는다.
+ *
+ * sigungu_code 가 없거나 regions 목록에 없으면 null 로 degrade — breadcrumb 는
+ * 2단계로, 하단 "지역 아파트 더보기" 링크는 생략된다(단지 자체 정보는 그대로 노출).
+ */
+async function resolveRegion(
+  sigunguCode: string | null | undefined,
+): Promise<ResolvedRegion | null> {
+  if (!sigunguCode) return null;
+  const regions = await fetchRegions();
+  const matched = regions.find((r) => r.code === sigunguCode);
+  if (!matched) return null;
+  const { district, parent } = parseRegionName(matched.name);
+  const label = parent ? `${parent} ${district}` : district;
+  return { code: sigunguCode, label };
 }
 
 type PageParams = { pnu: string };
@@ -115,20 +142,41 @@ function buildApartmentJsonLd(pnu: string, detail: ApartmentDetail) {
   };
 }
 
-// 크롤러용 위치 계층 신호 — 지역 허브 페이지가 생기면 중간 단계(시군구)를 추가한다.
-function buildBreadcrumbJsonLd(pnu: string, detail: ApartmentDetail) {
+interface BreadcrumbListItem {
+  "@type": "ListItem";
+  position: number;
+  name: string;
+  item: string;
+}
+
+// 크롤러용 위치 계층 신호. region 해석에 성공하면 집토리 > {시군구} > 단지
+// 3단계, 실패(sigungu_code 부재·미등록 코드)하면 기존 2단계로 degrade.
+function buildBreadcrumbJsonLd(
+  pnu: string,
+  detail: ApartmentDetail,
+  region: ResolvedRegion | null,
+) {
+  const itemListElement: BreadcrumbListItem[] = [
+    { "@type": "ListItem", position: 1, name: "집토리", item: SITE_URL },
+  ];
+  if (region) {
+    itemListElement.push({
+      "@type": "ListItem",
+      position: 2,
+      name: region.label,
+      item: `${SITE_URL}/region/${region.code}`,
+    });
+  }
+  itemListElement.push({
+    "@type": "ListItem",
+    position: itemListElement.length + 1,
+    name: detail.basic.bld_nm,
+    item: `${SITE_URL}/apartment/${pnu}`,
+  });
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "집토리", item: SITE_URL },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name: detail.basic.bld_nm,
-        item: `${SITE_URL}/apartment/${pnu}`,
-      },
-    ],
+    itemListElement,
   };
 }
 
@@ -141,13 +189,16 @@ export default async function ApartmentDetailPage({
   const detail = await fetchDetail(pnu);
   if (!detail) notFound();
 
-  // 거래이력 병렬 조회 (실패해도 페이지는 렌더)
-  const trades = await fetchTrades(pnu);
+  // 거래이력·지역 해석 병렬 조회 (둘 다 실패해도 페이지는 렌더)
+  const [trades, region] = await Promise.all([
+    fetchTrades(pnu),
+    resolveRegion(detail.basic.sigungu_code),
+  ]);
 
   // 배열 JSON-LD — ApartmentComplex + BreadcrumbList 를 한 스크립트로.
   const jsonLd = [
     buildApartmentJsonLd(pnu, detail),
-    buildBreadcrumbJsonLd(pnu, detail),
+    buildBreadcrumbJsonLd(pnu, detail, region),
   ];
 
   return (
@@ -156,7 +207,7 @@ export default async function ApartmentDetailPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <ApartmentDetailView pnu={pnu} detail={detail} trades={trades} />
+      <ApartmentDetailView pnu={pnu} detail={detail} trades={trades} region={region} />
     </>
   );
 }

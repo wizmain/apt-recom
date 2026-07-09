@@ -16,11 +16,31 @@ from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from database import DictConnection
+from routers.apartments import APARTMENT_VISIBLE_CONDITIONS
 
 router = APIRouter()
 
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://apt-recom.kr").rstrip("/")
 
+
+# 지역 허브(/region/{code}) 노출 조건 — /region 인덱스·dashboard_regions.apt_count 와
+# 동일 기준(APARTMENT_VISIBLE_CONDITIONS)을 공유해야 한다. 이 조건으로 걸러지는
+# (=/region 인덱스에 노출되지 않는) 코드를 sitemap 에 넣으면 "인덱스에는 없는데
+# sitemap 에는 있는" 모순이 생긴다.
+_REGION_VISIBLE_WHERE = " AND ".join(APARTMENT_VISIBLE_CONDITIONS)
+
+# common_code(sigungu) 와 apartments 의 교집합만 사용 — apartments.sigungu_code 가
+# common_code 에 없는 값(데이터 이상)을 가리키면 /region/{code} 가 프론트에서 404가
+# 되므로, sitemap 단계에서 실존 코드만 걸러낸다.
+_SITEMAP_REGION_SQL = f"""
+    SELECT DISTINCT c.code
+    FROM common_code c
+    JOIN apartments a ON a.sigungu_code = c.code
+    LEFT JOIN apt_kapt_info k ON a.pnu = k.pnu
+    WHERE c.group_id = %s
+      AND {_REGION_VISIBLE_WHERE}
+    ORDER BY c.code
+"""
 
 # 좌표가 있고 PNU 스펙(19자리 숫자)에 맞는 아파트만 sitemap에 노출.
 # TRADE_ 접두 PNU는 거래 데이터 파생의 비정상 값이므로 제외.
@@ -56,6 +76,17 @@ def _iter_sitemap_bytes():
 
     # 홈 URL
     yield f"  <url><loc>{FRONTEND_BASE_URL}/</loc></url>\n".encode("utf-8")
+
+    # 지역 허브 URL (/region/{code}) — 아파트 상세 URL보다 먼저 노출.
+    # lastmod 생략: summary/trend 가 매일 갱신되어 의미 있는 고정 시점이 없음.
+    conn = DictConnection()
+    try:
+        region_rows = conn.execute(_SITEMAP_REGION_SQL, ["sigungu"]).fetchall()
+        for row in region_rows:
+            loc = f"{FRONTEND_BASE_URL}/region/{row['code']}"
+            yield f"  <url><loc>{loc}</loc></url>\n".encode("utf-8")
+    finally:
+        conn.close()
 
     # 아파트 상세 URL (PNU는 19자리 숫자이므로 XML 이스케이프 불필요)
     conn = DictConnection()

@@ -1,4 +1,5 @@
 import type { ApartmentDetail, TradesResponse } from "@/types/apartment";
+import type { ResolvedRegion } from "./page";
 import { BasicInfo } from "./sections/BasicInfo";
 import { LifeScores } from "./sections/LifeScores";
 import { PriceInfo } from "./sections/PriceInfo";
@@ -8,6 +9,7 @@ import { Safety } from "./sections/Safety";
 import { Population } from "./sections/Population";
 import { RecentTrades } from "./sections/RecentTrades";
 import { RecommendCta } from "./sections/RecommendCta";
+import { RegionLink } from "./sections/RegionLink";
 
 /**
  * 아파트 상세 뷰 — Server Component 조립자.
@@ -23,10 +25,13 @@ export function ApartmentDetailView({
   pnu,
   detail,
   trades,
+  region,
 }: {
   pnu: string;
   detail: ApartmentDetail;
   trades: TradesResponse;
+  /** page.tsx 의 resolveRegion() 결과 — null 이면 하단 지역 링크 생략. */
+  region: ResolvedRegion | null;
 }) {
   const { basic, scores, school, facility_summary, safety, population, kapt_info } =
     detail;
@@ -67,6 +72,7 @@ export function ApartmentDetailView({
       <Safety safety={safety} />
       <Population population={population} />
       <RecentTrades trades={trades} />
+      {region ? <RegionLink code={region.code} label={region.label} /> : null}
     </main>
   );
 }
