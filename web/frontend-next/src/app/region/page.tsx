@@ -62,7 +62,9 @@ export default async function RegionIndexPage() {
   // 단지 0개 지역은 링크 제외 — 신구 행정코드 이원화(강원·전북)로 동일 지명의
   // 빈 쌍둥이 페이지 32쌍이 생기는 것을 인덱스 단계에서 차단 (2026-07-10 실측).
   // /region/[code] 의 noindex 판정과 같은 기준(단지 수 0)을 공유한다.
-  const linkableRegions = regions.filter((r) => r.apt_count > 0);
+  // apt_count 부재(구 API·롤아웃 중)는 포함 — 명시적 0 만 제외해 프론트/백엔드
+  // 배포 순서와 무관하게 목록이 비지 않는다.
+  const linkableRegions = regions.filter((r) => r.apt_count !== 0);
   const groups = groupByParent(linkableRegions);
   const groupKeys = [...groups.keys()].sort((a, b) => a.localeCompare(b, "ko"));
 

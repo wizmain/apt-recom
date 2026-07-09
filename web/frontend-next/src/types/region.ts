@@ -19,8 +19,10 @@ export interface RegionListItem {
    * 노출 가능한 단지 수 — /apartments 목록과 동일 기준
    * (backend APARTMENT_VISIBLE_CONDITIONS 공유). 0이면 빈 지역
    * (강원·전북 신구 행정코드 이원화의 구코드 등).
+   * optional: 구 API(필드 부재)·롤아웃 중에는 undefined — 프론트/백엔드
+   * 배포 순서에 의존하지 않도록 부재를 허용한다.
    */
-  apt_count: number;
+  apt_count?: number;
 }
 
 /** parseRegionName() 결과 — h1/breadcrumb 표시용. */
