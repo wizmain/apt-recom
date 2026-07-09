@@ -15,6 +15,12 @@
 export interface RegionListItem {
   code: string;
   name: string;
+  /**
+   * 노출 가능한 단지 수 — /apartments 목록과 동일 기준
+   * (backend APARTMENT_VISIBLE_CONDITIONS 공유). 0이면 빈 지역
+   * (강원·전북 신구 행정코드 이원화의 구코드 등).
+   */
+  apt_count: number;
 }
 
 /** parseRegionName() 결과 — h1/breadcrumb 표시용. */

@@ -59,7 +59,11 @@ function groupByParent(
 
 export default async function RegionIndexPage() {
   const regions = await fetchRegions();
-  const groups = groupByParent(regions);
+  // 단지 0개 지역은 링크 제외 — 신구 행정코드 이원화(강원·전북)로 동일 지명의
+  // 빈 쌍둥이 페이지 32쌍이 생기는 것을 인덱스 단계에서 차단 (2026-07-10 실측).
+  // /region/[code] 의 noindex 판정과 같은 기준(단지 수 0)을 공유한다.
+  const linkableRegions = regions.filter((r) => r.apt_count > 0);
+  const groups = groupByParent(linkableRegions);
   const groupKeys = [...groups.keys()].sort((a, b) => a.localeCompare(b, "ko"));
 
   return (

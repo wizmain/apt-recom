@@ -48,7 +48,11 @@ export async function generateMetadata({
   const { district, parent } = parseRegionName(name);
   const label = parent ? `${parent} ${district}` : district;
 
-  const summary = await fetchRegionSummary(code);
+  const [summary, apartments] = await Promise.all([
+    fetchRegionSummary(code),
+    // 본문 렌더와 동일 URL fetch — Next 요청 단위 dedupe 로 추가 호출 없음.
+    fetchRegionApartments(code),
+  ]);
   const description = summary
     ? `${label} 이번 달 아파트 거래량 ${summary.trade.volume}건, ㎡당 중위가 ${Math.round(summary.trade.median_price_m2).toLocaleString()}만원 — 실거래가·시세·단지 목록을 확인하세요.`
     : `${label} 아파트 실거래가·시세·단지 목록을 확인하세요.`;
@@ -57,6 +61,13 @@ export async function generateMetadata({
     title: `${label} 아파트 실거래가·시세`,
     description,
     alternates: { canonical: `/region/${code}` },
+    // 단지 0개 지역은 얇은/중복 콘텐츠 색인 방지를 위해 noindex — 신구
+    // 행정코드 이원화(강원·전북)로 동일 title/h1 의 빈 쌍둥이 페이지 32쌍이
+    // 존재한다 (2026-07-10 실측). 페이지 자체는 200 유지(직접 방문 허용),
+    // /region 인덱스 제외와 같은 기준(단지 수 0)을 공유한다.
+    ...(apartments.length === 0
+      ? { robots: { index: false, follow: false } }
+      : {}),
     openGraph: {
       title: `${label} 아파트 실거래가·시세 | ${BRAND.name}`,
       description,

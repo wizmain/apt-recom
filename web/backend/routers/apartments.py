@@ -7,6 +7,19 @@ from services.identity import get_user_identifier
 
 router = APIRouter()
 
+# "목록에 노출 가능한 단지" 공통 조건.
+# 전제 alias: FROM apartments a LEFT JOIN apt_kapt_info k ON a.pnu = k.pnu
+# /apartments 목록과 /dashboard/regions 의 apt_count 가 반드시 같은 기준을
+# 공유해야 한다 — 기준이 갈리면 지역 인덱스(/region) 노출 판정과 허브 페이지의
+# 실제 단지 목록이 어긋난다.
+APARTMENT_VISIBLE_CONDITIONS: list[str] = [
+    "a.pnu NOT LIKE 'TRADE_%%'",
+    "a.lat IS NOT NULL",
+    "COALESCE(k.ho_cnt, a.total_hhld_cnt) > 0",
+    "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) IS NOT NULL",
+    "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) != ''",
+]
+
 
 @router.get("/apartments")
 def list_apartments(
@@ -54,13 +67,7 @@ def list_apartments(
             LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu
             LEFT JOIN apt_kapt_info k ON a.pnu = k.pnu
         """
-        conditions: list[str] = [
-            "a.pnu NOT LIKE 'TRADE_%%'",
-            "a.lat IS NOT NULL",
-            "COALESCE(k.ho_cnt, a.total_hhld_cnt) > 0",
-            "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) IS NOT NULL",
-            "COALESCE(NULLIF(k.use_date, ''), a.use_apr_day) != ''",
-        ]
+        conditions: list[str] = [*APARTMENT_VISIBLE_CONDITIONS]
         params: list = []
 
         # Region filter (bjd_code 우선 — 동일명 지역 구분)
