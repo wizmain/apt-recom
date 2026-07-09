@@ -32,6 +32,14 @@ Public REST API is served under `/api/*`. See the OpenAPI document for the full 
 - `POST /api/chat/stream` — chatbot SSE streaming response
 - `GET /openapi.json` — full OpenAPI 3.0 spec
 
+## MCP (Model Context Protocol)
+
+Jiptori exposes an MCP server so AI agents (Claude Desktop, Cursor, etc.) can query apartment data directly — no crawling needed.
+
+- Endpoint: `https://api.apt-recom.kr/mcp/` (Streamable HTTP, no auth)
+- Tools: `search_apartments` (lifestyle-keyword recommendation), `get_apartment_detail` (full profile incl. scores/school/trades), `compare_apartments`, `get_similar_apartments`, `get_market_trend`, `get_school_info`, `get_dashboard_info`
+- Setup guide: https://github.com/wizmain/apt-recom/blob/main/docs/mcp-server.md
+
 ## Optional
 
 - Skill (agent playbook): https://apt-recom.kr/skill.md

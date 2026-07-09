@@ -24,14 +24,28 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://apt-recom.kr").rstri
 
 # 좌표가 있고 PNU 스펙(19자리 숫자)에 맞는 아파트만 sitemap에 노출.
 # TRADE_ 접두 PNU는 거래 데이터 파생의 비정상 값이므로 제외.
+# lastmod = 최근 실거래일 (상세 페이지의 실질 변경 시점 — 크롤러 재수집 효율).
+# 거래 이력이 없는 단지는 lastmod 생략 (sitemap 규격상 선택 필드).
+# make_date 가드: 월 1~12 / 일 1~28 클램프 — 원천 데이터의 0/결측 방어.
 _SITEMAP_APT_SQL = """
-    SELECT pnu
-    FROM apartments
-    WHERE lat IS NOT NULL
-      AND lng IS NOT NULL
-      AND pnu NOT LIKE 'TRADE_%%'
-      AND pnu ~ '^[0-9]{19}$'
-    ORDER BY pnu
+    SELECT a.pnu, d.last_deal
+    FROM apartments a
+    LEFT JOIN (
+        SELECT m.pnu,
+               MAX(make_date(
+                   t.deal_year,
+                   LEAST(GREATEST(COALESCE(t.deal_month, 1), 1), 12),
+                   LEAST(GREATEST(COALESCE(t.deal_day, 1), 1), 28)
+               )) AS last_deal
+        FROM trade_apt_mapping m
+        JOIN trade_history t ON t.apt_seq = m.apt_seq
+        GROUP BY m.pnu
+    ) d ON d.pnu = a.pnu
+    WHERE a.lat IS NOT NULL
+      AND a.lng IS NOT NULL
+      AND a.pnu NOT LIKE 'TRADE_%%'
+      AND a.pnu ~ '^[0-9]{19}$'
+    ORDER BY a.pnu
 """
 
 
@@ -49,7 +63,12 @@ def _iter_sitemap_bytes():
         rows = conn.execute(_SITEMAP_APT_SQL).fetchall()
         for row in rows:
             loc = f"{FRONTEND_BASE_URL}/apartment/{row['pnu']}"
-            yield f"  <url><loc>{loc}</loc></url>\n".encode("utf-8")
+            lastmod = (
+                f"<lastmod>{row['last_deal'].isoformat()}</lastmod>"
+                if row["last_deal"]
+                else ""
+            )
+            yield f"  <url><loc>{loc}</loc>{lastmod}</url>\n".encode("utf-8")
     finally:
         conn.close()
 
