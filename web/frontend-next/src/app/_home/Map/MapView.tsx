@@ -159,10 +159,12 @@ export function MapView(props: MapViewProps) {
   useEffect(() => {
     if (!mapRef.current || !ready || !focusPnu) return;
     const k = window.kakao!.maps;
-    // Vite 동일 동작 — setLevel(3) 으로 가까이 줌 후 panTo. 지도 전역 뷰에서
-    // 단일 아파트로 이동 시 pan 만으로는 시각 변화가 거의 없어 사용자 인지 불가.
+    // setCenter 필수 (panTo 금지): panTo 는 애니메이션 기반이라 setLevel 직후나
+    // 지도 초기화(타일 로드) 중 호출되면 무시될 수 있다 — 지도가 INIT_CENTER
+    // (세종대로)에 level 3 으로 남는 간헐 버그의 원인 (2026-07-09 사용자 재현).
+    // 단일 아파트 focus 는 원거리 점프라 애니메이션 이득도 없다.
     mapRef.current.setLevel(3);
-    mapRef.current.panTo(new k.LatLng(focusPnu.lat, focusPnu.lng));
+    mapRef.current.setCenter(new k.LatLng(focusPnu.lat, focusPnu.lng));
     showInfo({
       pnu: focusPnu.pnu,
       bld_nm: focusPnu.name,
