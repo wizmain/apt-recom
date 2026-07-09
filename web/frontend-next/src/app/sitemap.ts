@@ -18,17 +18,24 @@ import { API_URL, SITE_URL } from "@/lib/site";
 
 export const revalidate = 3600;
 
-const LOC_REGEX = /<loc>([^<]+)<\/loc>/g;
+// <url> 블록 단위로 loc + (선택) lastmod 추출 — 백엔드가 최근 실거래일을
+// lastmod 로 내려주므로 그대로 통과시켜 크롤러 재수집 효율을 살린다.
+const URL_BLOCK_REGEX =
+  /<url><loc>([^<]+)<\/loc>(?:<lastmod>([^<]+)<\/lastmod>)?<\/url>/g;
 
-async function fetchUpstreamUrls(): Promise<string[]> {
+type UpstreamUrl = { loc: string; lastmod?: string };
+
+async function fetchUpstreamUrls(): Promise<UpstreamUrl[]> {
   try {
     const res = await fetch(`${API_URL}/sitemap.xml`, {
       next: { revalidate: 3600 },
     });
     if (!res.ok) return [];
     const xml = await res.text();
-    const matches = [...xml.matchAll(LOC_REGEX)].map((m) => m[1]);
-    return matches;
+    return [...xml.matchAll(URL_BLOCK_REGEX)].map((m) => ({
+      loc: m[1],
+      lastmod: m[2],
+    }));
   } catch {
     return [];
   }
@@ -59,15 +66,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // `/about` 같은 정적 페이지는 백엔드 sitemap 에 없으므로 수동 추가.
   // 홈 URL 은 이미 백엔드가 생성(=SITE_URL/)하지만, normalize 과정에서 정돈.
-  const normalized = urls.map(normalizeToSiteHost);
-  const staticPages = [`${SITE_URL}/about`, `${SITE_URL}/guide`];
+  const normalized: UpstreamUrl[] = urls.map((u) => ({
+    loc: normalizeToSiteHost(u.loc),
+    lastmod: u.lastmod,
+  }));
+  const staticPages: UpstreamUrl[] = [
+    { loc: `${SITE_URL}/about` },
+    { loc: `${SITE_URL}/guide` },
+  ];
 
   const seen = new Set<string>();
   const merged: MetadataRoute.Sitemap = [];
   for (const u of [...normalized, ...staticPages]) {
-    if (seen.has(u)) continue;
-    seen.add(u);
-    merged.push({ url: u });
+    if (seen.has(u.loc)) continue;
+    seen.add(u.loc);
+    merged.push({ url: u.loc, ...(u.lastmod ? { lastModified: u.lastmod } : {}) });
   }
   return merged;
 }

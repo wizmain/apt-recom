@@ -115,6 +115,23 @@ function buildApartmentJsonLd(pnu: string, detail: ApartmentDetail) {
   };
 }
 
+// 크롤러용 위치 계층 신호 — 지역 허브 페이지가 생기면 중간 단계(시군구)를 추가한다.
+function buildBreadcrumbJsonLd(pnu: string, detail: ApartmentDetail) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "집토리", item: SITE_URL },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: detail.basic.bld_nm,
+        item: `${SITE_URL}/apartment/${pnu}`,
+      },
+    ],
+  };
+}
+
 export default async function ApartmentDetailPage({
   params,
 }: {
@@ -127,7 +144,11 @@ export default async function ApartmentDetailPage({
   // 거래이력 병렬 조회 (실패해도 페이지는 렌더)
   const trades = await fetchTrades(pnu);
 
-  const jsonLd = buildApartmentJsonLd(pnu, detail);
+  // 배열 JSON-LD — ApartmentComplex + BreadcrumbList 를 한 스크립트로.
+  const jsonLd = [
+    buildApartmentJsonLd(pnu, detail),
+    buildBreadcrumbJsonLd(pnu, detail),
+  ];
 
   return (
     <>
