@@ -101,6 +101,12 @@ _DEFAULT_FACILITY_DECAY: dict[str, float] = {
     "pediatric_clinic": 500,  # 일상 통원(예방접종 등) — 도보~단거리 통원권 중심
     "obgyn_clinic": 700,  # 정기 산전관리 — 소아과보다 넓은 통원권 허용
     "general_hospital": 1500,  # 응급/중증 대응 — 광역 시설, provincial 배율로 추가 확장
+    # NEIS 학원(입시.검정 및 보습) (Phase 2-5) — decay 는 school(400)/library(350)
+    # 보다 넓게 잡는다: 학원은 "가장 가까운 곳"이 아니라 강사진/입시 실적 등으로
+    # 동네 경계를 넘어 선택하는 통학권이 흔함(obgyn_clinic=700 과 동일한 넓은
+    # 통원권 성격) — 도보 통학권보다 관대한 감쇠로 원거리 유명 학원가도
+    # 일정 점수를 유지하도록 한다.
+    "academy": 700,
 }
 
 # 시설별 밀도 환산 계수 (count_1km × factor → 0~100 점수)
@@ -151,6 +157,24 @@ _DEFAULT_DENSITY_FACTOR: dict[str, float] = {
     #   9.2%/서울 6.7% 로 매우 낮아 "가까이 있으면 확실히 우대"하는 응급/중증
     #   대응 성격에 부합.
     "general_hospital": 60,
+    # NEIS 학원(입시.검정 및 보습) (Phase 2-5) — factor 결정 근거 (전국 실측,
+    # apt_facility_summary 35,696행, count_1km 분포: p10=7/p25=17/p50=32/p75=52/
+    # p90=77/p95=97/p99=146/max=461. 압축 semantics 주의: facilities 는 좌표
+    # UNIQUE 로 같은 건물 학원을 대표 1건으로 압축하므로 count_1km 은 "학원 실개수"가
+    # 아니라 "학원 보유 지점 수"다.
+    #   DENSITY_MULTIPLIER 적용 후 min(100, count_1km*factor*mult) 포화율(캡 도달
+    #   비율, factor 후보별):
+    #     factor=2 → 전국 39.1%/서울 54.7%, factor=1.5 → 24.8%/36.4%,
+    #     factor=1 → 전국 9.5%/서울 12.5% (metro 5.9%/major_city 16.6%/
+    #     provincial 10.7%), factor=0.75 → 3.8%/5.4%.
+    #   cafe(factor=3, 전국 83.5%/서울 96.1%)나 최초 채택 전 pediatric_clinic
+    #   후보(factor=10, 71.0%/91.1%)수준의 포화는 "카페급 변별력 상실"에
+    #   해당한다 — 학원은 count_1km 원본 스케일 자체가 병원/상가류보다 한 자릿수
+    #   위(중앙값 32 vs 병원류 단자릿수)라 같은 factor 크기를 적용하면 즉시
+    #   과포화된다. factor=1 은 nationwide 포화가 p95(97)~p99(146) 구간, 즉
+    #   "실제 학원가(대치동 등 상위 5% 지점)"에서만 만점에 도달하고 중앙값(32)
+    #   근방 다수 아파트는 32~52점대로 완만하게 분포해 변별력을 유지한다.
+    "academy": 1,
 }
 
 # 프로필별 배율 (metro=1.0 기준)
@@ -178,8 +202,27 @@ def _load_max_distances() -> dict[str, float]:
     return _max_distances
 
 
+# 프로필별 파라미터 로더 공통 규칙 (merge semantics):
+# "배율 적용된 코드 기본값" 위에 common_code 의 프로필별 오버라이드 행을
+# subtype 단위로 얹는다 (DB 행이 있는 subtype 은 DB 값 우선, 없는 subtype 은
+# 스케일된 기본값 사용).
+#
+# 왜 merge 인가 — 과거에는 프로필 group 에 행이 1개라도 있으면 dict 를 통째로
+# 교체했는데, ML 튜닝(apply_curves)이 심은 major_city/provincial 15개 subtype
+# 행이 존재하는 상태에서 이후 Phase 2 에 추가된 subtype(cafe/kids_cafe/
+# pet_shop/fitness/pediatric_clinic/obgyn_clinic/general_hospital/academy 및
+# assigned_elementary)이 비수도권 프로필에서 통째로 누락되어
+# `.get(subtype, 기본상수)` 폴백으로 오동작했다 (예: academy density factor
+# 의도 1×배율 → 폴백 10 이 적용돼 major_city 포화율 91.5%). merge 는 각
+# subtype 의 결정 근거(위 기본값 딕셔너리 주석)가 전제한 값을 복원한다.
+#
+# fallback 발동 조건: 프로필 group 에도 기본값 딕셔너리에도 없는 subtype 만
+# 호출측 `.get(subtype, 상수)` 기본값을 탄다 — 신규 subtype 은 반드시
+# _DEFAULT_* 딕셔너리에 등록할 것.
+
+
 def _load_max_distances_by_profile() -> dict[str, dict[str, float]]:
-    """프로필별 max_distance 로드. 프로필별 group 없으면 글로벌에 배율 적용."""
+    """프로필별 max_distance 로드 — 배율 적용 글로벌 기본값 + DB 오버라이드 merge."""
     global _max_distances_by_profile
     if _max_distances_by_profile is not None:
         return _max_distances_by_profile
@@ -193,11 +236,10 @@ def _load_max_distances_by_profile() -> dict[str, dict[str, float]]:
             "SELECT code, name FROM common_code WHERE group_id = %s",
             [f"facility_distance_{profile}"],
         ).fetchall()
-        if rows:
-            result[profile] = {r["code"]: float(r["name"]) for r in rows}
-        else:
-            mult = _MAX_DIST_MULTIPLIER.get(profile, 1.0)
-            result[profile] = {k: round(v * mult, 1) for k, v in base.items()}
+        mult = _MAX_DIST_MULTIPLIER.get(profile, 1.0)
+        scaled_defaults = {k: round(v * mult, 1) for k, v in base.items()}
+        overrides = {r["code"]: float(r["name"]) for r in rows}
+        result[profile] = {**scaled_defaults, **overrides}
 
     conn.close()
     _max_distances_by_profile = result
@@ -205,7 +247,7 @@ def _load_max_distances_by_profile() -> dict[str, dict[str, float]]:
 
 
 def _load_facility_decay_by_profile() -> dict[str, dict[str, float]]:
-    """프로필별 decay 로드. DB에 없으면 기본값에 배율 적용."""
+    """프로필별 decay 로드 — 배율 적용 기본값 + DB 오버라이드 merge."""
     global _facility_decay_by_profile
     if _facility_decay_by_profile is not None:
         return _facility_decay_by_profile
@@ -218,13 +260,12 @@ def _load_facility_decay_by_profile() -> dict[str, dict[str, float]]:
             "SELECT code, name FROM common_code WHERE group_id = %s",
             [f"facility_decay_{profile}"],
         ).fetchall()
-        if rows:
-            result[profile] = {r["code"]: float(r["name"]) for r in rows}
-        else:
-            mult = _DECAY_MULTIPLIER.get(profile, 1.0)
-            result[profile] = {
-                k: round(v * mult) for k, v in _DEFAULT_FACILITY_DECAY.items()
-            }
+        mult = _DECAY_MULTIPLIER.get(profile, 1.0)
+        scaled_defaults = {
+            k: float(round(v * mult)) for k, v in _DEFAULT_FACILITY_DECAY.items()
+        }
+        overrides = {r["code"]: float(r["name"]) for r in rows}
+        result[profile] = {**scaled_defaults, **overrides}
 
     conn.close()
     _facility_decay_by_profile = result
@@ -232,7 +273,7 @@ def _load_facility_decay_by_profile() -> dict[str, dict[str, float]]:
 
 
 def _load_density_factor_by_profile() -> dict[str, dict[str, float]]:
-    """프로필별 density factor 로드. DB에 없으면 기본값에 배율 적용."""
+    """프로필별 density factor 로드 — 배율 적용 기본값 + DB 오버라이드 merge."""
     global _density_factor_by_profile
     if _density_factor_by_profile is not None:
         return _density_factor_by_profile
@@ -245,13 +286,12 @@ def _load_density_factor_by_profile() -> dict[str, dict[str, float]]:
             "SELECT code, name FROM common_code WHERE group_id = %s",
             [f"density_factor_{profile}"],
         ).fetchall()
-        if rows:
-            result[profile] = {r["code"]: float(r["name"]) for r in rows}
-        else:
-            mult = _DENSITY_MULTIPLIER.get(profile, 1.0)
-            result[profile] = {
-                k: round(v * mult, 1) for k, v in _DEFAULT_DENSITY_FACTOR.items()
-            }
+        mult = _DENSITY_MULTIPLIER.get(profile, 1.0)
+        scaled_defaults = {
+            k: round(v * mult, 1) for k, v in _DEFAULT_DENSITY_FACTOR.items()
+        }
+        overrides = {r["code"]: float(r["name"]) for r in rows}
+        result[profile] = {**scaled_defaults, **overrides}
 
     conn.close()
     _density_factor_by_profile = result

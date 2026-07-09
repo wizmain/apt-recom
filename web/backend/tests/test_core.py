@@ -1500,6 +1500,39 @@ def test_nature_weights_redesigned():
     assert abs(sum(weights.values()) - 1.0) < 0.02
 
 
+@test("Phase2: NEIS 학원(입시·보습) 적재")
+def test_academy_facilities_loaded():
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        "SELECT COUNT(*) AS c FROM facilities "
+        "WHERE facility_subtype = 'academy' AND is_active",
+    ).fetchone()
+    conn.close()
+    # 전국 필터통과 77,597건이 좌표 UNIQUE(같은 건물 학원 대표 1건 압축)로
+    # 39,458건 적재됨 (2026-07-09 실측, 압축률 ~49%) — 임계값은 압축 후 기준.
+    assert row["c"] >= 35_000, f"학원 부족: {row['c']}"
+
+
+@test("Phase2: education 축에 academy 가중치 반영 + 합 1.0")
+def test_academy_weight_applied():
+    from database import DictConnection
+
+    conn = DictConnection()
+    rows = conn.execute(
+        "SELECT code, extra FROM common_code WHERE group_id = 'nudge_weight' "
+        "AND code LIKE %s",
+        ["education:%"],
+    ).fetchall()
+    conn.close()
+    weights = {r["code"].split(":", 1)[1]: float(r["extra"]) for r in rows}
+    assert weights.get("academy", 0) >= 0.10, f"academy 가중치 부족: {weights}"
+    assert abs(sum(weights.values()) - 1.0) < 0.02, (
+        f"education 합 이탈: {sum(weights.values())}"
+    )
+
+
 # ============================================================
 # V-World 항공영상 (2026-07-08)
 # ============================================================

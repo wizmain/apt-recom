@@ -16,14 +16,18 @@ DATA_GO_KR_API_SECONDARY_KEY = os.getenv("DATA_GO_KR_API_SECONDARY_KEY", "")
 DATA_GO_KR_API_THIRD_KEY = os.getenv("DATA_GO_KR_API_THIRD_KEY", "")
 KAKAO_API_KEY = os.getenv("KAKAO_API_KEY", "")
 KOSIS_API_KEY = os.getenv("KOSIS_API_KEY", "")
+NEIS_API_KEY = os.getenv("NEIS_API_KEY", "")
 
 # Rate limits (seconds)
 DATA_GO_KR_RATE = 0.15
 KAKAO_RATE = 0.1
 KOSIS_RATE = 2.0
+NEIS_RATE = 0.1
 
 # 거래 데이터 API
-TRADE_URL = "http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+TRADE_URL = (
+    "http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+)
 RENT_URL = "http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
 
 # 수도권 시도 코드 (서울 11, 경기 41, 인천 28)
@@ -40,10 +44,10 @@ KOSIS_SIDO_CODES = {
     "31": "울산광역시",
     "36": "세종특별자치시",
     "41": "경기도",
-    "51": "강원특별자치도",   # KOSIS: 42 → 51 (특별자치도 전환)
+    "51": "강원특별자치도",  # KOSIS: 42 → 51 (특별자치도 전환)
     "43": "충청북도",
     "44": "충청남도",
-    "52": "전북특별자치도",   # KOSIS: 45 → 52 (특별자치도 전환)
+    "52": "전북특별자치도",  # KOSIS: 45 → 52 (특별자치도 전환)
     "46": "전라남도",
     "47": "경상북도",
     "48": "경상남도",

@@ -2,6 +2,10 @@
 
 라이프점수 Phase 2-4 배포 단계 (nature 재설계 — score_air 축).
 
+신규 facility(facilities+apt_facility_summary 형태) 배포는 범용 스크립트
+`push_facilities_to_railway.py --prefix ... --subtypes ...`를 사용할 것 — 본 파일은
+facilities 형태가 아닌 전용 테이블 3개를 다뤄 범용화 대상에서 제외, 완료 기록물로 유지.
+
 방식: push_hira_facilities_to_railway.py 골격 준용 — 로컬 최종 상태가 이미
 UNIQUE 제약(air_quality_monthly)/PK(air_quality_station, apt_air_score) 을
 통과한 자기정합 집합이므로, **전체 DELETE 후 execute_values 일괄 INSERT** 로

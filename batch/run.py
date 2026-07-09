@@ -286,6 +286,39 @@ def run_quarterly(args, logger, result):
             logger.warning(f"대기질 수집/점수 재계산 실패: {e}")
             result.record("대기질 수집/점수 재계산", "warning", error=str(e))
 
+        # 8. NEIS 학원(입시.검정 및 보습) 수집 + 부분 집계 (라이프점수 Phase 2-5).
+        #    5/6단계(상가/병원)와 동일한 이유로 부분 집계(8b)가 필요 —
+        #    recalc_summary(3단계)가 전체 subtype을 재계산하지만 이번 회차
+        #    수집분을 즉시 반영하려면 별도 호출이 필요하다. 실패해도 quarterly
+        #    본연 기능(시설/배정초교)을 해치지 않도록 warning으로 격리.
+        try:
+            from batch.quarterly.collect_academies import collect_academies
+            from batch.quarterly.recalc_summary import recalc_summary_for_subtypes
+
+            t0 = time.time()
+            academy_stats = collect_academies(conn, logger)
+            result.record(
+                "NEIS 학원 수집",
+                "success",
+                rows=academy_stats["upserted"],
+                duration=time.time() - t0,
+            )
+
+            # 참고: 3단계 전체 recalc 가 (직전 회차) academy subtype 도 이미 집계하므로
+            # 여기서 이중 계산되지만(회차당 수 초), 8단계 수집 실패 시에도 3단계
+            # 산출물이 남는 resilience 를 위해 의도적으로 유지한다(5b/6b와 동일 이유).
+            t0 = time.time()
+            upserted = recalc_summary_for_subtypes(conn, logger, ["academy"])
+            result.record(
+                "학원 subtype 부분 집계",
+                "success",
+                rows=upserted,
+                duration=time.time() - t0,
+            )
+        except Exception as e:
+            logger.warning(f"NEIS 학원 수집/부분 집계 실패: {e}")
+            result.record("NEIS 학원 수집/부분 집계", "warning", error=str(e))
+
     except Exception as e:
         logger.error(f"Quarterly 배치 실패: {e}")
         result.record("Quarterly 배치", "critical", error=str(e))

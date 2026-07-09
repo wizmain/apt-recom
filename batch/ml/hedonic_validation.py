@@ -59,6 +59,8 @@ FEATURE_SUBTYPES = [
     "pediatric_clinic",
     "obgyn_clinic",
     "general_hospital",
+    # NEIS 학원(입시.검정 및 보습) (Phase 2-5) — 시장 계수 측정용
+    "academy",
 ]
 MIN_SAMPLES = 3000  # 이보다 적으면 회귀 신뢰 불가로 중단
 

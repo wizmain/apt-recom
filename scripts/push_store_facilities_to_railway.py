@@ -2,6 +2,9 @@
 
 라이프점수 Phase 2-2 배포 단계 (PR #136 체크리스트 ①).
 
+신규 facility subtype 배포는 이 스크립트를 복제하지 말고 범용 스크립트
+`push_facilities_to_railway.py --prefix STORE_ --subtypes ...`를 사용할 것 — 본 파일은 완료 기록물로 유지.
+
 방식: Railway 에서 재수집(행 단위 원격 upsert)은 WAN RTT 로 수 시간이 걸려 부적합.
 로컬 최종 상태가 이미 unique 제약(idx_facility_unique)을 통과한 자기정합 집합이므로,
 **대상 범위 DELETE 후 execute_values 일괄 INSERT** 로 복사한다 — 재수집 시
