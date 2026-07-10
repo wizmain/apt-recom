@@ -98,8 +98,11 @@ app.include_router(feedback.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(codes.router, prefix="/api")
 app.include_router(similar.router, prefix="/api")
-app.include_router(admin.router, prefix="/api")
-app.include_router(log.router, prefix="/api")
+# 내부 운영 라우터는 OpenAPI 스키마에서 제외 — /openapi.json 은 LLM discovery
+# (Link 헤더 service-desc·llms.txt)가 참조하는 public API 카탈로그라, 인증이
+# 걸린 admin 표면이라도 경로·파라미터 노출 자체가 노이즈·정보 노출이다.
+app.include_router(admin.router, prefix="/api", include_in_schema=False)
+app.include_router(log.router, prefix="/api", include_in_schema=False)
 app.include_router(events.router, prefix="/api")
 # sitemap.xml / robots.txt 는 크롤러 관례상 루트 경로에서 서빙되어야 하므로 prefix 없이 등록.
 app.include_router(sitemap.router)
@@ -114,7 +117,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/api/_sentry_test")
+@app.get("/api/_sentry_test", include_in_schema=False)
 def sentry_test():
     """Sentry 연동 검증용 — 의도적으로 예외 발생.
     Sentry 대시보드에서 이벤트가 보이면 정상 연결.

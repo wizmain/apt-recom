@@ -4,11 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "sync:llms": "cp public/llms.txt public/.well-known/llms.txt",
+    "prebuild": "npm run sync:llms",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
+    "precf:build": "npm run sync:llms",
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare deploy"
