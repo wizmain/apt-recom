@@ -1,11 +1,27 @@
 """대시보드 API — 수도권 아파트 거래 동향."""
 
+import time
+
 from fastapi import APIRouter, HTTPException, Query
 from database import DictConnection
 from datetime import datetime, timedelta
 from routers.apartments import APARTMENT_VISIBLE_CONDITIONS
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# /dashboard/regions 전체 목록 TTL 캐시
+# ---------------------------------------------------------------------------
+# 발동 조건: 지역검색 입력창이 타이핑마다(프론트 debounce 200ms) q 파라미터만
+# 바꿔 이 엔드포인트를 재호출하는데, apt_count 집계는 apartments 31k 행을
+# GROUP BY 하는 쿼리(약 44ms)라 검색어를 한 글자씩 칠 때마다 반복 실행됐다.
+# apt_count 는 수집 배치(batch.run 등)에서만 바뀌고 요청 트래픽과는 무관하므로
+# 프로세스 메모리에 "필터 없는 전체 목록"을 캐시하고, q 필터는 기존과 동일하게
+# 캐시된 목록에 파이썬 레벨로 적용한다.
+# TTL 3600s 근거: 배치 수집은 일 단위 스케줄이라 1시간 지연은 사용자 체감에
+# 영향이 없고, 서버 재기동 없이도 배치 반영을 다음 시간 내로 픽업한다.
+_REGIONS_CACHE_TTL_SECONDS = 3600
+_regions_cache: dict | None = None  # {"data": list[dict], "ts": float}
 
 
 def _get_sgg_names(conn):
@@ -25,15 +41,20 @@ def _get_sgg_names(conn):
     }
 
 
-@router.get("/dashboard/regions")
-def dashboard_regions(q: str = Query("", description="검색어")):
-    """시군구 목록 검색.
+def _load_all_regions() -> list[dict]:
+    """전체 시군구 목록 + apt_count 조회 (q 필터 없음) — TTL 캐시 대상.
 
-    apt_count: 노출 가능한 단지 수 (/apartments 목록과 동일 기준 —
-    APARTMENT_VISIBLE_CONDITIONS 공유). 강원·전북 행정코드 개편으로 신구 코드가
-    공존하는 시군구(구코드는 단지 0)가 있어, 프론트(/region)가 빈 지역을
-    목록에서 거를 수 있도록 함께 반환한다.
+    캐시가 유효하면 DB 조회 없이 즉시 반환. 만료/최초 호출 시에만 GROUP BY
+    쿼리를 실행해 캐시를 갱신한다. 반환값은 이름순 정렬까지 마친 상태.
     """
+    global _regions_cache
+    now = time.time()
+    if (
+        _regions_cache is not None
+        and (now - _regions_cache["ts"]) < _REGIONS_CACHE_TTL_SECONDS
+    ):
+        return _regions_cache["data"]
+
     visible_where = " AND ".join(APARTMENT_VISIBLE_CONDITIONS)
     conn = DictConnection()
     rows = conn.execute(
@@ -52,7 +73,7 @@ def dashboard_regions(q: str = Query("", description="검색어")):
         ["sigungu"],
     ).fetchall()
     conn.close()
-    results = [
+    data = [
         {
             "code": r["code"],
             "name": f"{r['name']}({r['extra']})"
@@ -62,9 +83,26 @@ def dashboard_regions(q: str = Query("", description="검색어")):
         }
         for r in rows
     ]
+    data.sort(key=lambda x: x["name"])
+    _regions_cache = {"data": data, "ts": now}
+    return data
+
+
+@router.get("/dashboard/regions")
+def dashboard_regions(q: str = Query("", description="검색어")):
+    """시군구 목록 검색.
+
+    apt_count: 노출 가능한 단지 수 (/apartments 목록과 동일 기준 —
+    APARTMENT_VISIBLE_CONDITIONS 공유). 강원·전북 행정코드 개편으로 신구 코드가
+    공존하는 시군구(구코드는 단지 0)가 있어, 프론트(/region)가 빈 지역을
+    목록에서 거를 수 있도록 함께 반환한다.
+
+    q 필터는 TTL 캐시된 전체 목록(_load_all_regions)에 파이썬 레벨로 적용 —
+    타이핑마다 재요청돼도 DB 재조회 없이 캐시 히트로 처리된다.
+    """
+    results = _load_all_regions()
     if q.strip():
         results = [r for r in results if q.strip() in r["name"]]
-    results.sort(key=lambda x: x["name"])
     return results
 
 
