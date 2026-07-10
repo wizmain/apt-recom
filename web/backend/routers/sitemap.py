@@ -120,7 +120,17 @@ def robots_txt() -> str:
     """백엔드 API 도메인용 robots.txt.
 
     프론트(`apt-recom.kr`)의 robots.txt가 실제 agent 크롤링 정책의 권위 있는 소스다.
-    백엔드 도메인은 JSON API 전용이므로 agent가 크롤링할 HTML이 없다.
-    agent 혼란을 방지하기 위해 백엔드 도메인에서는 Disallow-all 을 반환한다.
+    다만 홈 Link 헤더(rel="service-desc")가 이 도메인의 /openapi.json 을 가리키고
+    /mcp/ 도 공개 discovery 표면이므로, robots 준수 크롤러가 그 자원들까지
+    차단당하지 않도록 discovery 경로만 명시 Allow 한다 (robots longest-match
+    규칙으로 Allow 가 Disallow: / 를 이긴다). 그 외(백엔드 sitemap.xml 등)는
+    프론트와의 중복 색인 방지를 위해 차단 유지.
     """
-    return "User-agent: *\nDisallow: /\n"
+    return (
+        "User-agent: *\n"
+        "Allow: /openapi.json\n"
+        "Allow: /docs\n"
+        "Allow: /mcp/\n"
+        "Allow: /api/health\n"
+        "Disallow: /\n"
+    )

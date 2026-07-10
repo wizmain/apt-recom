@@ -30,8 +30,8 @@ export const ORGANIZATION_JSON_LD = {
   url: SITE_URL,
   logo: `${SITE_URL}/favicon.svg`,
   description: BRAND.description,
-  // 외부 신뢰 신호(Wikipedia/Linkedin) 등록 시 여기 추가.
-  sameAs: [] as string[],
+  // 외부 신뢰 신호 — 실제 운영 중인 공식 채널만 등록한다 (블로그/SNS 는 미운영).
+  sameAs: ["https://github.com/wizmain/apt-recom"] as string[],
 };
 
 /** WebSite JSON-LD — SearchAction 포함. */
