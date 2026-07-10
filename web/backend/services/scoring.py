@@ -211,8 +211,8 @@ _DEFAULT_MAX_DISTANCE: dict[str, float] = {
     # 동일값 사용 (동일 ratio=5.0, 도보 통학권 성격 그대로 유지).
     "assigned_elementary": 2000,
     # 상가정보 유래 4종 (Phase 2-2)
-    # cafe: decay(300)가 convenience_store(350)와 가장 가깝고 "초밀집·근거리만
-    # 유의미"라는 성격도 동일 — convenience_store 의 ratio(~2.86)를 그대로 적용.
+    # cafe: decay(300)가 cctv 와 동일값이고 "초밀집·근거리만 유의미"라는 근린
+    # 밀집형 성격도 동일 — cctv 의 ratio(3.33 → max 1000)를 그대로 적용.
     "cafe": 1000,
     # kids_cafe: decay(500)가 subway 와 동일값 — 희소 업종이라 subway 와 같은
     # ratio(6.0) 적용, 다소 멀어도 완만하게 점수가 남도록 함.
@@ -222,9 +222,10 @@ _DEFAULT_MAX_DISTANCE: dict[str, float] = {
     "pet_shop": 2000,
     "fitness": 2000,
     # 심평원 병원 세분화 3종 (Phase 2-3)
-    # pediatric_clinic: decay(500)만 보면 kids_cafe/subway 와 같지만, 문서화된
-    # 성격이 "도보~단거리 통원권 중심"으로 명시돼 있어 광역형 ratio(6.0) 대신
-    # school 대역 ratio(5.0)를 적용해 kids_cafe 보다 좁은 컷오프를 유지한다.
+    # pediatric_clinic: school/kindergarten 의 캡(2000) 준용 — 도보 통원권 시설
+    # 분류(decay 주석 "도보~단거리 통원권 중심"). decay 비례 공식으로는
+    # 500×5.0=2500 이지만, 이를 따르지 않고 동일 분류 시설과 같은 캡을 쓰는
+    # 정책 선택이다 (같은 decay=500 인 kids_cafe(광역형, 3000)와 컷오프를 구분).
     "pediatric_clinic": 2000,
     # obgyn_clinic: decay(700)가 hospital 과 동일값이고 "소아과보다 넓은 통원권"
     # 이라는 성격도 hospital 과 부합 — hospital 과 동일값(ratio 4.29) 사용.

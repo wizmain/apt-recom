@@ -20,6 +20,8 @@ router = APIRouter()
 # 캐시된 목록에 파이썬 레벨로 적용한다.
 # TTL 3600s 근거: 배치 수집은 일 단위 스케줄이라 1시간 지연은 사용자 체감에
 # 영향이 없고, 서버 재기동 없이도 배치 반영을 다음 시간 내로 픽업한다.
+# 동시성: check-then-rebuild 레이스(만료 직후 복수 요청의 중복 재빌드)는 의도적
+# 수용 — dict 할당은 GIL 로 원자적이고 재빌드는 멱등이라 무해(락 불요).
 _REGIONS_CACHE_TTL_SECONDS = 3600
 _regions_cache: dict | None = None  # {"data": list[dict], "ts": float}
 
