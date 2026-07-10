@@ -74,6 +74,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { loc: `${SITE_URL}/about` },
     { loc: `${SITE_URL}/guide` },
     { loc: `${SITE_URL}/explore` },
+    { loc: `${SITE_URL}/region` }, // 시군구 인덱스 — 내부 링크 허브
   ];
 
   const seen = new Set<string>();

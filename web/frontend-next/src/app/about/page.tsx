@@ -41,12 +41,70 @@ const aboutPageJsonLd = {
   },
 };
 
+// 공공데이터 기반 서비스의 신뢰 신호(E-E-A-T) + Google Dataset Search 노출.
+// 원천 데이터셋은 공식 명칭·제공기관을 그대로 기재한다.
+const datasetJsonLd = (name: string, description: string, creatorName: string) => ({
+  "@context": "https://schema.org",
+  "@type": "Dataset",
+  name,
+  description,
+  creator: { "@type": "Organization", name: creatorName },
+  includedInDataCatalog: {
+    "@type": "DataCatalog",
+    name: `${BRAND.name} 데이터`,
+    url: `${SITE_URL}/about`,
+  },
+  isAccessibleForFree: true,
+  inLanguage: "ko",
+});
+
+const sourceDatasetsJsonLd = [
+  datasetJsonLd(
+    "아파트 매매·전월세 실거래가",
+    "국토교통부 실거래가 공개시스템 기반 전국 아파트 매매·전월세 거래 이력.",
+    "국토교통부",
+  ),
+  datasetJsonLd(
+    "공동주택 관리비·시설 정보",
+    "K-APT 공동주택관리정보시스템 기반 단지별 관리비·시설·구조 정보.",
+    "K-APT (공동주택관리정보시스템)",
+  ),
+  datasetJsonLd(
+    "생활안전 인프라 (CCTV 등)",
+    "공공데이터포털 안전 시설물 개방 데이터 기반 단지 주변 안전 지표.",
+    "행정안전부·공공데이터포털",
+  ),
+  datasetJsonLd(
+    "초등학교 학군(배정 학교) 정보",
+    "교육청 학군 배정 정보 기반 단지별 배정 초등학교·학군 데이터.",
+    "시·도 교육청",
+  ),
+];
+
+const webApplicationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: BRAND.name,
+  alternateName: BRAND.nameEnglish,
+  url: SITE_URL,
+  applicationCategory: "RealEstateApplication",
+  operatingSystem: "Web",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "KRW" },
+  description: BRAND.description,
+};
+
 export default function AboutPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12 text-gray-900">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(aboutPageJsonLd) }}
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify([
+            aboutPageJsonLd,
+            webApplicationJsonLd,
+            ...sourceDatasetsJsonLd,
+          ]),
+        }}
       />
 
       <h1 className="text-3xl font-bold">집토리 서비스 소개</h1>
