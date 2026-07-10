@@ -20,6 +20,7 @@ Tool 선정 기준
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
@@ -162,7 +163,12 @@ async def get_apartment_detail(query: str, include_image: bool = True) -> list:
         basic = detail.get("basic") or {}
         lat, lng = basic.get("lat"), basic.get("lng")
         if lat is not None and lng is not None:
-            image_bytes = vworld_image.fetch_aerial_image(lat, lng)
+            # fetch_aerial_image 는 requests 동기 호출(timeout 5s) — async tool
+            # 안에서 그대로 await 하면 이벤트루프를 블록해 동시 요청을 지연시킨다.
+            # to_thread 로 별도 워커 스레드에 위임해 루프를 비운다.
+            image_bytes = await asyncio.to_thread(
+                vworld_image.fetch_aerial_image, lat, lng
+            )
             if image_bytes is not None:
                 content.append(Image(data=image_bytes, format="jpeg"))
 

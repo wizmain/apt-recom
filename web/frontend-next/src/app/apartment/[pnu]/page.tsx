@@ -5,7 +5,8 @@ import type {
   ApartmentDetail,
   TradesResponse,
 } from "@/types/apartment";
-import { fetchRegions, parseRegionName } from "@/app/region/_data";
+import type { ResolvedRegion } from "@/types/region";
+import { fetchRegions, parseRegionName } from "@/lib/regionData";
 import { ApartmentDetailView } from "./_view";
 
 /**
@@ -53,12 +54,6 @@ async function fetchTrades(pnu: string): Promise<TradesResponse> {
 export async function generateStaticParams(): Promise<Array<{ pnu: string }>> {
   // TODO(Phase B 후반): 상위 도시 PNU pre-render. 현재는 on-demand ISR 전용.
   return [];
-}
-
-/** _view.tsx 와 공유하는 지역 링크 계약 — 두 곳에서 함께 변경될 가능성이 높아 단일 정의. */
-export interface ResolvedRegion {
-  code: string;
-  label: string;
 }
 
 /**

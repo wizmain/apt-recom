@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SITE_URL, BRAND } from "@/lib/site";
-import { fetchRegions, parseRegionName } from "./_data";
+import { fetchRegions, parseRegionName } from "@/lib/regionData";
 
 /**
  * /region — 전국 시군구 인덱스. Server Component, 완전 정적 목록(외부 파라미터 없음).

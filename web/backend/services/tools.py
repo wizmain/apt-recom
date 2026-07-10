@@ -926,7 +926,6 @@ async def get_similar_apartments(
     nudge_weights: dict | None = None, exclude_same_area: bool = False,
 ) -> str:
     """유사 아파트 추천 (4개 모드)."""
-    import numpy as np
     import re as _re
     from services.similarity import (
         calc_location, calc_price, calc_lifestyle, calc_combined,

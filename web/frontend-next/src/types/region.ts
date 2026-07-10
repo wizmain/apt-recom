@@ -88,6 +88,16 @@ export interface RecentTrade {
   price: number;
 }
 
+/**
+ * apartment/[pnu] 상세 페이지 ↔ _view.tsx 가 공유하는 지역 링크 계약.
+ * page.tsx 의 resolveRegion() 결과 — breadcrumb·"지역 아파트 더보기" 링크에 사용.
+ * 두 파일 모두에서 변경될 가능성이 높아 route 내부가 아닌 공용 타입으로 정의.
+ */
+export interface ResolvedRegion {
+  code: string;
+  label: string;
+}
+
 /** GET /api/apartments?sigungu_code={code} 응답 원소. */
 export interface RegionApartment {
   pnu: string;

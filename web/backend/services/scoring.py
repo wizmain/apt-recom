@@ -177,6 +177,69 @@ _DEFAULT_DENSITY_FACTOR: dict[str, float] = {
     "academy": 1,
 }
 
+# 시설별 max_distance(컷오프, m) — 기존 15종은 common_code(facility_distance,
+# metro 기준) 실측값을 그대로 반영(DB 가 있으면 항상 DB 값 우선이라 fallback 로만 쓰임).
+# Phase 2 이후 추가된 9종은 DB(facility_distance/_major_city/_provincial)에 행이
+# 없어 종전에는 distance_to_score() 의 `.get(subtype, 3000)` 균일 폴백을 탔다 —
+# 아래 값으로 대체한다.
+#
+# 결정 근거 — max_distance/decay 비율 패턴 실측(기존 15종, metro 기준):
+#   근린 밀집형(convenience_store 1000/350≈2.86, cctv 1000/300≈3.33): ratio ~2.9-3.3
+#   도보 통학/일상권(school·kindergarten 2000/400=5.0): ratio 5.0
+#   광역/희소형(subway 3000/500=6.0, hospital 3000/700≈4.29): ratio ~4.3-6.0
+#   응급/행정형(police 3000/250=12.0, fire_station 5000/250=20.0): ratio 12-20
+# 신규 9종은 decay 값이 근접한 기존 subtype 의 ratio 대역을 그대로 적용해
+# max_distance 를 역산했다(단, "단거리 통원권" 등 문서화된 성격 차이가 있으면
+# 같은 decay 라도 ratio 를 구분 — 아래 각 항목 주석 참조):
+_DEFAULT_MAX_DISTANCE: dict[str, float] = {
+    "mart": 2000,
+    "hospital": 3000,
+    "subway": 3000,
+    "pharmacy": 1500,
+    "animal_hospital": 3000,
+    "convenience_store": 1000,
+    "bus": 1500,
+    "kindergarten": 2000,
+    "library": 3000,
+    "pet_facility": 3000,
+    "cctv": 1000,
+    "school": 2000,
+    "fire_station": 5000,
+    "park": 2000,
+    "police": 3000,
+    # 배정초교 — decay 가 school 과 동일(400)이므로 max_distance 도 school 과
+    # 동일값 사용 (동일 ratio=5.0, 도보 통학권 성격 그대로 유지).
+    "assigned_elementary": 2000,
+    # 상가정보 유래 4종 (Phase 2-2)
+    # cafe: decay(300)가 cctv 와 동일값이고 "초밀집·근거리만 유의미"라는 근린
+    # 밀집형 성격도 동일 — cctv 의 ratio(3.33 → max 1000)를 그대로 적용.
+    "cafe": 1000,
+    # kids_cafe: decay(500)가 subway 와 동일값 — 희소 업종이라 subway 와 같은
+    # ratio(6.0) 적용, 다소 멀어도 완만하게 점수가 남도록 함.
+    "kids_cafe": 3000,
+    # pet_shop / fitness: decay(400)가 school/kindergarten 과 동일 — 동일
+    # ratio(5.0) 적용.
+    "pet_shop": 2000,
+    "fitness": 2000,
+    # 심평원 병원 세분화 3종 (Phase 2-3)
+    # pediatric_clinic: school/kindergarten 의 캡(2000) 준용 — 도보 통원권 시설
+    # 분류(decay 주석 "도보~단거리 통원권 중심"). decay 비례 공식으로는
+    # 500×5.0=2500 이지만, 이를 따르지 않고 동일 분류 시설과 같은 캡을 쓰는
+    # 정책 선택이다 (같은 decay=500 인 kids_cafe(광역형, 3000)와 컷오프를 구분).
+    "pediatric_clinic": 2000,
+    # obgyn_clinic: decay(700)가 hospital 과 동일값이고 "소아과보다 넓은 통원권"
+    # 이라는 성격도 hospital 과 부합 — hospital 과 동일값(ratio 4.29) 사용.
+    "obgyn_clinic": 3000,
+    # general_hospital: decay(1500)가 hospital(700)의 2.14배 — "광역 시설"
+    # 성격을 반영해 hospital 과 동일 ratio(≈4.29)로 스케일: 3000 × (1500/700) ≈
+    # 6428 → 6000(관리 편의를 위한 반올림). 기존 균일폴백(3000)보다 넓어져
+    # 3000~6000m 구간의 원거리 종합병원도 0점 대신 점진적 점수를 받는다.
+    "general_hospital": 6000,
+    # academy: decay(700)가 hospital/obgyn_clinic 과 동일값이며, 주석상
+    # "obgyn_clinic 과 동일한 넓은 통원권 성격"으로 명시돼 있어 동일값 사용.
+    "academy": 3000,
+}
+
 # 프로필별 배율 (metro=1.0 기준)
 _DECAY_MULTIPLIER = {"metro": 1.0, "major_city": 1.3, "provincial": 1.8}
 _DENSITY_MULTIPLIER = {"metro": 1.0, "major_city": 1.5, "provincial": 2.0}
@@ -189,7 +252,16 @@ _MAX_DIST_MULTIPLIER = {"metro": 1.0, "major_city": 1.3, "provincial": 1.6}
 
 
 def _load_max_distances() -> dict[str, float]:
-    """기존 호환: 글로벌 max_distance (facility_distance group)."""
+    """글로벌 max_distance (facility_distance group) — 코드 기본값 + DB 오버라이드 merge.
+
+    merge semantics: _DEFAULT_MAX_DISTANCE 위에 DB(facility_distance group) 값을
+    subtype 단위로 얹는다 — decay/density 로더와 동일 패턴(a96b199). DB 에 행이
+    있는 기존 15 subtype 은 DB 값이 우선(운영에서 common_code 로 튜닝 가능하게
+    유지)하고, Phase 2 이후 추가된 9 subtype(DB 미등록)은 코드 기본값을 쓴다.
+
+    fallback 발동 조건: DB(facility_distance group)에도 _DEFAULT_MAX_DISTANCE 에도
+    없는 subtype 만 호출측 `.get(subtype, 3000)` 상수 폴백을 탄다.
+    """
     global _max_distances
     if _max_distances is not None:
         return _max_distances
@@ -198,7 +270,8 @@ def _load_max_distances() -> dict[str, float]:
         "SELECT code, name FROM common_code WHERE group_id = %s", ["facility_distance"]
     ).fetchall()
     conn.close()
-    _max_distances = {r["code"]: float(r["name"]) for r in rows}
+    overrides = {r["code"]: float(r["name"]) for r in rows}
+    _max_distances = {**_DEFAULT_MAX_DISTANCE, **overrides}
     return _max_distances
 
 

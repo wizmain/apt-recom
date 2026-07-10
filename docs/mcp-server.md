@@ -25,6 +25,8 @@
 
 `get_apartment_detail` 의 항공영상은 국토부 V-World Open API(이용허락 제한 없음) 정사영상을 실시간 프록시로 가져오며, V-World 워터마크가 포함된다.
 
+> **production(해외 리전) 제약**: V-World는 국외 IP 접속을 차단하므로, 해외 리전에 배포된 production 환경에서는 `get_apartment_detail` 호출 시 항공영상이 생략되고 텍스트(JSON) 블록만 반환된다. 국내 환경(로컬 개발 등)에서는 정상적으로 이미지가 포함된다.
+
 ## 클라이언트 설정
 
 ### Claude Desktop

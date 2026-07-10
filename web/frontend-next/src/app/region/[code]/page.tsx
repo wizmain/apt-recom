@@ -9,7 +9,7 @@ import {
   fetchRegionRecentTrades,
   fetchRegionApartments,
   parseRegionName,
-} from "../_data";
+} from "@/lib/regionData";
 import { RegionHubView } from "./_view";
 
 /**
