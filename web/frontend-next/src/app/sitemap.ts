@@ -73,6 +73,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: UpstreamUrl[] = [
     { loc: `${SITE_URL}/about` },
     { loc: `${SITE_URL}/guide` },
+    { loc: `${SITE_URL}/explore` },
   ];
 
   const seen = new Set<string>();
