@@ -1,5 +1,5 @@
 import type { ApartmentDetail, TradesResponse } from "@/types/apartment";
-import type { ResolvedRegion } from "./page";
+import type { ResolvedRegion } from "@/types/region";
 import { BasicInfo } from "./sections/BasicInfo";
 import { LifeScores } from "./sections/LifeScores";
 import { PriceInfo } from "./sections/PriceInfo";

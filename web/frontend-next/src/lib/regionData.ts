@@ -9,8 +9,13 @@ import type {
 } from "@/types/region";
 
 /**
- * /region, /region/[code] 공용 서버 fetch — 두 라우트가 동일한 regions 목록/
- * 파싱 로직을 쓰므로 공통 모듈로 추출 (route-scoped private module).
+ * 지역(시군구) 데이터 서버 fetch 공용 모듈 — `src/lib/` 소속(route-scoped 아님).
+ *
+ * 원래 `/region` route 전용(`app/region/_data.ts`)으로 시작했지만,
+ * `/apartment/[pnu]` 상세 페이지가 breadcrumb/지역 링크 해석을 위해
+ * `fetchRegions`/`parseRegionName`을 가져다 쓰면서 route 경계를 넘는 공용
+ * 의존성이 됐다 — route-private(`_` 접두) 위치에 두면 실제 사용 범위와
+ * 어긋나므로 다른 lib 유틸(api.ts, site.ts 등)과 같은 계층으로 승격했다.
  *
  * 모든 fetch 는 실패해도 throw 하지 않고 빈 값으로 degrade — 페이지 자체가
  * 죽지 않고, 호출부(page.tsx)가 notFound()/조건 렌더로 처리한다.
