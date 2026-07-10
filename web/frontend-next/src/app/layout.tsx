@@ -19,7 +19,6 @@ export const metadata: Metadata = {
     "집토리는 라이프스타일 키워드로 대한민국 아파트를 찾아주는 서비스입니다. NUDGE 스코어링, 가격·안전 점수, 실거래가, 학군·시설 거리를 한 화면에서 비교하세요.",
   applicationName: "집토리",
   keywords: ["아파트", "부동산", "추천", "라이프스타일", "집토리", "apt-recom"],
-  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     siteName: "집토리",

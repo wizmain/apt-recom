@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   title: "라이프스타일 추천 둘러보기",
   description:
     "학군·출퇴근·가성비 등 지역 × 라이프스타일 조합을 고르면 바로 아파트 추천을 받아볼 수 있습니다.",
+  alternates: { canonical: "/explore" },
 };
 
 // 프리셋은 common_code(explore_preset) 서버 fetch — 1시간 재검증 캐시.
