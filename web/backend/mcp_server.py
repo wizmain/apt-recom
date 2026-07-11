@@ -82,8 +82,11 @@ mcp = FastMCP(
     website_url="https://apt-recom.kr",
     icons=[
         # 레지스트리(Smithery 등)는 래스터 아이콘을 선호 — PNG 를 첫 항목으로.
+        # ?v= 쿼리는 캐시 버스터: 레지스트리는 URL 단위로 이미지를 캐시하므로
+        # 아이콘 교체 시 이 버전을 올려야 새 이미지를 다시 긁어간다.
+        # (Smithery 는 대시보드 설정보다 serverInfo.icons 선언을 우선 동기화)
         Icon(
-            src="https://apt-recom.kr/icon-512.png",
+            src="https://apt-recom.kr/icon-512.png?v=2",
             mimeType="image/png",
             sizes=["512x512"],
         ),
