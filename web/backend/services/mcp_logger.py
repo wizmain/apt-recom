@@ -136,10 +136,60 @@ def _extract_request_meta(scope: dict) -> McpRequestMeta:
     )
 
 
-def mcp_logging_middleware(app):
-    """ASGI 미들웨어 — MCP 요청 진입 시 ContextVar 에 메타데이터 set, 종료 시 reset.
+# 연결 수준(프로토콜) 로깅 대상 JSON-RPC method → mcp_call_log.tool_name 라벨.
+# tools/call 은 데코레이터(log_mcp_call)가 tool 단위로 기록하므로 여기서 제외
+# (이중 집계 방지). initialize 는 클라이언트가 "연결"했다는 유일한 신호라
+# tool 미호출 클라이언트 파악에 필수.
+_PROTOCOL_LOGGED_METHODS: dict[str, str] = {
+    "initialize": "protocol:initialize",
+    "tools/list": "protocol:tools/list",
+}
+# JSON-RPC 본문 파싱 상한 — MCP 요청은 수 KB 수준이며, 상한 초과 시
+# 프로토콜 로깅만 생략하고 요청 처리는 그대로 진행한다.
+_BODY_PARSE_MAX = 64 * 1024
 
-    HTTP 가 아닌 scope(lifespan 등) 는 그대로 통과.
+
+def _extract_protocol_calls(body: bytes) -> list[tuple[str, str]]:
+    """요청 본문에서 (tool_name 라벨, arguments_json) 목록 추출.
+
+    로깅 대상 method 가 아니거나 파싱 불가면 빈 목록. initialize 는
+    clientInfo/protocolVersion 을 arguments 로 보존해 클라이언트 식별에 쓴다.
+    """
+    if not body or len(body) > _BODY_PARSE_MAX:
+        return []
+    try:
+        parsed = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return []
+    requests = parsed if isinstance(parsed, list) else [parsed]
+    calls: list[tuple[str, str]] = []
+    for req in requests:
+        if not isinstance(req, dict):
+            continue
+        label = _PROTOCOL_LOGGED_METHODS.get(req.get("method", ""))
+        if not label:
+            continue
+        params = req.get("params") or {}
+        arguments = (
+            {
+                "protocol_version": params.get("protocolVersion"),
+                "client_info": params.get("clientInfo"),
+            }
+            if req.get("method") == "initialize"
+            else {}
+        )
+        calls.append((label, _safe_json_arguments(arguments)))
+    return calls
+
+
+def mcp_logging_middleware(app):
+    """ASGI 미들웨어 — MCP 요청 메타데이터 ContextVar set + 연결 수준 로깅.
+
+    - 모든 HTTP 요청: 헤더에서 IP/UA/kind 를 추출해 ContextVar 에 set (tool
+      데코레이터가 소비), 종료 시 reset. HTTP 가 아닌 scope(lifespan 등) 통과.
+    - POST 본문의 JSON-RPC method 가 initialize/tools/list 면 mcp_call_log 에
+      protocol:* 행으로 기록 — tool 호출 없이 연결만 한 클라이언트도 집계.
+      본문은 메시지 단위로 버퍼링 후 앱에 재전달(replay)하므로 처리 불변.
     """
 
     async def wrapped(scope, receive, send):
@@ -148,10 +198,55 @@ def mcp_logging_middleware(app):
             return
         meta = _extract_request_meta(scope)
         token = _request_meta.set(meta)
+
+        replay_receive = receive
+        protocol_calls: list[tuple[str, str]] = []
+        if scope.get("method") == "POST":
+            # 본문을 메시지 단위로 소진해 파싱하고, 동일 순서로 앱에 재전달.
+            messages: list[dict] = []
+            while True:
+                message = await receive()
+                messages.append(message)
+                if message["type"] != "http.request" or not message.get(
+                    "more_body", False
+                ):
+                    break
+            body = b"".join(
+                m.get("body", b"") for m in messages if m["type"] == "http.request"
+            )
+            protocol_calls = _extract_protocol_calls(body)
+
+            async def replay_receive():  # type: ignore[no-redef]
+                if messages:
+                    return messages.pop(0)
+                return await receive()
+
+        status_holder: dict[str, int] = {}
+
+        async def send_with_status(message):
+            if message["type"] == "http.response.start":
+                status_holder["status"] = message["status"]
+            await send(message)
+
+        started = time.perf_counter()
         try:
-            await app(scope, receive, send)
+            await app(scope, replay_receive, send_with_status)
         finally:
             _request_meta.reset(token)
+            if protocol_calls:
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                success = status_holder.get("status", 500) < 400
+                for label, arguments_json in protocol_calls:
+                    _persist(
+                        tool_name=label,
+                        arguments_json=arguments_json,
+                        meta=meta,
+                        duration_ms=duration_ms,
+                        success=success,
+                        error_message=None
+                        if success
+                        else f"http {status_holder.get('status', '?')}",
+                    )
 
     return wrapped
 
