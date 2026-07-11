@@ -23,13 +23,24 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import Icon, ToolAnnotations
+from pydantic import Field
 
 from services import tools as tool_executors
 from services import vworld_image
 from services.mcp_logger import log_mcp_call, mcp_logging_middleware
+
+# 모든 tool 이 읽기 전용 조회(검색/상세/비교)이며 부작용이 없다 — 공통 annotations.
+_READ_ONLY_QUERY_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
 
 
 def _build_transport_security() -> TransportSecuritySettings:
@@ -68,24 +79,42 @@ mcp = FastMCP(
         "학군 배정)를 라이프스타일 키워드 기반으로 검색·상세조회·비교·추천한다. "
         "모든 응답은 한국어 JSON 문자열. 금액은 만원 단위, 면적은 ㎡."
     ),
+    website_url="https://apt-recom.kr",
+    icons=[Icon(src="https://apt-recom.kr/favicon.svg", mimeType="image/svg+xml")],
     stateless_http=True,
     streamable_http_path="/",
     transport_security=_build_transport_security(),
 )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="아파트 라이프스타일 검색",
+    annotations=_READ_ONLY_QUERY_ANNOTATIONS,
+)
 @log_mcp_call
 async def search_apartments(
-    keyword: str,
-    nudges: list[str] | None = None,
-    top_n: int = 10,
-    min_area: float | None = None,
-    max_area: float | None = None,
-    min_price: int | None = None,
-    max_price: int | None = None,
-    min_floor: int | None = None,
-    built_after: int | None = None,
+    keyword: Annotated[
+        str, Field(description="지역명 또는 단지명 (예: '자양동', '강남구', '래미안').")
+    ],
+    nudges: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "적용할 라이프 항목 ID 목록(cost/pet/commute/newlywed/education/"
+                "senior/investment/nature/safety). 생략 시 키워드에서 자동 추론, "
+                "추론 실패 시 ['commute']."
+            )
+        ),
+    ] = None,
+    top_n: Annotated[int, Field(description="반환 최대 단지 수 (기본 10).")] = 10,
+    min_area: Annotated[float | None, Field(description="전용면적 최소값(㎡).")] = None,
+    max_area: Annotated[float | None, Field(description="전용면적 최대값(㎡).")] = None,
+    min_price: Annotated[int | None, Field(description="매매가 최소값(만원).")] = None,
+    max_price: Annotated[int | None, Field(description="매매가 최대값(만원).")] = None,
+    min_floor: Annotated[int | None, Field(description="최소 최고층수.")] = None,
+    built_after: Annotated[
+        int | None, Field(description="준공연도 이후 (예: 2015).")
+    ] = None,
 ) -> str:
     """라이프스타일 키워드 기반 아파트 검색·스코어링.
 
@@ -126,9 +155,25 @@ async def search_apartments(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="아파트 상세 조회",
+    annotations=_READ_ONLY_QUERY_ANNOTATIONS,
+)
 @log_mcp_call
-async def get_apartment_detail(query: str, include_image: bool = True) -> list:
+async def get_apartment_detail(
+    query: Annotated[
+        str,
+        Field(
+            description="단지명(부분 일치 가능) 또는 19자리 PNU 코드 (예: '래미안대치팰리스', '1168010100100010000')."
+        ),
+    ],
+    include_image: Annotated[
+        bool,
+        Field(
+            description="True(기본)면 항공영상 이미지 블록을 함께 반환, False면 JSON 텍스트만 반환."
+        ),
+    ] = True,
+) -> list:
     """특정 아파트의 상세 정보(기본·점수·시설·학군·거래이력 요약) + 항공영상.
 
     무엇:
@@ -175,9 +220,19 @@ async def get_apartment_detail(query: str, include_image: bool = True) -> list:
     return content
 
 
-@mcp.tool()
+@mcp.tool(
+    title="아파트 비교",
+    annotations=_READ_ONLY_QUERY_ANNOTATIONS,
+)
 @log_mcp_call
-async def compare_apartments(queries: list[str]) -> str:
+async def compare_apartments(
+    queries: Annotated[
+        list[str],
+        Field(
+            description="비교할 단지명 또는 PNU 목록 (2~5개, 예: ['래미안대치팰리스', '은마아파트'])."
+        ),
+    ],
+) -> str:
     """2~5개 아파트를 나란히 비교.
 
     무엇:
@@ -194,13 +249,26 @@ async def compare_apartments(queries: list[str]) -> str:
     return await tool_executors.compare_apartments(queries)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="유사 아파트 추천",
+    annotations=_READ_ONLY_QUERY_ANNOTATIONS,
+)
 @log_mcp_call
 async def get_similar_apartments(
-    query: str,
-    mode: str = "combined",
-    top_n: int = 5,
-    exclude_same_area: bool = False,
+    query: Annotated[str, Field(description="기준 아파트명 또는 PNU.")],
+    mode: Annotated[
+        str,
+        Field(
+            description=(
+                "유사도 산출 방식 ('location' 위치 / 'price' 가격 / "
+                "'lifestyle' 라이프스타일 / 'combined' 종합, 기본 combined)."
+            )
+        ),
+    ] = "combined",
+    top_n: Annotated[int, Field(description="반환 단지 수 (기본 5).")] = 5,
+    exclude_same_area: Annotated[
+        bool, Field(description="True면 같은 시군구는 제외.")
+    ] = False,
 ) -> str:
     """특정 아파트와 유사한 단지 추천.
 
@@ -226,9 +294,17 @@ async def get_similar_apartments(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="지역 시세 동향",
+    annotations=_READ_ONLY_QUERY_ANNOTATIONS,
+)
 @log_mcp_call
-async def get_market_trend(region: str, period: str = "1y") -> str:
+async def get_market_trend(
+    region: Annotated[str, Field(description="지역명 (예: '강남구', '자양동').")],
+    period: Annotated[
+        str, Field(description="조회 기간 ('1y', '3y', '5y'; 기본 1y).")
+    ] = "1y",
+) -> str:
     """지역 시세 동향(월별 거래량·평균가).
 
     무엇:
@@ -244,9 +320,19 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
     return await tool_executors.get_market_trend(region=region, period=period)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="학군 배정 조회",
+    annotations=_READ_ONLY_QUERY_ANNOTATIONS,
+)
 @log_mcp_call
-async def get_school_info(query: str) -> str:
+async def get_school_info(
+    query: Annotated[
+        str,
+        Field(
+            description="아파트명(부분 일치 가능) 또는 19자리 PNU 코드 (예: '래미안대치팰리스', '1168010100100010000')."
+        ),
+    ],
+) -> str:
     """아파트의 초·중·고 학군 배정 정보.
 
     무엇:
@@ -264,9 +350,19 @@ async def get_school_info(query: str) -> str:
     return await tool_executors.get_school_info(query)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="거래 동향 대시보드",
+    annotations=_READ_ONLY_QUERY_ANNOTATIONS,
+)
 @log_mcp_call
-async def get_dashboard_info(region: str = "", months: int = 6) -> str:
+async def get_dashboard_info(
+    region: Annotated[
+        str, Field(description="지역명 (예: '강남구', '서울'). 비우면 전국 기준.")
+    ] = "",
+    months: Annotated[
+        int, Field(description="시계열 추이 길이 (기본 6, 최대 60).")
+    ] = 6,
+) -> str:
     """시군구 거래 동향 대시보드 — 이번 달 요약 + 랭킹 + 최근 N개월 추이.
 
     무엇:
