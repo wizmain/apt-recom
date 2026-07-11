@@ -80,7 +80,15 @@ mcp = FastMCP(
         "모든 응답은 한국어 JSON 문자열. 금액은 만원 단위, 면적은 ㎡."
     ),
     website_url="https://apt-recom.kr",
-    icons=[Icon(src="https://apt-recom.kr/favicon.svg", mimeType="image/svg+xml")],
+    icons=[
+        # 레지스트리(Smithery 등)는 래스터 아이콘을 선호 — PNG 를 첫 항목으로.
+        Icon(
+            src="https://apt-recom.kr/icon-512.png",
+            mimeType="image/png",
+            sizes=["512x512"],
+        ),
+        Icon(src="https://apt-recom.kr/favicon.svg", mimeType="image/svg+xml"),
+    ],
     stateless_http=True,
     streamable_http_path="/",
     transport_security=_build_transport_security(),
