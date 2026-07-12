@@ -42,6 +42,7 @@ COLOR_ACCENT_GREEN = (52, 211, 153)  # #34d399
 COLOR_TEXT_WHITE = (255, 255, 255)
 COLOR_TEXT_LIGHT = (219, 234, 254)  # #dbeafe
 COLOR_TEXT_GRAY = (148, 163, 184)  # 푸터 보조문구용 회색
+COLOR_BAR_TRACK = (40, 51, 92)  # compare 점수 바 트랙(배경보다 살짝 밝은 네이비)
 
 FONT_PATH = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
 # index 는 AppleSDGothicNeo.ttc 실측 결과(0=Regular,2=Medium,4=SemiBold,
@@ -74,9 +75,11 @@ NUDGE_LABELS = {
 }
 
 DEFAULT_TRADE_TOP_DAYS = 7
+WEEK_DAYS = 7  # 타이틀 "이번 주" 표현이 허용되는 상한
 DEFAULT_COMPARE_NUDGE = "newlywed"
 DEFAULT_VALUE_NUDGE = "cost"
 VALUE_CANDIDATE_POOL_SIZE = 30
+DEFAULT_VALUE_MIN_HOUSEHOLDS = 100  # value: 소규모(나홀로) 단지 제외 기준
 CARD_LIST_SIZE = 5
 
 OUTPUT_ROOT = Path(__file__).resolve().parents[1] / "reports" / "insta"
@@ -202,20 +205,37 @@ def _draw_footer(draw: ImageDraw.ImageDraw, size: tuple[int, int]) -> int:
 # ---------------------------------------------------------------------------
 # ① trade-top — 로컬 DB, 신고일(created_at) 기준 최근 N일 집계
 # ---------------------------------------------------------------------------
+def trade_top_period_texts(days: int) -> tuple[str, str]:
+    """기간(days) → (시리즈 라벨, 타이틀 1행) — 라벨/타이틀을 한 곳에서 함께
+    구성해 '이번 주' 표현과 --days 값이 모순될 수 없게 한다."""
+    label = f"신고일 기준 · 최근 {days}일"
+    title_first_line = (
+        "이번 주 신고된" if days <= WEEK_DAYS else f"최근 {days}일 신고된"
+    )
+    return label, title_first_line
+
+
 def fetch_top_price_trades(conn, days: int) -> list[dict]:
+    # DISTINCT ON 으로 동일 단지(매핑된 pnu, 미매핑 시 시군구+단지명) 중복을
+    # 제거해 단지당 최고가 거래 1건만 남긴 뒤 금액 상위 5건을 뽑는다.
     rows = query_all(
         conn,
         """
-        SELECT
-            COALESCE(a.display_name, a.bld_nm, t.apt_nm) AS apt_display_name,
-            t.sgg_cd,
-            t.deal_amount,
-            t.exclu_use_ar
-        FROM trade_history t
-        LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
-        LEFT JOIN apartments a ON a.pnu = m.pnu
-        WHERE t.created_at >= NOW() - (%s || ' days')::interval
-        ORDER BY t.deal_amount DESC
+        SELECT apt_display_name, sgg_cd, deal_amount, exclu_use_ar
+        FROM (
+            SELECT DISTINCT ON (COALESCE(m.pnu, t.sgg_cd || ':' || t.apt_nm))
+                COALESCE(a.display_name, a.bld_nm, t.apt_nm) AS apt_display_name,
+                t.sgg_cd,
+                t.deal_amount,
+                t.exclu_use_ar
+            FROM trade_history t
+            LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
+            LEFT JOIN apartments a ON a.pnu = m.pnu
+            WHERE t.created_at >= NOW() - (%s || ' days')::interval
+            ORDER BY COALESCE(m.pnu, t.sgg_cd || ':' || t.apt_nm),
+                     t.deal_amount DESC
+        ) per_complex
+        ORDER BY deal_amount DESC
         LIMIT %s
         """,
         [days, CARD_LIST_SIZE],
@@ -270,9 +290,10 @@ def _load_sigungu_names(conn) -> dict[str, str]:
 
 
 def render_trade_top_price_card(rows: list[dict], days: int) -> Image.Image:
+    label, title_first_line = trade_top_period_texts(days)
     canvas = build_card_canvas(
-        f"신고일 기준 · 최근 {days}일",
-        ["이번 주 신고된", "최고가 거래 TOP 5"],
+        label,
+        [title_first_line, "최고가 거래 TOP 5"],
     )
     draw = canvas.draw
     rank_font = get_font("extrabold", 40)
@@ -307,8 +328,9 @@ def render_trade_top_price_card(rows: list[dict], days: int) -> Image.Image:
 
 
 def render_trade_top_hot_card(rows: list[dict], days: int) -> Image.Image:
+    label, _ = trade_top_period_texts(days)
     canvas = build_card_canvas(
-        f"신고일 기준 · 최근 {days}일",
+        label,
         ["거래 신고 급증", "동네 TOP 5"],
     )
     draw = canvas.draw
@@ -390,8 +412,11 @@ def render_compare_card(region_a: dict, region_b: dict, nudge: str) -> Image.Ima
     name_font = get_font("semibold", 32)
     top1_font = get_font("regular", 26)
 
+    # 세로 배치(위→아래): 점수/지역명/1위 단지(=216) → 점수 바(+264~280)
     block_width = CANVAS_SIZE / 2
-    block_content_height = 176 + 40  # score~name~top1 라벨까지 실측 높이
+    bar_offset_y = 264
+    bar_height = 16
+    block_content_height = bar_offset_y + bar_height
     content_area_height = canvas.content_bottom - canvas.content_top
     block_top = canvas.content_top + (content_area_height - block_content_height) / 2
 
@@ -425,7 +450,85 @@ def render_compare_card(region_a: dict, region_b: dict, nudge: str) -> Image.Ima
             fill=COLOR_TEXT_LIGHT,
         )
 
+    _draw_compare_score_bars(
+        draw,
+        bar_y=block_top + bar_offset_y,
+        bar_height=bar_height,
+        score_left=region_a["avg_score"],
+        score_right=region_b["avg_score"],
+        winner_is_left=winner is region_a,
+    )
     return canvas.image
+
+
+def _draw_compare_score_bars(
+    draw: ImageDraw.ImageDraw,
+    bar_y: float,
+    bar_height: int,
+    score_left: float,
+    score_right: float,
+    winner_is_left: bool,
+) -> None:
+    """중앙에서 좌우로 뻗는 대칭 점수 바(0~100 스케일) + 중앙 VS 배지.
+
+    시각 요소는 이 2개(바, 배지)로 제한 — 카드 과밀 방지.
+    """
+    center_x = CANVAS_SIZE / 2
+    badge_radius = 34
+    bar_gap_from_badge = badge_radius + 18
+    track_length = center_x - MARGIN_X - bar_gap_from_badge
+    radius = bar_height / 2
+
+    sides = (
+        # (점수, 승자여부, 트랙 시작 x 방향: -1=왼쪽으로, +1=오른쪽으로)
+        (score_left, winner_is_left, -1),
+        (score_right, not winner_is_left, +1),
+    )
+    for score, is_winner, direction in sides:
+        fill_color = COLOR_ACCENT_GREEN if is_winner else COLOR_ACCENT_BLUE
+        anchor_x = center_x + direction * bar_gap_from_badge
+        track_end_x = anchor_x + direction * track_length
+        fill_end_x = anchor_x + direction * track_length * min(score, 100.0) / 100.0
+
+        track_box = [
+            min(anchor_x, track_end_x),
+            bar_y,
+            max(anchor_x, track_end_x),
+            bar_y + bar_height,
+        ]
+        draw.rounded_rectangle(track_box, radius=radius, fill=COLOR_BAR_TRACK)
+
+        fill_box = [
+            min(anchor_x, fill_end_x),
+            bar_y,
+            max(anchor_x, fill_end_x),
+            bar_y + bar_height,
+        ]
+        draw.rounded_rectangle(fill_box, radius=radius, fill=fill_color)
+
+    badge_center_y = bar_y + bar_height / 2
+    draw.ellipse(
+        [
+            center_x - badge_radius,
+            badge_center_y - badge_radius,
+            center_x + badge_radius,
+            badge_center_y + badge_radius,
+        ],
+        fill=COLOR_BAR_TRACK,
+        outline=COLOR_TEXT_LIGHT,
+        width=2,
+    )
+    vs_font = get_font("bold", 28)
+    vs_text = "VS"
+    vs_w = draw.textlength(vs_text, font=vs_font)
+    vs_bbox = vs_font.getbbox(vs_text)
+    vs_h = vs_bbox[3] - vs_bbox[1]
+    draw.text(
+        (center_x - vs_w / 2, badge_center_y - vs_h / 2 - vs_bbox[1]),
+        vs_text,
+        font=vs_font,
+        fill=COLOR_TEXT_WHITE,
+    )
 
 
 def generate_compare_card(sigungu_codes: list[str], nudge: str) -> Image.Image:
@@ -456,10 +559,20 @@ def generate_compare_card(sigungu_codes: list[str], nudge: str) -> Image.Image:
 # ---------------------------------------------------------------------------
 # ③ value — 운영 공개 API(cost 상위 30) + 로컬 DB price_per_m2 보충
 # ---------------------------------------------------------------------------
-def fetch_nudge_candidates(region_keyword: str, nudge: str, top_n: int) -> list[dict]:
+def fetch_nudge_candidates(
+    region_keyword: str, nudge: str, top_n: int, min_households: int
+) -> list[dict]:
+    # min_hhld 는 nudge/score 요청 필터(NudgeScoreRequest.min_hhld)로 서버에서
+    # 적용 — 후보 풀(top_n)이 소규모 단지로 소모되지 않는다. 응답의
+    # total_hhld_cnt 로 필터 적용 여부를 호출부에서 재검증한다.
     resp = requests.post(
         f"{PROD_API_BASE}/api/nudge/score",
-        json={"nudges": [nudge], "top_n": top_n, "keyword": region_keyword},
+        json={
+            "nudges": [nudge],
+            "top_n": top_n,
+            "keyword": region_keyword,
+            "min_hhld": min_households,
+        },
         timeout=API_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
@@ -480,7 +593,7 @@ def fetch_price_per_m2_by_pnu(conn, pnu_list: list[str]) -> dict[str, float]:
 
 def render_value_card(rows: list[dict], region_label: str) -> Image.Image:
     canvas = build_card_canvas(
-        "숨은 가성비",
+        "가성비 랭킹",  # 타이틀("숨은 가성비 TOP 5")과 문구 중복 방지
         ["숨은 가성비 TOP 5", f"— {region_label}"],
     )
     draw = canvas.draw
@@ -513,12 +626,25 @@ def render_value_card(rows: list[dict], region_label: str) -> Image.Image:
     return canvas.image
 
 
-def generate_value_card(region_keyword: str, nudge: str) -> Image.Image:
+def generate_value_card(
+    region_keyword: str, nudge: str, min_households: int
+) -> Image.Image:
     candidates = fetch_nudge_candidates(
-        region_keyword, nudge, VALUE_CANDIDATE_POOL_SIZE
+        region_keyword, nudge, VALUE_CANDIDATE_POOL_SIZE, min_households
     )
     if not candidates:
         raise ValueError(f"'{region_keyword}' 에 대한 넛지 점수 결과가 없습니다.")
+
+    # 서버 min_hhld 필터 재검증 — API 스펙 변경으로 필터가 무시되는 경우를
+    # 조용히 통과시키지 않는다 (응답의 total_hhld_cnt 로 확인).
+    undersized = [
+        c for c in candidates if (c.get("total_hhld_cnt") or 0) < min_households
+    ]
+    if undersized:
+        raise ValueError(
+            f"nudge/score 응답에 min_hhld({min_households}) 미달 단지 "
+            f"{len(undersized)}건 포함 — API 필터 동작을 확인할 것."
+        )
 
     conn = get_connection()
     try:
@@ -575,6 +701,12 @@ def parse_args() -> argparse.Namespace:
         help="compare/value: 넛지 id (예: cost, newlywed)",
     )
     parser.add_argument("--region", type=str, default="서울", help="value: 지역 키워드")
+    parser.add_argument(
+        "--min-hhld",
+        type=int,
+        default=DEFAULT_VALUE_MIN_HOUSEHOLDS,
+        help="value: 후보 최소 세대수 (소규모 단지 제외)",
+    )
     return parser.parse_args()
 
 
@@ -605,7 +737,7 @@ def main() -> None:
             raise SystemExit(
                 f"알 수 없는 넛지 id: {nudge} (허용: {', '.join(NUDGE_LABELS)})"
             )
-        image = generate_value_card(args.region, nudge)
+        image = generate_value_card(args.region, nudge, args.min_hhld)
         path = save_card(image, output_dir, "value.png")
         print(f"saved: {path}")
 
