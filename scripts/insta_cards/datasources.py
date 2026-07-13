@@ -131,9 +131,11 @@ def extract_candidate_metrics(detail: dict, target_area: float | None) -> list[M
         else:
             entry = max(by_area, key=lambda r: r.get("unit_count") or 0)
         monthly = entry.get("per_unit_cost")
+        # per_unit_cost 0원은 미보고 데이터로 간주 → "정보 없음" 처리 (의도된 truthy 검사)
         if monthly:
-            monthly_man = math.ceil(monthly / 10000)
-            annual_man = math.ceil(monthly * 12 / 10000)
+            # 내장 round()는 은행가 반올림(round(24.5)=24)이라 round-half-up 을 사용
+            monthly_man = math.floor(monthly / 10000 + 0.5)
+            annual_man = math.floor(monthly * 12 / 10000 + 0.5)
             mgmt_value = f"{monthly_man}만원 (연 {annual_man}만원)"
 
     return [
@@ -198,7 +200,7 @@ def stale_trade_warning(conn) -> str | None:
     age = rows[0]["age_hours"] if rows else None
     if age is None or age > STALE_TRADE_WARN_HOURS:
         return (
-            f"경고: 로컬 trade_history 최신 적재가 {age and round(age) or '?'}시간 전입니다. "
+            f"경고: 로컬 trade_history 최신 적재가 {round(age) if age is not None else '?'}시간 전입니다. "
             "batch.sync_from_railway 실행을 권장합니다."
         )
     return None
