@@ -224,6 +224,8 @@ def validate(pub: Publication) -> None:  # noqa: C901 — 규칙 나열형 검�
                 errors.append(
                     f"{name}: rank 는 1부터 연속이어야 함 (index {idx} = rank {item.rank})"
                 )
+            if not item.name or not str(item.name).strip():
+                errors.append(f"{name}[{idx}].name: 빈 값은 허용되지 않습니다.")
             if item.pnu is not None and not PNU_PATTERN.match(item.pnu):
                 errors.append(f"{name}[{idx}].pnu: 19자리 숫자가 아님 — '{item.pnu}'")
             if not item.metrics or len(item.metrics) > textrules.MAX_METRICS:

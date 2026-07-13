@@ -3,6 +3,9 @@
 기존 옵션(--series trade-top/compare/value, --days, --regions, --nudge,
 --region, --min-hhld)은 새 CLI 가 그대로 받는다. 출력은 단일 카드가 아니라
 캐러셀 디렉토리(reports/insta/{날짜}/{slug}/)로 바뀌었다.
+단, 한글 --region(예: --series value 의 기본값 "서울")을 사용할 경우
+자동 slug 생성이 SLUG_PATTERN(소문자 ASCII+하이픈)을 위반하므로 --slug 를
+직접 지정해야 한다.
 """
 
 from __future__ import annotations

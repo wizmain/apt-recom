@@ -512,6 +512,14 @@ class TestPublication(unittest.TestCase):
             any("data_as_of" in e for e in self._errors(data_as_of="2099-01-01"))
         )
 
+    def test_item_name_required(self):
+        import dataclasses
+
+        pub = make_valid_value_publication()
+        items = list(pub.items)
+        items[0] = dataclasses.replace(items[0], name="")
+        self.assertTrue(any(".name" in e for e in self._errors(items=tuple(items))))
+
     def test_to_json_dict_serializes_enum(self):
         from scripts.insta_cards import publication as p
 

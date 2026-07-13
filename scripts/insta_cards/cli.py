@@ -98,7 +98,8 @@ def build_auto_slug(series: Series, args) -> str:
     if not SLUG_PATTERN.match(slug):
         raise SystemExit(
             f"자동 slug '{slug}' 가 형식(소문자 ASCII+하이픈)에 맞지 않습니다 — "
-            "--slug 를 직접 지정하세요."
+            "한글 지역 키워드는 --slug 를 직접 지정하세요. "
+            f"예: --slug {series_slug}-seoul-{stamp}"
         )
     return slug
 
