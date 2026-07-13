@@ -1073,5 +1073,132 @@ class TestCompareSeries(unittest.TestCase):
             )
 
 
+class TestBudgetChoiceSeries(unittest.TestCase):
+    def _eligible(self, seeds):
+        return {
+            f"{s:019d}": {
+                "pnu": f"{s:019d}",
+                "deal_amount": 68000,
+                "exclu_use_ar": 59.9,
+                "deal_date": None,
+                "bld_nm": f"단지{s}",
+                "use_apr_day": "20150330",
+            }
+            for s in seeds
+        }
+
+    def _scored(self, seeds):
+        return [
+            {
+                "pnu": f"{s:019d}",
+                "bld_nm": f"단지{s}",
+                "score": 90.0 - i,
+                "total_hhld_cnt": 500,
+                "top_contributors": [{"subtype": "subway"}],
+            }
+            for i, s in enumerate(seeds)
+        ]
+
+    def test_select_representative_intersects_by_score_order(self):
+        from scripts.insta_cards.series import budget_choice
+
+        eligible = self._eligible([3, 4])
+        scored = self._scored([1, 2, 3, 4])  # 1,2 는 eligible 아님
+        trade, row = budget_choice.select_representative(eligible, scored, None)
+        self.assertEqual(trade["pnu"], f"{3:019d}")
+        self.assertEqual(row["pnu"], f"{3:019d}")
+
+    def test_select_representative_empty_intersection_raises(self):
+        from scripts.insta_cards.series import budget_choice
+
+        with self.assertRaises(ValueError):
+            budget_choice.select_representative(
+                self._eligible([9]), self._scored([1, 2]), None
+            )
+
+    def test_override_must_be_eligible(self):
+        from scripts.insta_cards.series import budget_choice
+
+        eligible = self._eligible([3])
+        with self.assertRaises(ValueError):
+            budget_choice.select_representative(
+                eligible, self._scored([3]), f"{7:019d}"
+            )
+
+    def test_run_builds_valid_publication(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards import publication as p
+        from scripts.insta_cards.series import budget_choice
+
+        detail = {
+            "basic": {"use_apr_day": "20150330"},
+            "scores": {},
+            "facility_summary": {"subway": {"nearest_distance_m": 480.0}},
+            "school": {"elementary_school_name": "테스트초", "estimated": False},
+            "safety": {"safety_score": 78.0},
+            "mgmt_cost": {
+                "by_area": [
+                    {"exclusive_area": 59, "per_unit_cost": 245000, "unit_count": 100}
+                ]
+            },
+        }
+        args = MagicMock()
+        args.budget, args.regions = 70000, "11440,41135"
+        args.area_a, args.area_b, args.area_tolerance = 59.0, 84.0, 5.0
+        args.nudge, args.pnu_a, args.pnu_b = "cost", None, None
+
+        def fake_trades(conn, code, **kw):
+            return self._eligible([1, 2] if code == "11440" else [5, 6])
+
+        def fake_scored(payload):
+            return self._scored(
+                [1, 2] if payload["sigungu_code"] == "11440" else [5, 6]
+            )
+
+        with (
+            patch(
+                "scripts.insta_cards.series.budget_choice.fetch_recent_trades",
+                side_effect=fake_trades,
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.post_nudge_score",
+                side_effect=fake_scored,
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.get_region_name",
+                side_effect=lambda c: {"11440": "서울 마포구", "41135": "성남 분당구"}[
+                    c
+                ],
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.get_apartment_detail",
+                return_value=detail,
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.open_local_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.stale_trade_warning",
+                return_value=None,
+            ),
+        ):
+            pub = budget_choice.run(
+                args,
+                slug="budget-choice-11440-vs-41135-20260713",
+                status="draft",
+                published_at=None,
+                copy_overrides=None,
+            )
+        p.validate(pub)
+        self.assertEqual(pub.series, p.Series.BUDGET_CHOICE)
+        self.assertEqual(pub.comparison.row_labels, budget_choice.ROW_LABELS)
+        self.assertEqual(len(pub.map_ctas), 2)
+        self.assertEqual(pub.map_ctas[0].filters["max_price"], 70000)
+        # 카드 표기 가격은 eligible 대표 거래에서 나온다 (예산 이하 보장)
+        self.assertIn("6억 8,000만원", pub.items[0].metrics[0].value)
+
+
 if __name__ == "__main__":
     unittest.main()
