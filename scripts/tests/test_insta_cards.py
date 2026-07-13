@@ -694,5 +694,70 @@ class TestDatasources(unittest.TestCase):
         self.assertEqual(list(result.keys()), ["1" * 19])
 
 
+class TestOutput(unittest.TestCase):
+    def _run(self, tmp, pub=None, force=False, slides=None):
+        from pathlib import Path
+
+        from scripts.insta_cards import output, slides as slides_mod
+
+        pub = pub or make_valid_value_publication()
+        slides = slides if slides is not None else slides_mod.build_slides(pub)
+        return output.write_publication(pub, slides, force=force, root=Path(tmp))
+
+    def test_write_creates_all_files(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            final_dir = self._run(tmp)
+            pngs = sorted(p.name for p in final_dir.glob("*.png"))
+            self.assertEqual(len(pngs), 6)
+            self.assertEqual(pngs[0], "01-cover.png")
+            data = json.loads((final_dir / "publication.json").read_text())
+            self.assertEqual(data["slug"], "value-seoul-20260713")
+            # 임시 디렉토리가 남지 않아야 함
+            self.assertEqual(list(Path(tmp).glob("**/*.tmp-*")), [])
+
+    def test_slug_conflict_across_dates(self):
+        import tempfile
+        from pathlib import Path
+
+        from scripts.insta_cards import output
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path(tmp) / "2026-07-01" / "value-seoul-20260713"
+            old.mkdir(parents=True)
+            (old / "stale.png").write_bytes(b"x")
+            with self.assertRaises(output.SlugConflictError):
+                self._run(tmp)
+
+    def test_force_replaces_whole_directory(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path(tmp) / "2026-07-01" / "value-seoul-20260713"
+            old.mkdir(parents=True)
+            (old / "stale.png").write_bytes(b"x")
+            final_dir = self._run(tmp, force=True)
+            self.assertFalse(old.exists())
+            self.assertFalse((final_dir / "stale.png").exists())
+
+    def test_render_failure_leaves_no_final_dir(self):
+        import tempfile
+        from pathlib import Path
+
+        class Boom:
+            def save(self, *a, **kw):
+                raise RuntimeError("render boom")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(RuntimeError):
+                self._run(tmp, slides=[("01-cover.png", Boom())])
+            self.assertEqual(list(Path(tmp).glob("**/value-seoul-20260713")), [])
+            self.assertEqual(list(Path(tmp).glob("**/*.tmp-*")), [])
+
+
 if __name__ == "__main__":
     unittest.main()
