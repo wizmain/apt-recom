@@ -305,5 +305,110 @@ class TestCopywriting(unittest.TestCase):
         self.assertEqual(merged.why, base.why)
 
 
+class TestDatasources(unittest.TestCase):
+    def _detail_fixture(self):
+        return {
+            "basic": {"use_apr_day": "20150330", "sigungu_code": "41135"},
+            "scores": {"cost": 71.2},
+            "facility_summary": {"subway": {"nearest_distance_m": 480.0}},
+            "school": {"elementary_school_name": "분당초", "estimated": False},
+            "safety": {"safety_score": 78.5},
+            "mgmt_cost": {
+                "by_area": [
+                    {"exclusive_area": 59, "per_unit_cost": 245000, "unit_count": 300},
+                    {"exclusive_area": 84, "per_unit_cost": 310000, "unit_count": 200},
+                ]
+            },
+        }
+
+    def test_post_nudge_score_rejects_missing_keys(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards import datasources
+
+        fake = MagicMock()
+        fake.json.return_value = [{"pnu": "1" * 19}]  # bld_nm 등 누락
+        fake.raise_for_status.return_value = None
+        with patch("scripts.insta_cards.datasources.requests.post", return_value=fake):
+            with self.assertRaises(datasources.DataSourceError):
+                datasources.post_nudge_score({"nudges": ["cost"]})
+
+    def test_get_region_name_raises_when_not_found(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards import datasources
+
+        fake = MagicMock()
+        fake.json.return_value = [{"code": "11440", "name": "서울 마포구"}]
+        fake.raise_for_status.return_value = None
+        with patch("scripts.insta_cards.datasources.requests.get", return_value=fake):
+            self.assertEqual(datasources.get_region_name("11440"), "서울 마포구")
+            with self.assertRaises(datasources.DataSourceError):
+                datasources.get_region_name("99999")
+
+    def test_get_apartment_detail_requires_keys(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards import datasources
+
+        fake = MagicMock()
+        fake.json.return_value = {"basic": {}}  # 나머지 키 누락
+        fake.raise_for_status.return_value = None
+        with patch("scripts.insta_cards.datasources.requests.get", return_value=fake):
+            with self.assertRaises(datasources.DataSourceError):
+                datasources.get_apartment_detail("1" * 19)
+
+    def test_extract_candidate_metrics_full(self):
+        from scripts.insta_cards import datasources
+
+        metrics = datasources.extract_candidate_metrics(self._detail_fixture(), 59.8)
+        labels = [m.label for m in metrics]
+        self.assertEqual(labels, ["지하철", "배정 초등학교", "안전점수", "월 관리비"])
+        self.assertIn("480", metrics[0].value)
+        self.assertEqual(metrics[1].value, "분당초")
+        # target_area 59.8 → by_area 59 선택 (가장 가까운 평형)
+        self.assertIn("25만원", metrics[3].value)
+        self.assertIn("연", metrics[3].value)
+
+    def test_extract_candidate_metrics_missing_becomes_info_none(self):
+        from scripts.insta_cards import datasources
+
+        detail = self._detail_fixture()
+        detail["school"] = None
+        detail["mgmt_cost"] = None
+        metrics = datasources.extract_candidate_metrics(detail, None)
+        self.assertEqual(metrics[1].value, "정보 없음")
+        self.assertEqual(metrics[3].value, "정보 없음")
+
+    def test_fetch_recent_trades_builds_conditional_sql(self):
+        from unittest.mock import patch
+
+        from scripts.insta_cards import datasources
+
+        captured = {}
+
+        def fake_query_all(conn, sql, params=None):
+            captured["sql"] = sql
+            captured["params"] = params
+            return [
+                {
+                    "pnu": "1" * 19,
+                    "deal_amount": 68000,
+                    "exclu_use_ar": 59.9,
+                    "deal_date": None,
+                    "bld_nm": "테스트단지",
+                    "use_apr_day": "20100101",
+                }
+            ]
+
+        with patch("scripts.insta_cards.datasources.query_all", fake_query_all):
+            result = datasources.fetch_recent_trades(
+                None, "11440", max_amount=70000, min_area=54.9, max_area=64.9
+            )
+        self.assertIn("deal_amount <= %s", captured["sql"])
+        self.assertIn("exclu_use_ar BETWEEN %s AND %s", captured["sql"])
+        self.assertEqual(list(result.keys()), ["1" * 19])
+
+
 if __name__ == "__main__":
     unittest.main()
