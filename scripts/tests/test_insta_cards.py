@@ -239,5 +239,71 @@ class TestPublication(unittest.TestCase):
         json.dumps(d, ensure_ascii=False)  # 직렬화 가능해야 함
 
 
+class TestCopywriting(unittest.TestCase):
+    def test_budget_choice_copy_has_no_forbidden_terms(self):
+        from scripts.insta_cards import copywriting, textrules
+
+        bundle = copywriting.build_budget_choice_copy(
+            "서울 마포구",
+            "성남 분당구",
+            69000,
+            68000,
+            59.9,
+            84.9,
+            ["지하철", "마트"],
+            ["공원", "학교"],
+        )
+        for text in (bundle.hook, *bundle.why, bundle.fit_for.a, bundle.fit_for.b):
+            self.assertEqual(textrules.find_forbidden_terms(text), [])
+        self.assertIn("59", bundle.hook)
+        self.assertIn("84", bundle.hook)
+
+    def test_contributor_labels_maps_subtypes(self):
+        from scripts.insta_cards import copywriting
+
+        rows = [{"subtype": "subway"}, {"subtype": "mart"}, {"subtype": "score_safety"}]
+        self.assertEqual(
+            copywriting.contributor_labels(rows), ["지하철", "마트", "안전 점수"]
+        )
+
+    def test_load_copy_overrides_rejects_unknown_key(self):
+        import tempfile
+
+        from scripts.insta_cards import copywriting
+
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+            f.write("hook: 좋은 문구\nevil: 나쁜키\n")
+        with self.assertRaises(copywriting.CopyOverrideError):
+            copywriting.load_copy_overrides(f.name)
+
+    def test_load_copy_overrides_rejects_wrong_type(self):
+        import tempfile
+
+        from scripts.insta_cards import copywriting
+
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+            f.write("why: 문자열이면안됨\n")
+        with self.assertRaises(copywriting.CopyOverrideError):
+            copywriting.load_copy_overrides(f.name)
+
+    def test_load_copy_overrides_rejects_empty_string(self):
+        import tempfile
+
+        from scripts.insta_cards import copywriting
+
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+            f.write("hook: ''\n")
+        with self.assertRaises(copywriting.CopyOverrideError):
+            copywriting.load_copy_overrides(f.name)
+
+    def test_apply_overrides_replaces_only_given_keys(self):
+        from scripts.insta_cards import copywriting
+
+        base = copywriting.build_value_copy("서울")
+        merged = copywriting.apply_overrides(base, {"hook": "새 훅 문장"})
+        self.assertEqual(merged.hook, "새 훅 문장")
+        self.assertEqual(merged.why, base.why)
+
+
 if __name__ == "__main__":
     unittest.main()
