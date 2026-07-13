@@ -28,7 +28,6 @@ from scripts.insta_cards.publication import (
     Comparison,
     ComparisonColumn,
     Condition,
-    FitFor,
     Item,
     MapCta,
     Metric,
@@ -166,7 +165,6 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
     )
     if copy_overrides:
         copy = apply_overrides(copy, copy_overrides)
-    fit_for = copy.fit_for or FitFor(a=plans[0]["name"], b=plans[1]["name"])
 
     today = date.today().isoformat()
     budget_label = format_eok(args.budget)
@@ -202,7 +200,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
                 for item in items
             ),
         ),
-        narrative=Narrative(why=copy.why, fit_for=fit_for),
+        narrative=Narrative(why=copy.why, fit_for=copy.fit_for),
         methodology=(
             "각 지역에서 목표 면적대의 최근 90일 계약 거래가 예산 이하인 단지만 후보로 구성",
             "후보 중 넛지 점수 1위를 대표로 선정 (--pnu 로 수동 지정 가능)",

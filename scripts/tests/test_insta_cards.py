@@ -1125,6 +1125,16 @@ class TestBudgetChoiceSeries(unittest.TestCase):
                 eligible, self._scored([3]), f"{7:019d}"
             )
 
+    def test_override_eligible_but_not_scored_returns_empty_row(self):
+        from scripts.insta_cards.series import budget_choice
+
+        eligible = self._eligible([7])
+        trade, row = budget_choice.select_representative(
+            eligible, self._scored([1, 2]), f"{7:019d}"
+        )
+        self.assertEqual(trade["pnu"], f"{7:019d}")
+        self.assertEqual(row, {})
+
     def test_run_builds_valid_publication(self):
         from unittest.mock import MagicMock, patch
 
