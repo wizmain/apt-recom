@@ -306,6 +306,32 @@ class TestSlides(unittest.TestCase):
         for _, image in slides.build_slides(pub):
             self.assertEqual(image.size, (1080, 1080))
 
+    def test_why_at_line_limit_validates_and_renders(self):
+        """why 가 한도(2줄)를 정확히 채워도 검증 통과 + 렌더 폭 정합으로 줄 탈락 없음."""
+        import dataclasses
+
+        from scripts.insta_cards import publication as p, slides, textrules, theme
+
+        limit = textrules.TEXT_LIMITS["why"]
+        font = theme.get_font(limit.font_weight, limit.font_size)
+        text = "가격 대비 생활점수가 높은 후보를 골랐습니다"
+        word = " 지하철과 학교 접근성"
+        while (
+            len(textrules.wrap_text(text + word, font, limit.max_width))
+            <= limit.max_lines
+        ):
+            text += word
+        self.assertEqual(
+            len(textrules.wrap_text(text, font, limit.max_width)), limit.max_lines
+        )
+        pub = dataclasses.replace(
+            make_valid_value_publication(),
+            narrative=p.Narrative(why=(text,), fit_for=None),
+        )
+        p.validate(pub)  # 한도 정확히 채운 문구는 통과해야 함
+        for _, image in slides.build_slides(pub):
+            self.assertEqual(image.size, (1080, 1080))
+
 
 class TestTheme(unittest.TestCase):
     def test_format_eok(self):
@@ -456,6 +482,17 @@ class TestPublication(unittest.TestCase):
 
     def test_map_ctas_required_for_non_trade_top(self):
         self.assertTrue(any("map_ctas" in e for e in self._errors(map_ctas=())))
+
+    def test_map_ctas_exactly_two_for_comparison_series(self):
+        import dataclasses
+
+        from scripts.insta_cards import publication as p
+
+        pub = make_valid_budget_choice_publication()
+        pub = dataclasses.replace(pub, map_ctas=pub.map_ctas[:1])
+        with self.assertRaises(p.PublicationValidationError) as ctx:
+            p.validate(pub)
+        self.assertTrue(any("map_ctas" in e for e in ctx.exception.errors))
 
     def test_filter_allowlist(self):
         from scripts.insta_cards import publication as p

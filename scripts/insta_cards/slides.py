@@ -1,6 +1,7 @@
 """슬라이드 렌더러 — 공용 8종을 시리즈별로 조합한다.
 
-새 시리즈 추가 시 이 파일의 렌더러는 재사용하고 SLIDE_PLANS 만 확장한다.
+새 시리즈 추가 시 이 파일의 렌더러는 재사용하고
+build_slides() 의 시리즈 분기만 확장한다.
 폰트·폭 값은 textrules.TEXT_LIMITS 와 동일하게 유지할 것 (검증-렌더 정합).
 """
 
@@ -32,30 +33,38 @@ ROW_GAP = 12
 
 def cta_question(pub: Publication) -> str:
     if pub.series in (Series.BUDGET_CHOICE, Series.COMPARE):
-        name_a = (
-            pub.items[0].name
-            if pub.series is Series.BUDGET_CHOICE
-            else pub.map_ctas[0].region_label
-        )
-        name_b = (
-            pub.items[1].name
-            if pub.series is Series.BUDGET_CHOICE
-            else pub.map_ctas[1].region_label
-        )
+        # MIN_ITEMS[COMPARE|BUDGET_CHOICE]=2 가 validate 에서 보장됨.
+        # compare 는 지역 대결이므로 region 우선, 없으면 단지명.
+        if pub.series is Series.BUDGET_CHOICE:
+            name_a = pub.items[0].name
+            name_b = pub.items[1].name
+        else:
+            name_a = pub.items[0].region or pub.items[0].name
+            name_b = pub.items[1].region or pub.items[1].name
         return f"여러분이라면 {name_a} vs {name_b}?"
     return "내 조건으로 직접 찾아보기"
 
 
-def _wrapped_text(canvas, text, field, y, color, line_height=None):
+def _wrapped_text(canvas, text, field, y, color, line_height=None, x=MARGIN_X):
     """textrules 한도와 동일 폰트로 줄바꿈 렌더. 반환: 다음 y."""
     limit = textrules.TEXT_LIMITS[field]
     font = get_font(limit.font_weight, limit.font_size)
     lines = textrules.wrap_text(text, font, limit.max_width)
     lh = line_height or round(limit.font_size * 1.35)
     for line in lines[: limit.max_lines]:
-        canvas.draw.text((MARGIN_X, y), line, font=font, fill=color)
+        canvas.draw.text((x, y), line, font=font, fill=color)
         y += lh
     return y
+
+
+def _bulleted_text(canvas, text, field, y, color):
+    """불릿(·)은 MARGIN_X, 본문은 BULLET_INDENT 들여쓰기 — 검증 폭과 렌더 폭 동일."""
+    limit = textrules.TEXT_LIMITS[field]
+    font = get_font(limit.font_weight, limit.font_size)
+    canvas.draw.text((MARGIN_X, y), "·", font=font, fill=color)
+    return _wrapped_text(
+        canvas, text, field, y, color, x=MARGIN_X + textrules.BULLET_INDENT
+    )
 
 
 def render_cover(pub: Publication) -> Image.Image:
@@ -233,7 +242,7 @@ def render_why(pub: Publication) -> Image.Image:
     canvas = build_base_canvas(pub.eyebrow, ["왜 이런 결과일까"])
     y = canvas.content_top + 24
     for why in pub.narrative.why:
-        y = _wrapped_text(canvas, f"· {why}", "why", y, COLOR_TEXT_WHITE)
+        y = _bulleted_text(canvas, why, "why", y, COLOR_TEXT_WHITE)
         y += 24
     return canvas.image
 
@@ -267,7 +276,7 @@ def render_caveats(pub: Publication) -> Image.Image:
     )
     y += 46
     for m in pub.methodology:
-        y = _wrapped_text(canvas, f"· {m}", "methodology", y, COLOR_TEXT_LIGHT)
+        y = _bulleted_text(canvas, m, "methodology", y, COLOR_TEXT_LIGHT)
         y += 8
     y += 24
     canvas.draw.text(
@@ -275,7 +284,7 @@ def render_caveats(pub: Publication) -> Image.Image:
     )
     y += 46
     for c in pub.caveats:
-        y = _wrapped_text(canvas, f"· {c}", "caveat", y, COLOR_TEXT_LIGHT)
+        y = _bulleted_text(canvas, c, "caveat", y, COLOR_TEXT_LIGHT)
         y += 8
     return canvas.image
 

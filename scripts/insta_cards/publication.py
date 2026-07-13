@@ -287,6 +287,8 @@ def validate(pub: Publication) -> None:  # noqa: C901 — 규칙 나열형 검�
     # --- map_ctas ---
     if pub.series is not Series.TRADE_TOP and not pub.map_ctas:
         errors.append("map_ctas: trade_top 외 시리즈는 최소 1개 필요")
+    if pub.series in (Series.COMPARE, Series.BUDGET_CHOICE) and len(pub.map_ctas) != 2:
+        errors.append("map_ctas: 비교형 시리즈는 정확히 2개 필요")
     seen_ids: set[str] = set()
     for idx, cta in enumerate(pub.map_ctas):
         if cta.id in seen_ids:

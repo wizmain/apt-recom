@@ -22,6 +22,9 @@ MAX_METHODOLOGY = 4
 MAX_CAVEATS = 4
 MAX_WHY = 3
 
+# 불릿(·) 목록 렌더 시 본문 들여쓰기 폭 — slides.py 불릿 렌더와 동일 값 유지
+BULLET_INDENT = 40
+
 
 @dataclass(frozen=True)
 class TextLimit:
@@ -37,9 +40,9 @@ TEXT_LIMITS: dict[str, TextLimit] = {
     "summary": TextLimit("semibold", 34, CONTENT_WIDTH, 2),
     "condition_value": TextLimit("semibold", 30, 420, 1),
     "reason": TextLimit("regular", 28, CONTENT_WIDTH - 64, 1),
-    "methodology": TextLimit("regular", 26, CONTENT_WIDTH, 2),
-    "caveat": TextLimit("regular", 26, CONTENT_WIDTH, 2),
-    "why": TextLimit("semibold", 32, CONTENT_WIDTH, 2),
+    "methodology": TextLimit("regular", 26, CONTENT_WIDTH - BULLET_INDENT, 2),
+    "caveat": TextLimit("regular", 26, CONTENT_WIDTH - BULLET_INDENT, 2),
+    "why": TextLimit("semibold", 32, CONTENT_WIDTH - BULLET_INDENT, 2),
     "fit_for": TextLimit("regular", 30, 440, 3),
 }
 
