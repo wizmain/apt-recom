@@ -955,5 +955,123 @@ class TestValueSeries(unittest.TestCase):
         self.assertEqual(pub.map_ctas[0].filters, {"min_hhld": 100})
 
 
+class TestCompareSeries(unittest.TestCase):
+    def _scored(self, base):
+        return [
+            {
+                "pnu": f"{base + i:019d}",
+                "bld_nm": f"단지{base + i}",
+                "score": 80.0 - i,
+                "total_hhld_cnt": 500,
+                "top_contributors": [{"subtype": "subway"}],
+            }
+            for i in range(10)
+        ]
+
+    def test_run_builds_valid_publication(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards import publication as p
+        from scripts.insta_cards.series import compare
+
+        detail = {
+            "basic": {"use_apr_day": "20150330"},
+            "scores": {},
+            "facility_summary": {"subway": {"nearest_distance_m": 480.0}},
+            "school": {"elementary_school_name": "테스트초", "estimated": False},
+            "safety": {"safety_score": 78.0},
+            "mgmt_cost": None,
+        }
+        args = MagicMock()
+        args.regions, args.nudge = "11440,41135", "newlywed"
+
+        def fake_scored(payload):
+            return self._scored(1 if payload["sigungu_code"] == "11440" else 100)
+
+        aggregate = {"median_amount": 95000.0, "trade_count": 120, "avg_age": 14.2}
+        with (
+            patch(
+                "scripts.insta_cards.series.compare.post_nudge_score",
+                side_effect=fake_scored,
+            ),
+            patch(
+                "scripts.insta_cards.series.compare.get_region_name",
+                side_effect=lambda c: {"11440": "서울 마포구", "41135": "성남 분당구"}[
+                    c
+                ],
+            ),
+            patch(
+                "scripts.insta_cards.series.compare.get_apartment_detail",
+                return_value=detail,
+            ),
+            patch(
+                "scripts.insta_cards.series.compare.fetch_region_aggregate",
+                return_value=aggregate,
+            ),
+            patch(
+                "scripts.insta_cards.series.compare.open_local_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "scripts.insta_cards.series.compare.stale_trade_warning",
+                return_value=None,
+            ),
+        ):
+            pub = compare.run(
+                args,
+                slug="compare-11440-vs-41135-20260713",
+                status="draft",
+                published_at=None,
+                copy_overrides=None,
+            )
+        p.validate(pub)
+        self.assertEqual(pub.series, p.Series.COMPARE)
+        self.assertEqual(len(pub.items), 2)
+        self.assertEqual(len(pub.map_ctas), 2)
+        self.assertEqual(pub.comparison.row_labels, compare.COMPARISON_ROW_LABELS)
+        self.assertIn("상위 10개", " ".join(pub.methodology))
+
+    def test_empty_top10_raises(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.series import compare
+
+        args = MagicMock()
+        args.regions, args.nudge = "11440,41135", "newlywed"
+        with (
+            patch(
+                "scripts.insta_cards.series.compare.post_nudge_score", return_value=[]
+            ),
+            patch(
+                "scripts.insta_cards.series.compare.get_region_name",
+                return_value="서울 마포구",
+            ),
+        ):
+            with self.assertRaises(ValueError):
+                compare.run(
+                    args,
+                    slug="compare-x-20260713",
+                    status="draft",
+                    published_at=None,
+                    copy_overrides=None,
+                )
+
+    def test_regions_must_be_two(self):
+        from unittest.mock import MagicMock
+
+        from scripts.insta_cards.series import compare
+
+        args = MagicMock()
+        args.regions, args.nudge = "11440", "newlywed"
+        with self.assertRaises(ValueError):
+            compare.run(
+                args,
+                slug="compare-x-20260713",
+                status="draft",
+                published_at=None,
+                copy_overrides=None,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
