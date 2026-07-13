@@ -868,5 +868,92 @@ class TestTradeTopSeries(unittest.TestCase):
         self.assertIn(trade_top.MIN_REPORT_COUNT, captured["params"])
 
 
+class TestValueSeries(unittest.TestCase):
+    def _candidates(self, n=8):
+        return [
+            {
+                "pnu": f"{i + 1:019d}",
+                "bld_nm": f"단지{i + 1}",
+                "score": 80.0 - i,
+                "total_hhld_cnt": 500,
+                "top_contributors": [{"subtype": "subway"}, {"subtype": "mart"}],
+            }
+            for i in range(n)
+        ]
+
+    def test_select_candidates_sorts_by_price(self):
+        from scripts.insta_cards.series import value
+
+        candidates = self._candidates()
+        price_map = {
+            c["pnu"]: 10_000_000.0 - i * 100_000 for i, c in enumerate(candidates)
+        }
+        top5 = value.select_candidates(candidates, price_map, 100)
+        prices = [price_map[c["pnu"]] for c in top5]
+        self.assertEqual(prices, sorted(prices))
+        self.assertEqual(len(top5), 5)
+
+    def test_select_candidates_rejects_undersized(self):
+        from scripts.insta_cards.series import value
+
+        candidates = self._candidates()
+        candidates[0]["total_hhld_cnt"] = 10
+        with self.assertRaises(ValueError):
+            value.select_candidates(
+                candidates, {c["pnu"]: 1.0 for c in candidates}, 100
+            )
+
+    def test_select_candidates_requires_five_with_price(self):
+        from scripts.insta_cards.series import value
+
+        candidates = self._candidates()
+        price_map = {candidates[0]["pnu"]: 1.0}  # 1건만 price 보유
+        with self.assertRaises(ValueError):
+            value.select_candidates(candidates, price_map, 100)
+
+    def test_run_builds_valid_publication(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards import publication as p
+        from scripts.insta_cards.series import value
+
+        candidates = self._candidates()
+        price_map = {c["pnu"]: 9_000_000.0 + i for i, c in enumerate(candidates)}
+
+        args = MagicMock()
+        args.region, args.nudge, args.min_hhld = "서울", "cost", 100
+
+        with (
+            patch(
+                "scripts.insta_cards.series.value.post_nudge_score",
+                return_value=candidates,
+            ),
+            patch(
+                "scripts.insta_cards.series.value.fetch_price_per_m2_by_pnu",
+                return_value=price_map,
+            ),
+            patch(
+                "scripts.insta_cards.series.value.open_local_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "scripts.insta_cards.series.value.stale_trade_warning",
+                return_value=None,
+            ),
+        ):
+            pub = value.run(
+                args,
+                slug="value-11000-20260713",
+                status="draft",
+                published_at=None,
+                copy_overrides=None,
+            )
+        p.validate(pub)
+        self.assertEqual(pub.series, p.Series.VALUE)
+        self.assertEqual(len(pub.items), 5)
+        self.assertEqual(pub.map_ctas[0].nudges, ("cost",))
+        self.assertEqual(pub.map_ctas[0].filters, {"min_hhld": 100})
+
+
 if __name__ == "__main__":
     unittest.main()
