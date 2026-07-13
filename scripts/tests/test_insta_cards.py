@@ -1320,5 +1320,125 @@ class TestLifestyleSeries(unittest.TestCase):
         self.assertIn("min_hhld", pub.map_ctas[0].filters)
 
 
+class TestCli(unittest.TestCase):
+    def test_legacy_options_still_parse(self):
+        from scripts.insta_cards import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "--series",
+                "value",
+                "--region",
+                "서울",
+                "--nudge",
+                "cost",
+                "--min-hhld",
+                "100",
+            ]
+        )
+        self.assertEqual(args.series, "value")
+        self.assertEqual(args.min_hhld, 100)
+
+    def test_new_series_options_parse(self):
+        from scripts.insta_cards import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "--series",
+                "budget-choice",
+                "--budget",
+                "70000",
+                "--regions",
+                "11440,41135",
+                "--area-a",
+                "59",
+                "--area-b",
+                "84",
+            ]
+        )
+        self.assertEqual(args.budget, 70000)
+        self.assertEqual(args.area_tolerance, 5.0)
+
+    def test_auto_slug_for_budget_choice(self):
+        from types import SimpleNamespace
+
+        from scripts.insta_cards import cli, publication as p
+
+        args = SimpleNamespace(regions="11440,41135", region=None, profile=None, days=7)
+        slug = cli.build_auto_slug(p.Series.BUDGET_CHOICE, args)
+        self.assertRegex(slug, r"^budget-choice-11440-vs-41135-\d{8}$")
+
+    def test_auto_slug_rejects_non_ascii(self):
+        from types import SimpleNamespace
+
+        from scripts.insta_cards import cli, publication as p
+
+        args = SimpleNamespace(regions=None, region="서울", profile=None, days=7)
+        with self.assertRaises(SystemExit):
+            cli.build_auto_slug(p.Series.VALUE, args)
+
+    def test_dry_run_writes_nothing(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from scripts.insta_cards import cli
+
+        pub = make_valid_value_publication()
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("scripts.insta_cards.series.value.run", return_value=pub),
+                patch("scripts.insta_cards.output.OUTPUT_ROOT", Path(tmp)),
+            ):
+                cli.main(
+                    [
+                        "--series",
+                        "value",
+                        "--region",
+                        "서울",
+                        "--slug",
+                        "value-seoul-20260713",
+                        "--dry-run",
+                    ]
+                )
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_main_writes_publication(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from scripts.insta_cards import cli
+
+        pub = make_valid_value_publication()
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("scripts.insta_cards.series.value.run", return_value=pub),
+                patch("scripts.insta_cards.cli.OUTPUT_ROOT", Path(tmp)),
+            ):
+                cli.main(
+                    [
+                        "--series",
+                        "value",
+                        "--region",
+                        "서울",
+                        "--slug",
+                        "value-seoul-20260713",
+                    ]
+                )
+            found = list(Path(tmp).glob("*/value-seoul-20260713/publication.json"))
+            self.assertEqual(len(found), 1)
+
+    def test_shim_module_delegates(self):
+        import importlib
+
+        shim = importlib.import_module("scripts.generate_insta_cards")
+        from scripts.insta_cards import cli
+
+        self.assertIs(shim.main, cli.main)
+
+
 if __name__ == "__main__":
     unittest.main()
