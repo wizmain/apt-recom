@@ -791,5 +791,82 @@ class TestOutput(unittest.TestCase):
             self.assertEqual(list(Path(tmp).glob("**/*.tmp-*")), [])
 
 
+class TestTradeTopSeries(unittest.TestCase):
+    def _price_rows(self, n=5):
+        return [
+            {
+                "pnu": f"{i + 1:019d}",
+                "apt_display_name": f"단지{i + 1}",
+                "sigungu_name": "서울 서초구",
+                "deal_amount": 300000 - i * 10000,
+                "exclu_use_ar": 84.9,
+            }
+            for i in range(n)
+        ]
+
+    def _hot_rows(self, n=5):
+        return [
+            {
+                "sigungu_name": f"동네{i + 1}",
+                "current_count": 200 - i * 10,
+                "prev_count": 150 - i * 10,
+                "delta": 50,
+            }
+            for i in range(n)
+        ]
+
+    def test_build_publication_passes_validation(self):
+        from scripts.insta_cards import publication as p
+        from scripts.insta_cards.series import trade_top
+
+        pub = trade_top.build_publication(
+            self._price_rows(),
+            self._hot_rows(),
+            days=7,
+            slug="trade-top-20260713",
+            status="draft",
+            published_at=None,
+            copy_overrides=None,
+        )
+        p.validate(pub)  # 예외 없어야 함
+        self.assertEqual(pub.series, p.Series.TRADE_TOP)
+        self.assertEqual(pub.items[0].pnu, f"{1:019d}")
+        self.assertEqual(len(pub.secondary_items), 5)
+        self.assertEqual(pub.map_ctas, ())
+        self.assertIn(
+            "직전", pub.secondary_items[0].metrics[1].label + pub.methodology[1]
+        )
+
+    def test_insufficient_rows_raise(self):
+        from scripts.insta_cards.series import trade_top
+
+        with self.assertRaises(ValueError):
+            trade_top.build_publication(
+                self._price_rows(3),
+                self._hot_rows(),
+                days=7,
+                slug="trade-top-20260713",
+                status="draft",
+                published_at=None,
+                copy_overrides=None,
+            )
+
+    def test_hot_sql_filters_by_min_report_count(self):
+        from unittest.mock import patch
+
+        from scripts.insta_cards.series import trade_top
+
+        captured = {}
+
+        def fake_query_all(conn, sql, params=None):
+            captured["sql"], captured["params"] = sql, params
+            return []
+
+        with patch("scripts.insta_cards.series.trade_top.query_all", fake_query_all):
+            trade_top.fetch_hot_districts(None, 7)
+        self.assertIn("prev_window", captured["sql"])
+        self.assertIn(trade_top.MIN_REPORT_COUNT, captured["params"])
+
+
 if __name__ == "__main__":
     unittest.main()
