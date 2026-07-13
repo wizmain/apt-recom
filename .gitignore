@@ -80,3 +80,6 @@ docs/images/
 
 # 스크래치/임시 이미지
 images/
+
+# 인스타 카드 자동 생성 산출물
+reports/insta/
