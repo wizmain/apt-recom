@@ -1210,5 +1210,115 @@ class TestBudgetChoiceSeries(unittest.TestCase):
         self.assertIn("6억 8,000만원", pub.items[0].metrics[0].value)
 
 
+class TestLifestyleSeries(unittest.TestCase):
+    def _eligible(self, seeds):
+        return {
+            f"{s:019d}": {
+                "pnu": f"{s:019d}",
+                "deal_amount": 65000,
+                "exclu_use_ar": 74.9,
+                "deal_date": None,
+                "bld_nm": f"단지{s}",
+                "use_apr_day": "20180501",
+            }
+            for s in seeds
+        }
+
+    def _scored(self, seeds, hhld=500):
+        return [
+            {
+                "pnu": f"{s:019d}",
+                "bld_nm": f"단지{s}",
+                "score": 90.0 - i,
+                "total_hhld_cnt": hhld,
+                "top_contributors": [{"subtype": "kindergarten"}, {"subtype": "mart"}],
+            }
+            for i, s in enumerate(seeds)
+        ]
+
+    def test_select_candidates_caps_at_five(self):
+        from scripts.insta_cards.series import lifestyle
+
+        result = lifestyle.select_candidates(
+            self._eligible(range(1, 10)), self._scored(range(1, 10)), 100
+        )
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[0]["trade"]["bld_nm"], "단지1")
+
+    def test_select_candidates_requires_three(self):
+        from scripts.insta_cards.series import lifestyle
+
+        with self.assertRaises(ValueError):
+            lifestyle.select_candidates(
+                self._eligible([1, 2]), self._scored([1, 2]), 100
+            )
+
+    def test_select_candidates_rejects_undersized(self):
+        from scripts.insta_cards.series import lifestyle
+
+        with self.assertRaises(ValueError):
+            lifestyle.select_candidates(
+                self._eligible([1, 2, 3]), self._scored([1, 2, 3], hhld=10), 100
+            )
+
+    def test_run_builds_valid_publication(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards import publication as p
+        from scripts.insta_cards.series import lifestyle
+
+        detail = {
+            "basic": {"use_apr_day": "20180501"},
+            "scores": {},
+            "facility_summary": {"subway": {"nearest_distance_m": 620.0}},
+            "school": {"elementary_school_name": "판교초", "estimated": False},
+            "safety": {"safety_score": 82.0},
+            "mgmt_cost": None,
+        }
+        args = MagicMock()
+        args.profile, args.region, args.min_hhld = "newlywed", "41135", 100
+        args.max_price, args.min_area, args.max_area = 70000, None, None
+
+        with (
+            patch(
+                "scripts.insta_cards.series.lifestyle.fetch_recent_trades",
+                return_value=self._eligible(range(1, 7)),
+            ),
+            patch(
+                "scripts.insta_cards.series.lifestyle.post_nudge_score",
+                return_value=self._scored(range(1, 7)),
+            ),
+            patch(
+                "scripts.insta_cards.series.lifestyle.get_region_name",
+                return_value="성남 분당구",
+            ),
+            patch(
+                "scripts.insta_cards.series.lifestyle.get_apartment_detail",
+                return_value=detail,
+            ),
+            patch(
+                "scripts.insta_cards.series.lifestyle.open_local_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "scripts.insta_cards.series.lifestyle.stale_trade_warning",
+                return_value=None,
+            ),
+        ):
+            pub = lifestyle.run(
+                args,
+                slug="lifestyle-newlywed-41135-20260713",
+                status="draft",
+                published_at=None,
+                copy_overrides=None,
+            )
+        p.validate(pub)
+        self.assertEqual(pub.series, p.Series.LIFESTYLE)
+        self.assertEqual(len(pub.items), 5)
+        self.assertEqual(pub.map_ctas[0].nudges, ("newlywed",))
+        self.assertEqual(pub.map_ctas[0].filters["max_price"], 70000)
+        self.assertIn("min_hhld", pub.map_ctas[0].filters)
+
+
 if __name__ == "__main__":
     unittest.main()
