@@ -744,6 +744,38 @@ class TestOutput(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertFalse((final_dir / "stale.png").exists())
 
+    def test_force_same_date_replace_failure_preserves_existing(self):
+        """같은 날짜 --force 재발행 중 tmp→final replace 실패 시 기존 발행물 보존."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from scripts.insta_cards import output
+
+        with tempfile.TemporaryDirectory() as tmp:
+            final_dir = self._run(tmp)  # 최초 발행 (오늘 날짜)
+            original = (final_dir / "publication.json").read_text()
+
+            real_replace = output.os.replace
+            calls = {"n": 0}
+
+            def flaky_replace(src, dst):
+                calls["n"] += 1
+                if calls["n"] == 2:  # 1번째 = final→backup, 2번째 = tmp→final
+                    raise OSError("disk boom")
+                return real_replace(src, dst)
+
+            with patch(
+                "scripts.insta_cards.output.os.replace", side_effect=flaky_replace
+            ):
+                with self.assertRaises(OSError):
+                    self._run(tmp, force=True)
+            # 기존 발행물이 원복되어 그대로 남아 있어야 함
+            self.assertEqual((final_dir / "publication.json").read_text(), original)
+            # 백업/임시 디렉토리가 남지 않아야 함
+            self.assertEqual(list(Path(tmp).glob("**/*.bak-*")), [])
+            self.assertEqual(list(Path(tmp).glob("**/*.tmp-*")), [])
+
     def test_render_failure_leaves_no_final_dir(self):
         import tempfile
         from pathlib import Path

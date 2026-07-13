@@ -24,10 +24,12 @@ class SlugConflictError(RuntimeError):
 
 
 def find_existing_slug_dir(slug: str, root: Path = OUTPUT_ROOT) -> Path | None:
+    # candidate 는 정확한 slug 이름으로만 조회하므로 임시(.tmp-)·백업(.bak-)
+    # 디렉토리(slug + 접미사)는 매치되지 않는다 — 별도 필터 불필요.
     if not root.exists():
         return None
     for date_dir in sorted(root.iterdir()):
-        if not date_dir.is_dir() or TMP_MARKER in date_dir.name:
+        if not date_dir.is_dir():
             continue
         candidate = date_dir / slug
         if candidate.is_dir():
@@ -61,10 +63,39 @@ def write_publication(
             json.dumps(to_json_dict(pub), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        if existing is not None:
-            shutil.rmtree(existing)  # --force: 이전 슬라이드 잔존 방지, 통째 교체
-        os.replace(tmp_dir, final_dir)
+        _swap_into_place(tmp_dir, final_dir, existing)
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
     return final_dir
+
+
+def _swap_into_place(tmp_dir: Path, final_dir: Path, existing: Path | None) -> None:
+    """완성된 tmp_dir 을 final_dir 로 배치한다.
+
+    어떤 실패 경로에서도 기존 발행물이 소실되지 않도록,
+    기존 디렉토리 삭제는 항상 새 디렉토리 배치가 성공한 뒤에만 수행한다.
+    """
+    if existing is None:
+        # 신규 발행: final_dir 미존재 → 단일 atomic rename
+        os.replace(tmp_dir, final_dir)
+        return
+
+    if existing != final_dir:
+        # 다른 날짜 재발행(--force): final_dir 은 미존재라 먼저 배치해도 안전.
+        # 구 디렉토리 삭제는 성공 후 정리 단계 — replace 실패 시 구 발행물 유지.
+        os.replace(tmp_dir, final_dir)
+        shutil.rmtree(existing)
+        return
+
+    # 같은 날짜 재발행(--force): 백업 스왑 — 교체 실패 시 백업에서 원복.
+    # 백업 이름은 slug + ".bak-" 접미사라 find_existing_slug_dir(정확한 slug
+    # 이름 매치)에는 잡히지 않는다.
+    backup_dir = final_dir.with_name(f"{final_dir.name}.bak-{os.getpid()}")
+    os.replace(final_dir, backup_dir)
+    try:
+        os.replace(tmp_dir, final_dir)
+    except BaseException:
+        os.replace(backup_dir, final_dir)  # 기존 발행물 원복
+        raise
+    shutil.rmtree(backup_dir)
