@@ -60,6 +60,253 @@ def make_valid_value_publication(**overrides):
     return p.Publication(**base)
 
 
+def make_valid_budget_choice_publication():
+    from scripts.insta_cards import publication as p
+
+    row_labels = (
+        "최근 실거래가",
+        "전용면적",
+        "준공연도",
+        "지하철",
+        "배정 초등학교",
+        "안전점수",
+        "월 관리비",
+    )
+
+    def item(rank, name, region, pnu_seed, values):
+        return p.Item(
+            rank=rank,
+            name=name,
+            region=region,
+            pnu=f"{pnu_seed:019d}",
+            metrics=tuple(p.Metric(lbl, v, "") for lbl, v in zip(row_labels, values)),
+            reasons=("지하철 도보권", "마트 인접"),
+        )
+
+    values_a = (
+        "6억 9,000만원",
+        "59.9㎡",
+        "2015년",
+        "480m",
+        "마포초",
+        "78점",
+        "25만원 (연 300만원)",
+    )
+    values_b = (
+        "6억 8,000만원",
+        "84.9㎡",
+        "2010년",
+        "890m",
+        "분당초",
+        "81점",
+        "31만원 (연 372만원)",
+    )
+    return p.Publication(
+        schema_version=p.SCHEMA_VERSION,
+        slug="budget-choice-11440-vs-41135-20260713",
+        status="draft",
+        series=p.Series.BUDGET_CHOICE,
+        title="같은 7억, 서울 59㎡ vs 분당 84㎡",
+        eyebrow="같은 예산, 다른 선택",
+        hook="서울 59㎡ vs 분당 84㎡, 당신의 선택은?",
+        summary="같은 7억 예산으로 두 지역 대표 단지를 비교했습니다.",
+        generated_at="2026-07-13T10:00:00",
+        published_at=None,
+        data_as_of="2026-07-13",
+        period_label="계약일 기준 최근 90일 실거래",
+        cover_image="01-cover.png",
+        cover_alt="7억 예산 서울 분당 아파트 비교 카드",
+        conditions=(
+            p.Condition("예산", "7억 이하"),
+            p.Condition("면적", "59㎡ / 84㎡"),
+            p.Condition("기준일", "2026-07-13"),
+        ),
+        items=(
+            item(1, "마포한강푸르지오", "서울 마포구", 1, values_a),
+            item(2, "분당파크뷰", "성남 분당구", 2, values_b),
+        ),
+        secondary_items=None,
+        comparison=p.Comparison(
+            row_labels=row_labels,
+            columns=(
+                p.ComparisonColumn("마포한강푸르지오", values_a),
+                p.ComparisonColumn("분당파크뷰", values_b),
+            ),
+        ),
+        narrative=p.Narrative(
+            why=("두 지역의 ㎡당 가격 차이가 면적 차이로 이어집니다.",),
+            fit_for=p.FitFor(a="입지·교통 우선이라면 서울", b="면적 우선이라면 분당"),
+        ),
+        methodology=("각 지역 예산 이하 실거래 단지 중 넛지 점수 1위를 대표로 선정",),
+        caveats=(
+            "투자 자문이 아닙니다.",
+            "신고 지연으로 최근 거래가 늦게 반영될 수 있습니다.",
+        ),
+        map_ctas=(
+            p.MapCta(
+                "map-a",
+                "마포 조건으로 보기",
+                ("cost",),
+                "11440",
+                "서울 마포구",
+                {"max_price": 70000},
+            ),
+            p.MapCta(
+                "map-b",
+                "분당 조건으로 보기",
+                ("cost",),
+                "41135",
+                "성남 분당구",
+                {"max_price": 70000},
+            ),
+        ),
+    )
+
+
+def make_valid_trade_top_publication():
+    from scripts.insta_cards import publication as p
+
+    def price_item(rank):
+        return p.Item(
+            rank=rank,
+            name=f"고가단지{rank}",
+            region="서울 서초구",
+            pnu=f"{rank:019d}",
+            metrics=(
+                p.Metric("거래가", f"{30 - rank}억", ""),
+                p.Metric("전용면적", "84㎡", ""),
+            ),
+            reasons=(),
+        )
+
+    def hot_item(rank):
+        return p.Item(
+            rank=rank,
+            name=f"급증동네{rank}",
+            region=None,
+            pnu=None,
+            metrics=(
+                p.Metric("신고 건수", f"{200 - rank * 10}건", ""),
+                p.Metric("직전 대비", f"+{50 - rank * 5}건", ""),
+            ),
+            reasons=(),
+        )
+
+    return p.Publication(
+        schema_version=p.SCHEMA_VERSION,
+        slug="trade-top-20260713",
+        status="draft",
+        series=p.Series.TRADE_TOP,
+        title="이번 주 신고 최고가 TOP 5",
+        eyebrow="신고일 기준 · 최근 7일",
+        hook="최근 7일 신고 최고가는 29억",
+        summary="신고일 기준 최근 7일 최고가 거래와 신고 급증 동네를 모았습니다.",
+        generated_at="2026-07-13T10:00:00",
+        published_at=None,
+        data_as_of="2026-07-13",
+        period_label="신고일 기준 최근 7일",
+        cover_image="01-cover.png",
+        cover_alt="최근 7일 아파트 신고 최고가 TOP 5 카드",
+        conditions=(
+            p.Condition("기간", "신고일 기준 최근 7일"),
+            p.Condition("기준일", "2026-07-13"),
+        ),
+        items=tuple(price_item(i + 1) for i in range(5)),
+        secondary_items=tuple(hot_item(i + 1) for i in range(5)),
+        comparison=None,
+        narrative=p.Narrative(why=(), fit_for=None),
+        methodology=(
+            "단지별 최고가 1건 기준, 신고일 최근 7일 집계",
+            "급증은 직전 7일 대비 신고 건수 증가",
+        ),
+        caveats=(
+            "투자 자문이 아닙니다.",
+            "신고일 기준이라 계약 시점과 다를 수 있습니다.",
+        ),
+        map_ctas=(),
+    )
+
+
+class TestSlides(unittest.TestCase):
+    def _assert_slides(self, pub, expected_names):
+        from scripts.insta_cards import slides
+
+        result = slides.build_slides(pub)
+        self.assertEqual([name for name, _ in result], expected_names)
+        for _, image in result:
+            self.assertEqual(image.size, (1080, 1080))
+
+    def test_value_slides(self):
+        self._assert_slides(
+            make_valid_value_publication(),
+            [
+                "01-cover.png",
+                "02-conditions.png",
+                "03-ranking.png",
+                "04-why.png",
+                "05-caveats.png",
+                "06-cta.png",
+            ],
+        )
+
+    def test_budget_choice_slides(self):
+        self._assert_slides(
+            make_valid_budget_choice_publication(),
+            [
+                "01-cover.png",
+                "02-conditions.png",
+                "03-candidate-a.png",
+                "04-candidate-b.png",
+                "05-comparison.png",
+                "06-why.png",
+                "07-fit.png",
+                "08-caveats.png",
+                "09-cta.png",
+            ],
+        )
+
+    def test_trade_top_slides(self):
+        self._assert_slides(
+            make_valid_trade_top_publication(),
+            [
+                "01-cover.png",
+                "02-conditions.png",
+                "03-ranking.png",
+                "04-ranking-hot.png",
+                "05-caveats.png",
+                "06-cta.png",
+            ],
+        )
+
+    def test_cta_question_variants(self):
+        from scripts.insta_cards import slides
+
+        self.assertIn("vs", slides.cta_question(make_valid_budget_choice_publication()))
+        self.assertEqual(
+            slides.cta_question(make_valid_value_publication()),
+            "내 조건으로 직접 찾아보기",
+        )
+
+    def test_long_names_do_not_crash(self):
+        import dataclasses
+
+        from scripts.insta_cards import publication as p, slides
+
+        pub = make_valid_value_publication()
+        long_item = p.Item(
+            rank=1,
+            name="아주아주아주아주아주아주긴한글단지이름" * 3,
+            region="서울 노원구",
+            pnu="1" * 19,
+            metrics=(p.Metric("㎡당 가격", "1,000", "만원/㎡"),),
+            reasons=("이유",),
+        )
+        items = (long_item,) + pub.items[1:]
+        pub = dataclasses.replace(pub, items=items)
+        for _, image in slides.build_slides(pub):
+            self.assertEqual(image.size, (1080, 1080))
+
+
 class TestTheme(unittest.TestCase):
     def test_format_eok(self):
         from scripts.insta_cards import theme

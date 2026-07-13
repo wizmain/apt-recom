@@ -1,0 +1,379 @@
+"""슬라이드 렌더러 — 공용 8종을 시리즈별로 조합한다.
+
+새 시리즈 추가 시 이 파일의 렌더러는 재사용하고 SLIDE_PLANS 만 확장한다.
+폰트·폭 값은 textrules.TEXT_LIMITS 와 동일하게 유지할 것 (검증-렌더 정합).
+"""
+
+from __future__ import annotations
+
+from PIL import Image
+
+from scripts.insta_cards import textrules
+from scripts.insta_cards.publication import Item, Publication, Series
+from scripts.insta_cards.theme import (
+    CANVAS_SIZE,
+    COLOR_ACCENT_BLUE,
+    COLOR_ACCENT_GREEN,
+    COLOR_BAR_TRACK,
+    COLOR_TEXT_LIGHT,
+    COLOR_TEXT_WHITE,
+    CONTENT_WIDTH,
+    MARGIN_X,
+    build_base_canvas,
+    get_font,
+    truncate_text,
+)
+
+LIST_SIZE = 5
+CHIP_HEIGHT = 72
+CHIP_GAP = 20
+ROW_GAP = 12
+
+
+def cta_question(pub: Publication) -> str:
+    if pub.series in (Series.BUDGET_CHOICE, Series.COMPARE):
+        name_a = (
+            pub.items[0].name
+            if pub.series is Series.BUDGET_CHOICE
+            else pub.map_ctas[0].region_label
+        )
+        name_b = (
+            pub.items[1].name
+            if pub.series is Series.BUDGET_CHOICE
+            else pub.map_ctas[1].region_label
+        )
+        return f"여러분이라면 {name_a} vs {name_b}?"
+    return "내 조건으로 직접 찾아보기"
+
+
+def _wrapped_text(canvas, text, field, y, color, line_height=None):
+    """textrules 한도와 동일 폰트로 줄바꿈 렌더. 반환: 다음 y."""
+    limit = textrules.TEXT_LIMITS[field]
+    font = get_font(limit.font_weight, limit.font_size)
+    lines = textrules.wrap_text(text, font, limit.max_width)
+    lh = line_height or round(limit.font_size * 1.35)
+    for line in lines[: limit.max_lines]:
+        canvas.draw.text((MARGIN_X, y), line, font=font, fill=color)
+        y += lh
+    return y
+
+
+def render_cover(pub: Publication) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, [])
+    y = canvas.content_top + 120
+    y = _wrapped_text(canvas, pub.hook, "hook", y, COLOR_TEXT_WHITE)
+    y += 40
+    _wrapped_text(canvas, pub.summary, "summary", y, COLOR_TEXT_LIGHT)
+    date_font = get_font("regular", 26)
+    canvas.draw.text(
+        (MARGIN_X, canvas.content_bottom - 40),
+        f"데이터 기준일 {pub.data_as_of}",
+        font=date_font,
+        fill=COLOR_TEXT_LIGHT,
+    )
+    return canvas.image
+
+
+def render_conditions(pub: Publication) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, ["이 카드의 조건"])
+    label_font = get_font("regular", 26)
+    value_font = get_font("semibold", 30)
+    y = canvas.content_top + 24
+    for cond in pub.conditions:
+        canvas.draw.rounded_rectangle(
+            [MARGIN_X, y, MARGIN_X + CONTENT_WIDTH, y + CHIP_HEIGHT],
+            radius=16,
+            fill=COLOR_BAR_TRACK,
+        )
+        canvas.draw.text(
+            (MARGIN_X + 24, y + 10), cond.label, font=label_font, fill=COLOR_TEXT_LIGHT
+        )
+        value = truncate_text(canvas.draw, cond.value, value_font, 420)
+        value_w = canvas.draw.textlength(value, font=value_font)
+        canvas.draw.text(
+            (MARGIN_X + CONTENT_WIDTH - 24 - value_w, y + 18),
+            value,
+            font=value_font,
+            fill=COLOR_TEXT_WHITE,
+        )
+        y += CHIP_HEIGHT + CHIP_GAP
+    period_font = get_font("regular", 26)
+    canvas.draw.text(
+        (MARGIN_X, y + 12),
+        f"{pub.period_label} · 기준일 {pub.data_as_of}",
+        font=period_font,
+        fill=COLOR_ACCENT_GREEN,
+    )
+    return canvas.image
+
+
+def render_candidate(pub: Publication, item: Item, heading: str) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, [heading])
+    name_font = get_font("extrabold", 44)
+    region_font = get_font("regular", 28)
+    metric_label_font = get_font("regular", 26)
+    metric_value_font = get_font("semibold", 30)
+    reason_font = get_font("regular", 28)
+
+    y = canvas.content_top + 8
+    name = truncate_text(canvas.draw, item.name, name_font, CONTENT_WIDTH)
+    canvas.draw.text((MARGIN_X, y), name, font=name_font, fill=COLOR_TEXT_WHITE)
+    y += 58
+    if item.region:
+        canvas.draw.text(
+            (MARGIN_X, y), item.region, font=region_font, fill=COLOR_TEXT_LIGHT
+        )
+        y += 46
+
+    for metric in item.metrics:
+        canvas.draw.text(
+            (MARGIN_X, y), metric.label, font=metric_label_font, fill=COLOR_TEXT_LIGHT
+        )
+        value = f"{metric.value}{metric.unit}"
+        value = truncate_text(canvas.draw, value, metric_value_font, 520)
+        value_w = canvas.draw.textlength(value, font=metric_value_font)
+        canvas.draw.text(
+            (MARGIN_X + CONTENT_WIDTH - value_w, y - 2),
+            value,
+            font=metric_value_font,
+            fill=COLOR_ACCENT_GREEN,
+        )
+        y += 44 + ROW_GAP
+
+    y += 12
+    for reason in item.reasons:
+        canvas.draw.text(
+            (MARGIN_X, y), f"· {reason}", font=reason_font, fill=COLOR_TEXT_WHITE
+        )
+        y += 40
+    return canvas.image
+
+
+def render_ranking(
+    pub: Publication, items: tuple[Item, ...], heading: str
+) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, [heading])
+    rank_font = get_font("extrabold", 40)
+    name_font = get_font("semibold", 32)
+    meta_font = get_font("regular", 24)
+    value_font = get_font("extrabold", 34)
+
+    rows = items[:LIST_SIZE]
+    row_height = (canvas.content_bottom - canvas.content_top) / LIST_SIZE
+    for i, item in enumerate(rows):
+        y = canvas.content_top + i * row_height + 8
+        canvas.draw.text(
+            (MARGIN_X, y), f"{item.rank}", font=rank_font, fill=COLOR_ACCENT_BLUE
+        )
+        name_x = MARGIN_X + 64
+        name = truncate_text(
+            canvas.draw, item.name, name_font, CONTENT_WIDTH - 64 - 280
+        )
+        canvas.draw.text((name_x, y), name, font=name_font, fill=COLOR_TEXT_WHITE)
+        # 보조행: region 또는 두 번째 metric
+        meta = item.region or (
+            f"{item.metrics[1].label} {item.metrics[1].value}"
+            if len(item.metrics) > 1
+            else ""
+        )
+        if meta:
+            canvas.draw.text(
+                (name_x, y + 40), meta, font=meta_font, fill=COLOR_TEXT_LIGHT
+            )
+        # 우측 강조값: 첫 번째 metric
+        value = f"{items[i].metrics[0].value}{items[i].metrics[0].unit}"
+        value_w = canvas.draw.textlength(value, font=value_font)
+        canvas.draw.text(
+            (CANVAS_SIZE - MARGIN_X - value_w, y + 4),
+            value,
+            font=value_font,
+            fill=COLOR_ACCENT_GREEN,
+        )
+    return canvas.image
+
+
+def render_comparison(pub: Publication) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, ["한눈에 비교"])
+    comp = pub.comparison
+    header_font = get_font("semibold", 28)
+    label_font = get_font("regular", 26)
+    value_font = get_font("semibold", 26)
+
+    label_col_width = 240
+    value_col_width = (CONTENT_WIDTH - label_col_width) / 2
+    y = canvas.content_top + 8
+
+    for col_i, col in enumerate(comp.columns):
+        x = MARGIN_X + label_col_width + col_i * value_col_width
+        name = truncate_text(canvas.draw, col.name, header_font, value_col_width - 16)
+        canvas.draw.text(
+            (x, y),
+            name,
+            font=header_font,
+            fill=COLOR_ACCENT_BLUE if col_i else COLOR_ACCENT_GREEN,
+        )
+    y += 52
+
+    row_height = min(64, (canvas.content_bottom - y) / max(len(comp.row_labels), 1))
+    for row_i, row_label in enumerate(comp.row_labels):
+        ry = y + row_i * row_height
+        canvas.draw.text(
+            (MARGIN_X, ry), row_label, font=label_font, fill=COLOR_TEXT_LIGHT
+        )
+        for col_i, col in enumerate(comp.columns):
+            x = MARGIN_X + label_col_width + col_i * value_col_width
+            value = truncate_text(
+                canvas.draw, col.values[row_i], value_font, value_col_width - 16
+            )
+            canvas.draw.text((x, ry), value, font=value_font, fill=COLOR_TEXT_WHITE)
+    return canvas.image
+
+
+def render_why(pub: Publication) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, ["왜 이런 결과일까"])
+    y = canvas.content_top + 24
+    for why in pub.narrative.why:
+        y = _wrapped_text(canvas, f"· {why}", "why", y, COLOR_TEXT_WHITE)
+        y += 24
+    return canvas.image
+
+
+def render_fit(pub: Publication) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, ["어떤 사람에게 맞을까"])
+    fit = pub.narrative.fit_for
+    half_width = CONTENT_WIDTH / 2 - 20
+    box_top = canvas.content_top + 24
+    box_bottom = canvas.content_bottom - 24
+    font = get_font("regular", 30)
+    for i, text in enumerate((fit.a, fit.b)):
+        x = MARGIN_X + i * (half_width + 40)
+        canvas.draw.rounded_rectangle(
+            [x, box_top, x + half_width, box_bottom], radius=20, fill=COLOR_BAR_TRACK
+        )
+        lines = textrules.wrap_text(text, font, half_width - 48)
+        ty = box_top + 32
+        for line in lines[: textrules.TEXT_LIMITS["fit_for"].max_lines]:
+            canvas.draw.text((x + 24, ty), line, font=font, fill=COLOR_TEXT_WHITE)
+            ty += 42
+    return canvas.image
+
+
+def render_caveats(pub: Publication) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, ["읽을 때 주의할 점"])
+    y = canvas.content_top + 16
+    section_font = get_font("semibold", 28)
+    canvas.draw.text(
+        (MARGIN_X, y), "이렇게 골랐습니다", font=section_font, fill=COLOR_ACCENT_GREEN
+    )
+    y += 46
+    for m in pub.methodology:
+        y = _wrapped_text(canvas, f"· {m}", "methodology", y, COLOR_TEXT_LIGHT)
+        y += 8
+    y += 24
+    canvas.draw.text(
+        (MARGIN_X, y), "주의하세요", font=section_font, fill=COLOR_ACCENT_BLUE
+    )
+    y += 46
+    for c in pub.caveats:
+        y = _wrapped_text(canvas, f"· {c}", "caveat", y, COLOR_TEXT_LIGHT)
+        y += 8
+    return canvas.image
+
+
+def render_cta(pub: Publication) -> Image.Image:
+    canvas = build_base_canvas(pub.eyebrow, [])
+    question_font = get_font("extrabold", 52)
+    action_font = get_font("semibold", 34)
+    note_font = get_font("regular", 26)
+
+    y = canvas.content_top + 160
+    question = cta_question(pub)
+    lines = textrules.wrap_text(question, question_font, CONTENT_WIDTH)
+    for line in lines[:3]:
+        w = canvas.draw.textlength(line, font=question_font)
+        canvas.draw.text(
+            ((CANVAS_SIZE - w) / 2, y), line, font=question_font, fill=COLOR_TEXT_WHITE
+        )
+        y += 70
+
+    y += 60
+    action = "댓글로 알려주세요 · 프로필 링크에서 내 조건으로 확인"
+    w = canvas.draw.textlength(action, font=action_font)
+    canvas.draw.text(
+        ((CANVAS_SIZE - w) / 2, y), action, font=action_font, fill=COLOR_ACCENT_GREEN
+    )
+
+    note = "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다"
+    w = canvas.draw.textlength(note, font=note_font)
+    canvas.draw.text(
+        ((CANVAS_SIZE - w) / 2, canvas.content_bottom - 40),
+        note,
+        font=note_font,
+        fill=COLOR_TEXT_LIGHT,
+    )
+    return canvas.image
+
+
+def build_slides(pub: Publication) -> list[tuple[str, Image.Image]]:
+    if pub.series is Series.BUDGET_CHOICE:
+        return [
+            ("01-cover.png", render_cover(pub)),
+            ("02-conditions.png", render_conditions(pub)),
+            ("03-candidate-a.png", render_candidate(pub, pub.items[0], "후보 A")),
+            ("04-candidate-b.png", render_candidate(pub, pub.items[1], "후보 B")),
+            ("05-comparison.png", render_comparison(pub)),
+            ("06-why.png", render_why(pub)),
+            ("07-fit.png", render_fit(pub)),
+            ("08-caveats.png", render_caveats(pub)),
+            ("09-cta.png", render_cta(pub)),
+        ]
+    if pub.series is Series.COMPARE:
+        return [
+            ("01-cover.png", render_cover(pub)),
+            ("02-conditions.png", render_conditions(pub)),
+            (
+                "03-candidate-a.png",
+                render_candidate(pub, pub.items[0], "지역 A 추천 1위"),
+            ),
+            (
+                "04-candidate-b.png",
+                render_candidate(pub, pub.items[1], "지역 B 추천 1위"),
+            ),
+            ("05-comparison.png", render_comparison(pub)),
+            ("06-why.png", render_why(pub)),
+            ("07-caveats.png", render_caveats(pub)),
+            ("08-cta.png", render_cta(pub)),
+        ]
+    if pub.series is Series.LIFESTYLE:
+        return [
+            ("01-cover.png", render_cover(pub)),
+            ("02-conditions.png", render_conditions(pub)),
+            ("03-ranking.png", render_ranking(pub, pub.items, "추천 후보")),
+            ("04-candidate-1.png", render_candidate(pub, pub.items[0], "추천 1")),
+            ("05-candidate-2.png", render_candidate(pub, pub.items[1], "추천 2")),
+            ("06-candidate-3.png", render_candidate(pub, pub.items[2], "추천 3")),
+            ("07-caveats.png", render_caveats(pub)),
+            ("08-cta.png", render_cta(pub)),
+        ]
+    if pub.series is Series.VALUE:
+        return [
+            ("01-cover.png", render_cover(pub)),
+            ("02-conditions.png", render_conditions(pub)),
+            ("03-ranking.png", render_ranking(pub, pub.items, "숨은 가성비 TOP 5")),
+            ("04-why.png", render_why(pub)),
+            ("05-caveats.png", render_caveats(pub)),
+            ("06-cta.png", render_cta(pub)),
+        ]
+    if pub.series is Series.TRADE_TOP:
+        return [
+            ("01-cover.png", render_cover(pub)),
+            ("02-conditions.png", render_conditions(pub)),
+            ("03-ranking.png", render_ranking(pub, pub.items, "신고 최고가 TOP 5")),
+            (
+                "04-ranking-hot.png",
+                render_ranking(pub, pub.secondary_items, "신고 급증 동네 TOP 5"),
+            ),
+            ("05-caveats.png", render_caveats(pub)),
+            ("06-cta.png", render_cta(pub)),
+        ]
+    raise KeyError(f"슬라이드 구성이 정의되지 않은 시리즈: {pub.series}")
