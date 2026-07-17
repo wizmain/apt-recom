@@ -46,7 +46,9 @@ test.describe("/content 콘텐츠 랜딩", () => {
   test("목록 페이지 — 발행 콘텐츠 노출", async ({ page }) => {
     const res = await page.goto("/content");
     expect(res?.status()).toBe(200);
-    await expect(page.getByRole("heading", { name: "콘텐츠" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "숫자로 보는 집 이야기" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("link", { name: new RegExp(escapeRegExp(firstPost.title)) }),
     ).toBeVisible();
