@@ -22,6 +22,7 @@ COLOR_TEXT_WHITE = (255, 255, 255)
 COLOR_TEXT_LIGHT = (219, 234, 254)  # #dbeafe
 COLOR_TEXT_GRAY = (148, 163, 184)
 COLOR_BAR_TRACK = (40, 51, 92)
+COLOR_ZEBRA = (22, 34, 70)  # 표·리스트 짝수행 배경 (배경보다 살짝 밝은 네이비)
 
 FONT_PATH = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
 # index 는 AppleSDGothicNeo.ttc 실측 결과(0=Regular,2=Medium,4=SemiBold,
