@@ -36,7 +36,7 @@ class TextLimit:
 
 # 각 필드가 그려질 슬라이드의 실제 폰트·폭 기준 (slides.py 렌더러와 동일 값 유지)
 TEXT_LIMITS: dict[str, TextLimit] = {
-    "hook": TextLimit("extrabold", 64, CONTENT_WIDTH, 3),
+    "hook": TextLimit("extrabold", 72, CONTENT_WIDTH, 3),
     "summary": TextLimit("semibold", 34, CONTENT_WIDTH, 2),
     "condition_value": TextLimit("semibold", 30, 420, 1),
     "reason": TextLimit("regular", 28, CONTENT_WIDTH - 64, 1),
