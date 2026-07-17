@@ -25,7 +25,7 @@ export default async function ContentPostPage({
   return (
     <>
       <Suspense fallback={null}>
-        <ContentViewLogger slug={post.slug} series={post.series} />
+        <ContentViewLogger key={post.slug} slug={post.slug} series={post.series} />
       </Suspense>
       <ContentView post={post} />
     </>
