@@ -3,8 +3,9 @@ import Link from "next/link";
 import { getPublishedPosts } from "@/lib/instagramContent";
 
 export const metadata: Metadata = {
-  title: "콘텐츠 — 카드뉴스로 보는 아파트 데이터",
-  description: "인스타그램에 발행한 카드뉴스를 데이터 근거·기준일과 함께 봅니다.",
+  title: "숫자로 보는 집 이야기 — 카드뉴스의 데이터 근거",
+  description:
+    "인스타에서 본 그 카드뉴스 — 순위와 가격이 어떻게 나왔는지, 기준일과 선정 근거까지 투명하게 공개합니다.",
   alternates: { canonical: "/content" },
 };
 
@@ -12,9 +13,10 @@ export default function ContentIndexPage() {
   const posts = getPublishedPosts();
   return (
     <main className="mx-auto max-w-xl px-4 py-8">
-      <h1 className="text-2xl font-extrabold text-gray-900">콘텐츠</h1>
+      <h1 className="text-2xl font-extrabold text-gray-900">숫자로 보는 집 이야기</h1>
       <p className="mt-1 text-sm text-gray-500">
-        인스타그램에 발행한 카드뉴스를 데이터 근거와 함께 봅니다.
+        인스타에서 본 그 카드뉴스 — 순위와 가격이 어떻게 나왔는지, 기준일과 선정
+        근거까지 투명하게 공개합니다.
       </p>
       {posts.length === 0 ? (
         <p className="mt-8 text-gray-500">아직 발행된 콘텐츠가 없습니다.</p>
