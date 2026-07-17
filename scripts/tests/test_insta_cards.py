@@ -1554,6 +1554,45 @@ class TestFrontendPublish(unittest.TestCase):
             ]
             self.assertEqual(leftovers, [])
 
+    def test_cover_replace_failure_restores_backup(self):
+        import tempfile
+        from unittest.mock import patch
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            # 1차 발행으로 기존 상태 구성
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            cover_dst = root / "public/content/instagram/a-slug/cover.png"
+            posts_path = root / "src/content/instagram/posts.json"
+            old_posts = posts_path.read_text(encoding="utf-8")
+            cover_src.write_bytes(b"PNG-V2")
+
+            real_replace = fp.os.replace
+            calls = {"n": 0}
+
+            def flaky_replace(src, dst):
+                calls["n"] += 1
+                # 재발행 시 replace 순서: ①cover 백업 ②새 cover 배치 ③posts.json 교체
+                if calls["n"] == 2:
+                    raise OSError("disk full")
+                return real_replace(src, dst)
+
+            with patch.object(fp.os, "replace", side_effect=flaky_replace):
+                with self.assertRaises(OSError):
+                    fp.publish_to_frontend(
+                        self._record("a-slug", "2026-07-18"), cover_src, root
+                    )
+
+            # ②(새 cover 배치) 실패 시에도 백업 원복 — cover 소실·백업 잔존 없음
+            self.assertEqual(cover_dst.read_bytes(), b"PNG-NEW")
+            self.assertEqual(posts_path.read_text(encoding="utf-8"), old_posts)
+            leftovers = [
+                p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
+            ]
+            self.assertEqual(leftovers, [])
+
 
 if __name__ == "__main__":
     unittest.main()

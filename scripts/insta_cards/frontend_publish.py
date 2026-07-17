@@ -3,24 +3,26 @@
 cover 경로가 slug 고정(/content/instagram/{slug}/cover.png)이라 재발행 시
 한쪽만 교체되면 구 레코드가 새 cover 를 가리켜 "같은 실행의 동일 데이터"
 원칙이 깨진다 → 2파일 백업 스왑 (spec §3):
-  새 파일들을 임시 경로에 준비 → cover 백업 후 새 cover 배치 →
-  posts.json 교체, 실패 시 cover 원복 후 re-raise.
-어떤 실패 경로에서도 "새 cover + 구 레코드"(또는 역) 조합이 남지 않는다.
+  새 파일들을 임시 경로에 준비 → cover 백업 → 새 cover 배치 →
+  posts.json 교체. 새 cover 배치·posts.json 교체 어느 쪽이 실패해도
+  백업으로 cover 를 원복한 뒤 re-raise 한다.
+어떤 실패 경로에서도 "새 cover + 구 레코드"(또는 역) 조합이나
+cover 소실·백업 잔존이 남지 않는다.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 from pathlib import Path
+
+from scripts.insta_cards.publication import SLUG_PATTERN
 
 FRONTEND_ROOT = Path(__file__).resolve().parents[2] / "web" / "frontend-next"
 POSTS_JSON_RELPATH = Path("src/content/instagram/posts.json")
 COVER_PUBLIC_RELDIR = Path("public/content/instagram")
 COVER_FILENAME = "cover.png"
-SLUG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 class FrontendPublishError(RuntimeError):
@@ -60,12 +62,15 @@ def publish_to_frontend(
     if not cover_src.is_file():
         raise FrontendPublishError(f"cover 원본이 없습니다: {cover_src}")
 
+    # 직접 호출자 방어용 형식 검증 — 경로 구성 전 slug 형식을 보장
     try:
         slug = record["slug"]
     except KeyError:
         raise FrontendPublishError("record에 'slug' 필드가 없습니다") from None
     if not SLUG_PATTERN.match(slug):
-        raise FrontendPublishError(f"slug 형식 오류: {slug} — 소문자 ASCII+하이픈만 허용")
+        raise FrontendPublishError(
+            f"slug 형식 오류: {slug} — 소문자 ASCII+하이픈만 허용"
+        )
     posts_path = frontend_root / POSTS_JSON_RELPATH
     cover_dst = frontend_root / COVER_PUBLIC_RELDIR / slug / COVER_FILENAME
 
@@ -89,13 +94,17 @@ def publish_to_frontend(
     try:
         if had_cover:
             os.replace(cover_dst, cover_bak)  # ① 기존 cover 백업 (rename — 원복 가능)
-        os.replace(cover_tmp, cover_dst)  # ② 새 cover 배치
         try:
-            os.replace(posts_tmp, posts_path)  # ③ posts.json 교체
+            os.replace(cover_tmp, cover_dst)  # ② 새 cover 배치
+            try:
+                os.replace(posts_tmp, posts_path)  # ③ posts.json 교체
+            except BaseException:
+                # ③ 실패 → 새 cover 를 치운다: "새 cover + 구 레코드" 방지
+                os.replace(cover_dst, cover_tmp)
+                raise
         except BaseException:
-            # ③ 실패 → 새 cover 를 치우고 백업 원복: "새 cover + 구 레코드" 방지
-            os.replace(cover_dst, cover_tmp)
-            if had_cover:
+            # ②·③ 실패 공통: 백업 원복 (원본 예외는 그대로 체이닝되어 전파)
+            if had_cover and not cover_dst.exists():
                 os.replace(cover_bak, cover_dst)
             raise
         if had_cover:
