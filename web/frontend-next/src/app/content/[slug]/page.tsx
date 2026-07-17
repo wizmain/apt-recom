@@ -6,9 +6,13 @@ import { getPublishedPost, getPublishedPosts } from "@/lib/instagramContent";
 import { ContentView } from "./ContentView";
 import { ContentViewLogger } from "./ContentViewLogger";
 
-// 외부 fetch 0건 — 완전 정적 생성. apartment/[pnu](ISR)와 의도적으로 다른 선택:
-// 본문은 발행 시점 스냅샷이므로 재검증이 필요 없다 (PRD §6-2).
-export const dynamicParams = false;
+// 외부 fetch 0건 — posts.json 이 서버 번들에 포함되어 렌더는 항상 결정적이다.
+// spec §6-2 는 완전 SSG(dynamicParams=false)였으나, 운영(OpenNext Cloudflare)이
+// incrementalCache 미구성이라 동적 라우트의 프리렌더 HTML 을 서빙하지 못해
+// 404 가 났다 (2026-07-17 배포 실측). apartment/[pnu]와 동일한 검증된 ISR
+// 패턴으로 전환 — 미발행 slug 는 getPublishedPost null → notFound() 로 동일하게 404.
+export const revalidate = 3600;
+export const dynamicParams = true;
 
 export function generateStaticParams() {
   return getPublishedPosts().map((p) => ({ slug: p.slug }));
