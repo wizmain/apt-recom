@@ -25,13 +25,23 @@ export const FILTER_KEYS = [
   "built_before",
 ] as const;
 
-const COVER_IMAGE_PATTERN = /^\/content\/instagram\/[a-z0-9-]+\/cover\.png$/;
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 function fail(slug: string, message: string): never {
   throw new Error(`posts.json 검증 실패 [${slug}]: ${message}`);
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString)
+  );
+}
+
+// 필드 접근은 검증 전 신뢰 불가 — 아래 체크가 순서대로 보장.
 function assertPost(raw: unknown, index: number): ContentPost {
   const p = raw as ContentPost;
   const slug = typeof p.slug === "string" ? p.slug : `#${index}`;
@@ -55,15 +65,71 @@ function assertPost(raw: unknown, index: number): ContentPost {
   }
   if (p.status === "published" && !p.published_at)
     fail(slug, "published 인데 published_at 없음");
-  if (!COVER_IMAGE_PATTERN.test(p.cover_image))
-    fail(slug, `cover_image 형식 오류: ${p.cover_image}`);
+  // 자기 slug 폴더와 등가 비교 — 다른 게시물 폴더를 가리키는 복붙 버그 차단
+  if (p.cover_image !== `/content/instagram/${p.slug}/cover.png`)
+    fail(slug, `cover_image 가 자기 slug 경로와 불일치: ${p.cover_image}`);
+  if (!Array.isArray(p.conditions)) fail(slug, "conditions 배열 아님");
+  for (const cond of p.conditions) {
+    if (!isNonEmptyString(cond.label) || !isNonEmptyString(cond.value))
+      fail(slug, "conditions 원소 label/value 누락/빈 값");
+  }
   if (!Array.isArray(p.items) || p.items.length === 0) fail(slug, "items 비어 있음");
+  for (const item of p.items) {
+    if (typeof item.rank !== "number") fail(slug, "items 원소 rank 숫자 아님");
+    if (!isNonEmptyString(item.name)) fail(slug, "items 원소 name 누락/빈 값");
+    if (!Array.isArray(item.metrics)) fail(slug, "items 원소 metrics 배열 아님");
+    for (const metric of item.metrics) {
+      if (typeof metric.label !== "string" || typeof metric.value !== "string")
+        fail(slug, "items metrics 원소 label/value 문자열 아님");
+    }
+  }
+  if (p.secondary_items !== null) {
+    if (!Array.isArray(p.secondary_items))
+      fail(slug, "secondary_items 배열 아님");
+    for (const item of p.secondary_items) {
+      if (typeof item.rank !== "number")
+        fail(slug, "secondary_items 원소 rank 숫자 아님");
+      if (!isNonEmptyString(item.name))
+        fail(slug, "secondary_items 원소 name 누락/빈 값");
+      if (!Array.isArray(item.metrics))
+        fail(slug, "secondary_items 원소 metrics 배열 아님");
+    }
+  }
+  if (p.comparison !== null) {
+    if (typeof p.comparison !== "object") fail(slug, "comparison 객체 아님");
+    if (!isNonEmptyStringArray(p.comparison.row_labels))
+      fail(slug, "comparison.row_labels 비어 있음/문자열 아님");
+    if (!Array.isArray(p.comparison.columns) || p.comparison.columns.length !== 2)
+      fail(slug, "comparison.columns 길이 ≠ 2");
+    for (const column of p.comparison.columns) {
+      if (
+        !Array.isArray(column.values) ||
+        column.values.length !== p.comparison.row_labels.length
+      )
+        fail(slug, `comparison column '${column.name}' values 길이 불일치`);
+    }
+  }
+  if (typeof p.narrative !== "object" || p.narrative === null)
+    fail(slug, "narrative 객체 아님");
+  if (!Array.isArray(p.narrative.why) || !p.narrative.why.every(isNonEmptyString))
+    fail(slug, "narrative.why 문자열 배열 아님");
+  if (p.narrative.fit_for !== null) {
+    if (
+      !isNonEmptyString(p.narrative.fit_for?.a) ||
+      !isNonEmptyString(p.narrative.fit_for?.b)
+    )
+      fail(slug, "narrative.fit_for a/b 누락/빈 값");
+  }
   if (!Array.isArray(p.methodology) || p.methodology.length === 0)
     fail(slug, "methodology 비어 있음");
   if (!Array.isArray(p.caveats) || p.caveats.length === 0)
     fail(slug, "caveats 비어 있음");
   if (!Array.isArray(p.map_ctas)) fail(slug, "map_ctas 배열 아님");
   for (const cta of p.map_ctas) {
+    if (!isNonEmptyString(cta.id) || !isNonEmptyString(cta.label))
+      fail(slug, "map_ctas 원소 id/label 누락/빈 값");
+    if (!isNonEmptyStringArray(cta.nudges))
+      fail(slug, `map_ctas '${cta.id}' nudges 비어 있음/문자열 아님`);
     const badKeys = Object.keys(cta.filters ?? {}).filter(
       (k) => !(FILTER_KEYS as readonly string[]).includes(k),
     );
