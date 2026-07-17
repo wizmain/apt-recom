@@ -1448,5 +1448,112 @@ class TestCli(unittest.TestCase):
         self.assertIs(shim.main, cli.main)
 
 
+class TestFrontendPublish(unittest.TestCase):
+    def _record(
+        self, slug, published_at="2026-07-17", generated_at="2026-07-17T10:00:00"
+    ):
+        return {
+            "slug": slug,
+            "status": "published",
+            "published_at": published_at,
+            "generated_at": generated_at,
+            "cover_image": "01-cover.png",
+            "title": f"제목 {slug}",
+        }
+
+    def _setup_fs(self, tmp):
+        from pathlib import Path
+
+        root = Path(tmp) / "frontend"
+        cover_src = Path(tmp) / "01-cover.png"
+        cover_src.write_bytes(b"PNG-NEW")
+        return root, cover_src
+
+    def test_publish_creates_posts_and_cover(self):
+        import json
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            posts_path = fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            data = json.loads(posts_path.read_text(encoding="utf-8"))
+            self.assertEqual(data[0]["slug"], "a-slug")
+            self.assertEqual(
+                data[0]["cover_image"], "/content/instagram/a-slug/cover.png"
+            )
+            cover = root / "public/content/instagram/a-slug/cover.png"
+            self.assertEqual(cover.read_bytes(), b"PNG-NEW")
+
+    def test_upsert_replaces_same_slug_and_sorts_deterministically(self):
+        from scripts.insta_cards import frontend_publish as fp
+
+        posts = [
+            self._record("b-slug", "2026-07-15"),
+            self._record("a-slug", "2026-07-16", "2026-07-16T09:00:00"),
+        ]
+        merged = fp.upsert_posts(
+            posts, self._record("c-slug", "2026-07-16", "2026-07-16T09:00:00")
+        )
+        # published_at DESC → generated_at DESC → slug ASC
+        self.assertEqual([p["slug"] for p in merged], ["a-slug", "c-slug", "b-slug"])
+        replaced = fp.upsert_posts(merged, self._record("b-slug", "2026-07-17"))
+        self.assertEqual([p["slug"] for p in replaced], ["b-slug", "a-slug", "c-slug"])
+        self.assertEqual(len(replaced), 3)
+
+    def test_broken_posts_json_raises(self):
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            posts_path = root / "src/content/instagram/posts.json"
+            posts_path.parent.mkdir(parents=True)
+            posts_path.write_text('{"not": "array"}', encoding="utf-8")
+            with self.assertRaises(fp.FrontendPublishError):
+                fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+
+    def test_posts_replace_failure_restores_cover(self):
+        import tempfile
+        from unittest.mock import patch
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            # 1차 발행으로 기존 상태 구성
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            cover_dst = root / "public/content/instagram/a-slug/cover.png"
+            posts_path = root / "src/content/instagram/posts.json"
+            old_posts = posts_path.read_text(encoding="utf-8")
+            cover_src.write_bytes(b"PNG-V2")
+
+            real_replace = fp.os.replace
+            calls = {"n": 0}
+
+            def flaky_replace(src, dst):
+                calls["n"] += 1
+                # 재발행 시 replace 순서: ①cover 백업 ②새 cover 배치 ③posts.json 교체
+                if calls["n"] == 3:
+                    raise OSError("disk full")
+                return real_replace(src, dst)
+
+            with patch.object(fp.os, "replace", side_effect=flaky_replace):
+                with self.assertRaises(OSError):
+                    fp.publish_to_frontend(
+                        self._record("a-slug", "2026-07-18"), cover_src, root
+                    )
+
+            # 기존 cover·posts.json 모두 원복, 임시/백업 잔존 없음
+            self.assertEqual(cover_dst.read_bytes(), b"PNG-NEW")
+            self.assertEqual(posts_path.read_text(encoding="utf-8"), old_posts)
+            leftovers = [
+                p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
+            ]
+            self.assertEqual(leftovers, [])
+
+
 if __name__ == "__main__":
     unittest.main()

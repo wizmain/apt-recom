@@ -17,12 +17,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.insta_cards.copywriting import NUDGE_LABELS, load_copy_overrides  # noqa: E402
+from scripts.insta_cards.frontend_publish import publish_to_frontend  # noqa: E402
 from scripts.insta_cards.output import OUTPUT_ROOT, write_publication  # noqa: E402
 from scripts.insta_cards.publication import (  # noqa: E402
     SERIES_CLI_NAMES,
     SERIES_SLUGS,
     SLUG_PATTERN,
     Series,
+    to_json_dict,
     validate,
 )
 from scripts.insta_cards.slides import build_slides  # noqa: E402
@@ -187,6 +189,9 @@ def main(argv: list[str] | None = None) -> None:
     slides = build_slides(pub)
     final_dir = write_publication(pub, slides, force=args.force, root=OUTPUT_ROOT)
     print(f"saved: {final_dir} ({len(slides)}장 + publication.json)")
+    if args.publish:
+        posts_path = publish_to_frontend(to_json_dict(pub), final_dir / "01-cover.png")
+        print(f"frontend: {posts_path} 갱신 + cover 복사 — posts.json·cover 커밋 필요")
 
 
 if __name__ == "__main__":
