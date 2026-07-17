@@ -5,9 +5,13 @@ import { useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { useCodes } from "@/hooks/useCodes";
+import type { FilterState } from "@/lib/store/searchSlice";
+import { FILTER_KEYS } from "@/lib/instagramContent";
+import { logEvent } from "@/lib/logEvent";
 
 /**
  * 쿼리파라미터 → store 부트스트랩 훅.
+ * 콘텐츠 딥링크: FilterState 9키 + content_slug/content_cta 소비.
  *
  * 단지 상세(SSR) → 홈 딥링크(`/?nudges=...&sigungu_code=...&region_label=...`) 로 진입할 때,
  * 쿼리파라미터를 1회 소비해 store(`selectedNudges`, `selectedRegion`)를 초기화한다.
@@ -30,6 +34,7 @@ import { useCodes } from "@/hooks/useCodes";
 export function useBridgeParams(): void {
   const searchParams = useSearchParams();
   const selectedPnu = useAppStore((s) => s.selectedPnu);
+  const applyFilters = useAppStore((s) => s.applyFilters);
   const selectRegion = useAppStore((s) => s.selectRegion);
   const setSelectedNudges = useAppStore((s) => s.setSelectedNudges);
   const { codes, loading } = useCodes("nudge");
@@ -64,6 +69,20 @@ export function useBridgeParams(): void {
     const sigCode = searchParams.get("sigungu_code");
     const regionLabel = searchParams.get("region_label");
 
+    // 콘텐츠 딥링크 필터 소비 — FilterState 9키 allowlist, Number.isFinite 통과 값만.
+    // 적용 순서 중요: applyFilters → selectRegion(내부 fetchApartments) → setSelectedNudges.
+    // 필터를 먼저 넣지 않으면 최초 아파트 조회가 필터 없이 나간다 (PRD §7).
+    const filters: FilterState = {};
+    for (const key of FILTER_KEYS) {
+      const raw = searchParams.get(key);
+      if (raw === null) continue;
+      const num = Number(raw);
+      if (!Number.isFinite(num)) continue;
+      filters[key as keyof FilterState] = num;
+    }
+    const filterCount = Object.keys(filters).length;
+    if (filterCount > 0) applyFilters(filters);
+
     // 지역 세팅 (sigungu_code 가 있는 경우만)
     if (sigCode) {
       const label = regionLabel ?? sigCode;
@@ -72,6 +91,17 @@ export function useBridgeParams(): void {
 
     // nudge 프리셋 일괄 세팅 — 유효 코드 화이트리스트로 한 번 더 방어.
     setSelectedNudges(nudges, validCodes);
+
+    // 콘텐츠 유입 도달 측정 — content_slug 가 있을 때만 (store 미주입, 로깅 전용).
+    const contentSlug = searchParams.get("content_slug");
+    if (contentSlug) {
+      logEvent("content_map_arrival", {
+        content_slug: contentSlug,
+        content_cta: searchParams.get("content_cta") ?? undefined,
+        nudge_count: nudges.length,
+        filter_count: filterCount,
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
   // deps: [loading] — 코드 로드 완료 시 1회 적용. searchParams 를 deps 에 넣지 않는 이유는
