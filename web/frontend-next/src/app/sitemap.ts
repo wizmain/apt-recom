@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { API_URL, SITE_URL } from "@/lib/site";
+import { getPublishedPosts } from "@/lib/instagramContent";
 
 /**
  * /sitemap.xml — Next.js 16 MetadataRoute.Sitemap 규약.
@@ -59,9 +60,24 @@ function normalizeToSiteHost(urlStr: string): string {
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const urls = await fetchUpstreamUrls();
 
-  // 백엔드가 비어 있거나 실패한 경우 최소 홈 URL 만.
+  // 콘텐츠 URL 은 posts.json(빌드 산출) 기반 — upstream 실패와 무관하게 항상 포함.
+  const contentUrls: UpstreamUrl[] = [
+    { loc: `${SITE_URL}/content` },
+    ...getPublishedPosts().map((p) => ({
+      loc: `${SITE_URL}/content/${p.slug}`,
+      lastmod: p.published_at ?? undefined,
+    })),
+  ];
+
+  // 백엔드가 비어 있거나 실패한 경우: 홈 + 콘텐츠 URL 만.
   if (urls.length === 0) {
-    return [{ url: `${SITE_URL}/`, changeFrequency: "daily", priority: 1.0 }];
+    return [
+      { url: `${SITE_URL}/`, changeFrequency: "daily", priority: 1.0 },
+      ...contentUrls.map((u) => ({
+        url: u.loc,
+        ...(u.lastmod ? { lastModified: u.lastmod } : {}),
+      })),
+    ];
   }
 
   // `/about` 같은 정적 페이지는 백엔드 sitemap 에 없으므로 수동 추가.
@@ -79,7 +95,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const seen = new Set<string>();
   const merged: MetadataRoute.Sitemap = [];
-  for (const u of [...normalized, ...staticPages]) {
+  for (const u of [...normalized, ...staticPages, ...contentUrls]) {
     if (seen.has(u.loc)) continue;
     seen.add(u.loc);
     merged.push({ url: u.loc, ...(u.lastmod ? { lastModified: u.lastmod } : {}) });

@@ -1,5 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getPublishedPosts } from "@/lib/instagramContent";
+
+export const metadata: Metadata = {
+  title: "콘텐츠 — 카드뉴스로 보는 아파트 데이터",
+  description: "인스타그램에 발행한 카드뉴스를 데이터 근거·기준일과 함께 봅니다.",
+  alternates: { canonical: "/content" },
+};
 
 export default function ContentIndexPage() {
   const posts = getPublishedPosts();
