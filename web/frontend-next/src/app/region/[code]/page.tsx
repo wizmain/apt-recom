@@ -103,12 +103,16 @@ function buildItemListJsonLd(apartments: RegionApartment[]) {
   return {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    itemListElement: apartments.slice(0, ITEM_LIST_LIMIT).map((apt, idx) => ({
-      "@type": "ListItem",
-      position: idx + 1,
-      url: `${SITE_URL}/apartment/${apt.pnu}`,
-      name: apt.bld_nm,
-    })),
+    // 무명 단지(bld_nm NULL)는 제외 — 빈 name 은 GSC 구조화 데이터 오류.
+    itemListElement: apartments
+      .filter((apt) => apt.bld_nm !== null && apt.bld_nm.trim() !== "")
+      .slice(0, ITEM_LIST_LIMIT)
+      .map((apt, idx) => ({
+        "@type": "ListItem",
+        position: idx + 1,
+        url: `${SITE_URL}/apartment/${apt.pnu}`,
+        name: apt.bld_nm,
+      })),
   };
 }
 

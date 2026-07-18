@@ -30,6 +30,10 @@ export const apartments = [apartment];
 export const apartmentDetail = {
   basic: {
     ...apartment,
+    // GSC 'name 누락' 회귀 재현 케이스: 건축물대장명(bld_nm)이 없고
+    // 보정명(display_name)만 있는 단지 — JSON-LD·h1 이 display_name 을 써야 한다.
+    bld_nm: null,
+    display_name: FIXTURE_APT_NAME,
     new_plat_plc: FIXTURE_APT_ADDRESS,
     plat_plc: FIXTURE_APT_ADDRESS,
     bjd_code: "1111010100",

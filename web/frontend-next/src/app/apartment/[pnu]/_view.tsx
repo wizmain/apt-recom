@@ -1,4 +1,5 @@
 import type { ApartmentDetail, TradesResponse } from "@/types/apartment";
+import { resolveApartmentName } from "@/lib/apartmentName";
 import type { ResolvedRegion } from "@/types/region";
 import { BasicInfo } from "./sections/BasicInfo";
 import { LifeScores } from "./sections/LifeScores";
@@ -43,6 +44,8 @@ export function ApartmentDetailView({
    * 파싱 실패 시 sigungu_code 로 fallback(정확한 값은 없으나 코드라도 전달).
    */
   const rawAddress = basic.new_plat_plc ?? basic.plat_plc ?? "";
+  // 표시명: display_name 우선(보정명 반영), 무명 단지는 주소로 대체.
+  const aptName = resolveApartmentName(basic) ?? rawAddress;
   const addressTokens = rawAddress.trim().split(/\s+/);
   const regionLabel =
     addressTokens.length >= 2 ? addressTokens[1] : (basic.sigungu_code ?? null);
@@ -50,7 +53,7 @@ export function ApartmentDetailView({
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{basic.bld_nm}</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{aptName}</h1>
         {address ? (
           <p className="mt-1 text-sm text-gray-500">{address}</p>
         ) : null}
@@ -62,7 +65,7 @@ export function ApartmentDetailView({
       <LifeScores scores={scores} />
       <RecommendCta
         pnu={pnu}
-        bldNm={basic.bld_nm}
+        bldNm={aptName}
         scores={scores}
         sigunguCode={basic.sigungu_code}
         regionLabel={regionLabel}
