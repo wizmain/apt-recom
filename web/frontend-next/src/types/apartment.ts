@@ -58,7 +58,10 @@ export interface RegionCandidate {
  */
 export interface ApartmentBasic {
   pnu: string;
-  bld_nm: string;
+  // DB 는 bld_nm(건축물대장)·display_name(보정명) 모두 NULL 허용 — 타입이
+  // 이를 숨기면 JSON-LD name 누락(GSC 반복 오류)으로 이어진다.
+  bld_nm: string | null;
+  display_name?: string | null;
   total_hhld_cnt?: number | null;
   dong_count?: number | null;
   max_floor?: number | null;

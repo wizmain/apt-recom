@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { API_URL, SITE_URL, BRAND } from "@/lib/site";
+import { resolveApartmentName } from "@/lib/apartmentName";
 import type {
   ApartmentDetail,
   TradesResponse,
@@ -88,8 +89,9 @@ export async function generateMetadata({
   if (!detail) {
     return { title: "아파트를 찾을 수 없습니다", robots: { index: false } };
   }
-  const name = detail.basic.bld_nm;
   const address = detail.basic.new_plat_plc ?? detail.basic.plat_plc ?? "";
+  // 무명 단지(bld_nm·display_name 모두 NULL)는 주소를 제목으로 사용.
+  const name = resolveApartmentName(detail.basic) ?? address;
   const description = `${address} ${name} — NUDGE 점수·실거래가·학군·안전·주변시설.`;
   return {
     title: name,
@@ -106,6 +108,9 @@ export async function generateMetadata({
 
 function buildApartmentJsonLd(pnu: string, detail: ApartmentDetail) {
   const { basic } = detail;
+  // 빈 name 은 GSC 구조화 데이터 오류(반복 이력) — 무명 단지는 블록 생략.
+  const name = resolveApartmentName(basic);
+  if (!name) return null;
   const address = basic.new_plat_plc ?? basic.plat_plc ?? undefined;
   const yearBuilt =
     basic.use_apr_day && basic.use_apr_day.length >= 4
@@ -114,7 +119,7 @@ function buildApartmentJsonLd(pnu: string, detail: ApartmentDetail) {
   return {
     "@context": "https://schema.org",
     "@type": "ApartmentComplex",
-    name: basic.bld_nm,
+    name,
     url: `${SITE_URL}/apartment/${pnu}`,
     ...(address
       ? {
@@ -162,10 +167,12 @@ function buildBreadcrumbJsonLd(
       item: `${SITE_URL}/region/${region.code}`,
     });
   }
+  const aptName = resolveApartmentName(detail.basic);
+  if (!aptName) return null; // 무명 단지 — 빈 name 크럼보다 생략이 안전
   itemListElement.push({
     "@type": "ListItem",
     position: itemListElement.length + 1,
-    name: detail.basic.bld_nm,
+    name: aptName,
     item: `${SITE_URL}/apartment/${pnu}`,
   });
   return {
@@ -194,7 +201,7 @@ export default async function ApartmentDetailPage({
   const jsonLd = [
     buildApartmentJsonLd(pnu, detail),
     buildBreadcrumbJsonLd(pnu, detail, region),
-  ];
+  ].filter((block) => block !== null);
 
   return (
     <>
