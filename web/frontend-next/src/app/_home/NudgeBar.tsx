@@ -97,6 +97,7 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
         )}
 
         <ExploreLink />
+        <ContentLink />
         <GuideLink />
         <SiteInfo />
       </div>
@@ -510,6 +511,24 @@ function ExploreLink() {
     >
       <span aria-hidden>✨</span>
       <span className="hidden sm:inline">둘러보기</span>
+    </Link>
+  );
+}
+
+function ContentLink() {
+  // 상단바 우측: /content 카드뉴스 랜딩 진입점 — 탐색성 링크(둘러보기)와
+  // 유틸리티(가이드) 사이. 스타일·모바일(이모지만) 패턴은 ExploreLink 준용.
+  return (
+    <Link
+      href="/content"
+      title="숫자로 보는 집 이야기"
+      aria-label="콘텐츠 — 숫자로 보는 집 이야기"
+      className="inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
+                 text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
+                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0"
+    >
+      <span aria-hidden>📰</span>
+      <span className="hidden sm:inline">콘텐츠</span>
     </Link>
   );
 }

@@ -141,4 +141,12 @@ test.describe("D: /explore 큐레이션 갤러리", () => {
     await page.getByRole("link", { name: "추천 둘러보기" }).click();
     await expect(page.getByRole("heading", { name: "라이프스타일 추천 둘러보기" })).toBeVisible();
   });
+
+  test("홈 상단바에서 콘텐츠 진입", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: "콘텐츠 — 숫자로 보는 집 이야기" }).click();
+    await expect(
+      page.getByRole("heading", { name: "숫자로 보는 집 이야기" }),
+    ).toBeVisible();
+  });
 });
