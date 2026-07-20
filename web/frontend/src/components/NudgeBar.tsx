@@ -463,10 +463,10 @@ function SiteInfo() {
         www.apt-recom.kr
       </a>
       <a
-        href="mailto:kindofme46@gmail.com"
+        href="mailto:apt.recom@gmail.com"
         className="text-gray-500 hover:text-gray-700 hover:underline"
       >
-        kindofme46@gmail.com
+        apt.recom@gmail.com
       </a>
     </div>
   );
