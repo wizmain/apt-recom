@@ -14,6 +14,8 @@ from pathlib import Path
 
 import requests
 
+from scripts.insta_cards.instagram.assets import MAX_JPEG_BYTES
+
 GRAPH_HOST = "https://graph.instagram.com"
 GRAPH_API_VERSION = "v23.0"  # dry-run 실호출로 유효성 검증 — 온보딩 가이드 참조
 HTTP_TIMEOUT = 30
@@ -167,6 +169,8 @@ class InstagramClient:
                         f"{resp.text[:500]}"
                     )
                 )
+            if len(resp.content) > MAX_JPEG_BYTES:
+                raise InstagramApiError(f"{url} → {len(resp.content)} bytes — 8MB 초과")
         return urls
 
     def publish_carousel(self, slug: str, manifest: dict, caption: str) -> dict:

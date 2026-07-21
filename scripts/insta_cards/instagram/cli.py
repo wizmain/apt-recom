@@ -76,10 +76,11 @@ def run_publish(
     else:
         caption = build_caption(manifest)
 
+    quota = client.publishing_quota()
+    print(f"쿼터: {quota}")
+
     if dry_run:
-        quota = client.publishing_quota()
         client.verify_assets(slug, manifest)
-        print(f"쿼터: {quota}")
         print(
             f"자산 {len(manifest['instagram_assets'])}장 검증 통과 (gen {manifest['asset_generation']})"
         )

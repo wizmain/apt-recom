@@ -2041,6 +2041,23 @@ class TestInstagramApi(unittest.TestCase):
                 api.append_log({"slug": "s1", "status": "published"})
                 self.assertEqual(api.read_log_status("s1"), "published")
 
+    def test_verify_assets_rejects_oversized_remote_asset(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        oversized = b"x" * (api.MAX_JPEG_BYTES + 1)
+        resp = MagicMock(
+            status_code=200,
+            headers={"Content-Type": "image/jpeg"},
+            content=oversized,
+        )
+        with patch.object(api.requests, "get", return_value=resp):
+            with self.assertRaises(api.InstagramApiError) as ctx:
+                client.verify_assets("value-seoul-20260718", self._manifest())
+        self.assertIn("8MB", str(ctx.exception))
+
     def test_refresh_token_delegates_to_get(self):
         from unittest.mock import MagicMock, patch
 
@@ -2105,6 +2122,33 @@ class TestInstagramCli(unittest.TestCase):
             cli.run_publish(client, "s", caption_file=None, force=False, dry_run=True)
         client.verify_token.assert_called_once()
         client.publish_carousel.assert_not_called()
+
+    def test_real_publish_checks_quota_before_publishing(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import cli
+
+        client = MagicMock()
+        client.fetch_manifest.return_value = {
+            "slug": "s",
+            "series": "value",
+            "hook": "훅",
+            "summary": "요약",
+            "data_as_of": "2026-07-21",
+            "map_ctas": [],
+            "instagram_assets": ["01-a.jpg", "02-b.jpg"],
+            "asset_generation": "a" * 12,
+            "schema_version": 1,
+            "status": "published",
+        }
+        client.publish_carousel.return_value = {
+            "media_id": "MEDIA1",
+            "permalink": "https://instagr.am/p/x",
+        }
+        with patch.object(cli, "read_log_status", return_value=None):
+            cli.run_publish(client, "s", caption_file=None, force=False, dry_run=False)
+        client.publishing_quota.assert_called_once()
+        client.publish_carousel.assert_called_once()
 
 
 if __name__ == "__main__":
