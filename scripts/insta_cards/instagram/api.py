@@ -214,3 +214,7 @@ class InstagramClient:
     def recent_permalinks(self, limit: int = 25) -> list[dict]:
         data = self._get("/me/media", fields="permalink,caption", limit=str(limit))
         return data.get("data", [])
+
+    def refresh_token(self) -> dict:
+        """장기 토큰 갱신 (60일 주기) — 만료 24시간 이후~60일 이내 호출 가능."""
+        return self._get("/refresh_access_token", grant_type="ig_refresh_token")

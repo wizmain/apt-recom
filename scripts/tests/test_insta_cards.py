@@ -2041,6 +2041,71 @@ class TestInstagramApi(unittest.TestCase):
                 api.append_log({"slug": "s1", "status": "published"})
                 self.assertEqual(api.read_log_status("s1"), "published")
 
+    def test_refresh_token_delegates_to_get(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        resp = MagicMock(
+            status_code=200,
+            json=lambda: {"access_token": "IGnew-token", "expires_in": 5184000},
+        )
+        with patch.object(api.requests, "get", return_value=resp) as mock_get:
+            result = client.refresh_token()
+        self.assertEqual(result["access_token"], "IGnew-token")
+        called_url = mock_get.call_args[0][0]
+        called_params = mock_get.call_args[1]["params"]
+        self.assertIn("/refresh_access_token", called_url)
+        self.assertEqual(called_params["grant_type"], "ig_refresh_token")
+
+
+class TestInstagramCli(unittest.TestCase):
+    def test_parser_options(self):
+        from scripts.insta_cards.instagram import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(["my-slug", "--dry-run", "--force"])
+        self.assertEqual(args.slug, "my-slug")
+        self.assertTrue(args.dry_run)
+        args2 = parser.parse_args(["--refresh-token"])
+        self.assertIsNone(args2.slug)
+
+    def test_duplicate_gate_requires_force(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import cli
+
+        client = MagicMock()
+        with patch.object(cli, "read_log_status", return_value="published"):
+            with self.assertRaises(SystemExit):
+                cli.run_publish(
+                    client, "dup-slug", caption_file=None, force=False, dry_run=False
+                )
+
+    def test_dry_run_does_not_publish(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import cli
+
+        client = MagicMock()
+        client.fetch_manifest.return_value = {
+            "slug": "s",
+            "series": "value",
+            "hook": "훅",
+            "summary": "요약",
+            "data_as_of": "2026-07-21",
+            "map_ctas": [],
+            "instagram_assets": ["01-a.jpg", "02-b.jpg"],
+            "asset_generation": "a" * 12,
+            "schema_version": 1,
+            "status": "published",
+        }
+        with patch.object(cli, "read_log_status", return_value=None):
+            cli.run_publish(client, "s", caption_file=None, force=False, dry_run=True)
+        client.verify_token.assert_called_once()
+        client.publish_carousel.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
