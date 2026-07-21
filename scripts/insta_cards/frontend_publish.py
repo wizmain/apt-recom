@@ -84,19 +84,7 @@ def publish_to_frontend(
     rec["cover_image"] = public_cover_path(slug)
     new_posts = upsert_posts(_load_posts(posts_path), rec)
 
-    pid = os.getpid()
-    posts_tmp = posts_path.with_name(f"posts.json.tmp-{pid}")
-    cover_tmp = cover_dst.with_name(f"{COVER_FILENAME}.tmp-{pid}")
-    cover_bak = cover_dst.with_name(f"{COVER_FILENAME}.bak-{pid}")
-
-    posts_path.parent.mkdir(parents=True, exist_ok=True)
-    cover_dst.parent.mkdir(parents=True, exist_ok=True)
-    posts_tmp.write_text(
-        json.dumps(new_posts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    shutil.copyfile(cover_src, cover_tmp)
-
-    # 발행 디렉토리(= cover_src 부모)에서 ig 세대 자산을 임시 위치에 준비
+    # pre-swap 검증 — 아직 어떤 임시 파일도 만들지 않은 시점 (실패해도 잔존물 없음)
     source_dir = cover_src.parent
     pub_json = source_dir / "publication.json"
     if not pub_json.is_file():
@@ -104,26 +92,40 @@ def publish_to_frontend(
             f"발행 디렉토리에 publication.json 없음: {source_dir}"
         )
     generation = compute_generation(pub_json.read_bytes())
+
+    pid = os.getpid()
+    posts_tmp = posts_path.with_name(f"posts.json.tmp-{pid}")
+    cover_tmp = cover_dst.with_name(f"{COVER_FILENAME}.tmp-{pid}")
+    cover_bak = cover_dst.with_name(f"{COVER_FILENAME}.bak-{pid}")
     ig_root = frontend_root / COVER_PUBLIC_RELDIR / slug / IG_RELDIR
     gen_dir = ig_root / generation
     gen_tmp = ig_root / f"{generation}.tmp-{pid}"
     latest_path = ig_root / IG_LATEST_FILENAME
     latest_tmp = ig_root / f"{IG_LATEST_FILENAME}.tmp-{pid}"
 
-    build_ig_assets(source_dir, gen_tmp)  # 임시 세대 디렉토리에 JPEG+manifest 준비
-    ig_root.mkdir(parents=True, exist_ok=True)
-    latest_tmp.write_text(
-        json.dumps({"generation": generation}) + "\n", encoding="utf-8"
-    )
-    # 정리 대상 이전 세대 — 정리 로직이 매 발행마다 신규 세대 외 전부 제거하므로 항상 0~1개
-    old_generations = [
-        d.name
-        for d in ig_root.iterdir()
-        if d.is_dir() and d.name != generation and ".tmp-" not in d.name
-    ]
-
-    had_cover = cover_dst.exists()
+    # 준비(임시 파일 생성)부터 finally 의 정리 범위 안에서 수행 —
+    # build_ig_assets 등 준비 단계 실패 시에도 부분 gen_tmp/posts_tmp/cover_tmp 가 남지 않는다.
     try:
+        # 발행 디렉토리에서 ig 세대 자산을 임시 세대 디렉토리에 JPEG+manifest 로 준비
+        build_ig_assets(source_dir, gen_tmp)
+        ig_root.mkdir(parents=True, exist_ok=True)
+        latest_tmp.write_text(
+            json.dumps({"generation": generation}) + "\n", encoding="utf-8"
+        )
+        # 정리 대상 이전 세대 — 정리 로직이 매 발행마다 신규 세대 외 전부 제거하므로 항상 0~1개
+        old_generations = [
+            d.name
+            for d in ig_root.iterdir()
+            if d.is_dir() and d.name != generation and ".tmp-" not in d.name
+        ]
+        posts_path.parent.mkdir(parents=True, exist_ok=True)
+        cover_dst.parent.mkdir(parents=True, exist_ok=True)
+        posts_tmp.write_text(
+            json.dumps(new_posts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        shutil.copyfile(cover_src, cover_tmp)
+
+        had_cover = cover_dst.exists()
         if had_cover:
             os.replace(cover_dst, cover_bak)  # ① 기존 cover 백업 (rename — 원복 가능)
         try:

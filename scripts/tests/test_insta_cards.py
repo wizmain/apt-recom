@@ -1695,6 +1695,55 @@ class TestFrontendPublish(unittest.TestCase):
             gens = [d.name for d in ig_root.iterdir() if d.is_dir()]
             self.assertEqual(gens, [json.loads(old_latest)["generation"]])
 
+    def test_missing_publication_json_raises_without_tmp_leftovers(self):
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            # 1차 발행으로 기존 상태 구성 후 publication.json 제거 → 재발행 실패
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            (cover_src.parent / "publication.json").unlink()
+            with self.assertRaises(fp.FrontendPublishError):
+                fp.publish_to_frontend(
+                    self._record("a-slug", "2026-07-24"), cover_src, root
+                )
+            # pre-swap 검증 실패 시에도 임시/백업 파일 잔존 없음
+            leftovers = [
+                p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
+            ]
+            self.assertEqual(leftovers, [])
+
+    def test_build_ig_assets_failure_leaves_no_tmp_leftovers(self):
+        import tempfile
+        from unittest.mock import patch
+
+        from scripts.insta_cards import frontend_publish as fp
+        from scripts.insta_cards.instagram.assets import InstagramAssetError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+
+            def broken_build(source_dir, dest_dir):
+                # 부분 산출 후 실패 — 부분 gen_tmp 정리까지 검증
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                (dest_dir / "01-cover.jpg").write_bytes(b"partial")
+                raise InstagramAssetError("변환 실패")
+
+            with patch.object(fp, "build_ig_assets", side_effect=broken_build):
+                with self.assertRaises(InstagramAssetError):
+                    fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            # 자산 준비 실패 시: 임시 파일 잔존 없음 + 공개 산출물 미배치
+            leftovers = [
+                p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
+            ]
+            self.assertEqual(leftovers, [])
+            self.assertFalse(
+                (root / "public/content/instagram/a-slug/cover.png").exists()
+            )
+            self.assertFalse((root / "src/content/instagram/posts.json").exists())
+
 
 class TestInstagramAssets(unittest.TestCase):
     def _make_source(self, tmp, slide_count=3):
