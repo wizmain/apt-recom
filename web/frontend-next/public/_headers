@@ -42,3 +42,7 @@
 # 콘텐츠 커버 이미지 — 발행 후 slug 기반으로 불변. 재발행(--force)은 드문 운영 예외로, 그때만 CDN 퍼지 필요.
 /content/instagram/*
   Cache-Control: public, max-age=31536000, immutable
+
+# 인스타 발행 세대 포인터 — 매 발행 갱신되므로 캐시 금지 (세대 디렉토리 자체는 immutable 규칙 적용)
+/content/instagram/*/ig/latest.json
+  Cache-Control: no-cache

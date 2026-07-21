@@ -1462,11 +1462,20 @@ class TestFrontendPublish(unittest.TestCase):
         }
 
     def _setup_fs(self, tmp):
+        import json as _json
         from pathlib import Path
 
+        from PIL import Image
+
         root = Path(tmp) / "frontend"
-        cover_src = Path(tmp) / "01-cover.png"
-        cover_src.write_bytes(b"PNG-NEW")
+        pub_dir = Path(tmp) / "pubdir"
+        pub_dir.mkdir()
+        for name in ("01-cover.png", "02-conditions.png"):
+            Image.new("RGB", (1080, 1080), (10, 20, 40)).save(pub_dir / name)
+        (pub_dir / "publication.json").write_text(
+            _json.dumps({"slug": "a-slug", "status": "published"}), encoding="utf-8"
+        )
+        cover_src = pub_dir / "01-cover.png"
         return root, cover_src
 
     def test_publish_creates_posts_and_cover(self):
@@ -1477,6 +1486,9 @@ class TestFrontendPublish(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root, cover_src = self._setup_fs(tmp)
+            # 픽스처가 ig 자산 빌드를 위해 실제 PNG 를 요구하므로, 리터럴 바이트
+            # 대신 실제 소스 바이트를 캡처해 복사 신뢰성을 검증한다.
+            expected_cover_bytes = cover_src.read_bytes()
             posts_path = fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
             data = json.loads(posts_path.read_text(encoding="utf-8"))
             self.assertEqual(data[0]["slug"], "a-slug")
@@ -1484,7 +1496,7 @@ class TestFrontendPublish(unittest.TestCase):
                 data[0]["cover_image"], "/content/instagram/a-slug/cover.png"
             )
             cover = root / "public/content/instagram/a-slug/cover.png"
-            self.assertEqual(cover.read_bytes(), b"PNG-NEW")
+            self.assertEqual(cover.read_bytes(), expected_cover_bytes)
 
     def test_upsert_replaces_same_slug_and_sorts_deterministically(self):
         from scripts.insta_cards import frontend_publish as fp
@@ -1522,13 +1534,18 @@ class TestFrontendPublish(unittest.TestCase):
         from scripts.insta_cards import frontend_publish as fp
 
         with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
             root, cover_src = self._setup_fs(tmp)
             # 1차 발행으로 기존 상태 구성
             fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
             cover_dst = root / "public/content/instagram/a-slug/cover.png"
             posts_path = root / "src/content/instagram/posts.json"
             old_posts = posts_path.read_text(encoding="utf-8")
-            cover_src.write_bytes(b"PNG-V2")
+            # 원복 대상은 1차 발행 시점의 실제 cover 바이트 (ig 자산 빌드가 유효한
+            # PNG 를 요구하므로 리터럴 플레이스홀더 대신 실제 이미지를 사용)
+            original_cover_bytes = cover_src.read_bytes()
+            Image.new("RGB", (1080, 1080), (200, 30, 90)).save(cover_src)
 
             real_replace = fp.os.replace
             calls = {"n": 0}
@@ -1547,7 +1564,7 @@ class TestFrontendPublish(unittest.TestCase):
                     )
 
             # 기존 cover·posts.json 모두 원복, 임시/백업 잔존 없음
-            self.assertEqual(cover_dst.read_bytes(), b"PNG-NEW")
+            self.assertEqual(cover_dst.read_bytes(), original_cover_bytes)
             self.assertEqual(posts_path.read_text(encoding="utf-8"), old_posts)
             leftovers = [
                 p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
@@ -1561,13 +1578,18 @@ class TestFrontendPublish(unittest.TestCase):
         from scripts.insta_cards import frontend_publish as fp
 
         with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
             root, cover_src = self._setup_fs(tmp)
             # 1차 발행으로 기존 상태 구성
             fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
             cover_dst = root / "public/content/instagram/a-slug/cover.png"
             posts_path = root / "src/content/instagram/posts.json"
             old_posts = posts_path.read_text(encoding="utf-8")
-            cover_src.write_bytes(b"PNG-V2")
+            # 원복 대상은 1차 발행 시점의 실제 cover 바이트 (ig 자산 빌드가 유효한
+            # PNG 를 요구하므로 리터럴 플레이스홀더 대신 실제 이미지를 사용)
+            original_cover_bytes = cover_src.read_bytes()
+            Image.new("RGB", (1080, 1080), (200, 30, 90)).save(cover_src)
 
             real_replace = fp.os.replace
             calls = {"n": 0}
@@ -1586,12 +1608,92 @@ class TestFrontendPublish(unittest.TestCase):
                     )
 
             # ②(새 cover 배치) 실패 시에도 백업 원복 — cover 소실·백업 잔존 없음
-            self.assertEqual(cover_dst.read_bytes(), b"PNG-NEW")
+            self.assertEqual(cover_dst.read_bytes(), original_cover_bytes)
             self.assertEqual(posts_path.read_text(encoding="utf-8"), old_posts)
             leftovers = [
                 p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
             ]
             self.assertEqual(leftovers, [])
+
+    def test_publish_creates_ig_generation_assets(self):
+        import json
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            ig_root = root / "public/content/instagram/a-slug/ig"
+            latest = json.loads((ig_root / "latest.json").read_text(encoding="utf-8"))
+            gen_dir = ig_root / latest["generation"]
+            manifest = json.loads(
+                (gen_dir / "publication.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["instagram_assets"], ["01-cover.jpg", "02-conditions.jpg"]
+            )
+            self.assertTrue((gen_dir / "01-cover.jpg").is_file())
+
+    def test_republish_replaces_generation_and_prunes_old(self):
+        import json
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            ig_root = root / "public/content/instagram/a-slug/ig"
+            old_gen = json.loads((ig_root / "latest.json").read_text())["generation"]
+            # publication.json 내용 변경 → generation 변경
+            (cover_src.parent / "publication.json").write_text(
+                json.dumps({"slug": "a-slug", "status": "published", "v": 2}),
+                encoding="utf-8",
+            )
+            fp.publish_to_frontend(
+                self._record("a-slug", "2026-07-22"), cover_src, root
+            )
+            new_gen = json.loads((ig_root / "latest.json").read_text())["generation"]
+            self.assertNotEqual(old_gen, new_gen)
+            self.assertFalse((ig_root / old_gen).exists())  # 이전 세대 정리
+            self.assertTrue((ig_root / new_gen / "01-cover.jpg").is_file())
+
+    def test_posts_replace_failure_leaves_no_new_generation(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            ig_root = root / "public/content/instagram/a-slug/ig"
+            old_latest = (ig_root / "latest.json").read_text(encoding="utf-8")
+            (cover_src.parent / "publication.json").write_text(
+                json.dumps({"slug": "a-slug", "status": "published", "v": 3}),
+                encoding="utf-8",
+            )
+            real_replace = fp.os.replace
+            state = {"fail_on_posts": True}
+
+            def flaky(src, dst):
+                if state["fail_on_posts"] and str(dst).endswith("posts.json"):
+                    raise OSError("disk full")
+                return real_replace(src, dst)
+
+            with patch.object(fp.os, "replace", side_effect=flaky):
+                with self.assertRaises(OSError):
+                    fp.publish_to_frontend(
+                        self._record("a-slug", "2026-07-23"), cover_src, root
+                    )
+            # 실패 시: latest.json 원상 유지 + 새 세대 디렉토리 잔존 없음
+            self.assertEqual(
+                (ig_root / "latest.json").read_text(encoding="utf-8"), old_latest
+            )
+            gens = [d.name for d in ig_root.iterdir() if d.is_dir()]
+            self.assertEqual(gens, [json.loads(old_latest)["generation"]])
 
 
 class TestInstagramAssets(unittest.TestCase):
