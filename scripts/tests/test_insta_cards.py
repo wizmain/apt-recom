@@ -1594,5 +1594,74 @@ class TestFrontendPublish(unittest.TestCase):
             self.assertEqual(leftovers, [])
 
 
+class TestInstagramAssets(unittest.TestCase):
+    def _make_source(self, tmp, slide_count=3):
+        import json
+        from pathlib import Path
+
+        from PIL import Image
+
+        src = Path(tmp) / "src"
+        src.mkdir()
+        names = [f"{i + 1:02d}-slide.png" for i in range(slide_count)]
+        names[0] = "01-cover.png"
+        for name in names:
+            Image.new("RGB", (1080, 1080), (10, 20, 40)).save(src / name)
+        (src / "publication.json").write_text(
+            json.dumps({"slug": "test-slug", "status": "published"}),
+            encoding="utf-8",
+        )
+        return src, names
+
+    def test_build_converts_png_to_ordered_jpeg_manifest(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+
+        from scripts.insta_cards.instagram import assets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src, names = self._make_source(tmp)
+            dest = Path(tmp) / "dest"
+            manifest = assets.build_ig_assets(src, dest)
+            expected = [n.replace(".png", ".jpg") for n in names]
+            self.assertEqual(manifest["instagram_assets"], expected)
+            self.assertEqual(len(manifest["asset_generation"]), 12)
+            for jpg in expected:
+                img = Image.open(dest / jpg)
+                self.assertEqual(img.format, "JPEG")
+                self.assertEqual(img.size, (1080, 1080))
+            saved = json.loads((dest / "publication.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["instagram_assets"], expected)
+            self.assertEqual(saved["slug"], "test-slug")
+
+    def test_generation_is_deterministic_and_content_sensitive(self):
+        from scripts.insta_cards.instagram import assets
+
+        g1 = assets.compute_generation(b"same-bytes")
+        g2 = assets.compute_generation(b"same-bytes")
+        g3 = assets.compute_generation(b"other-bytes")
+        self.assertEqual(g1, g2)
+        self.assertNotEqual(g1, g3)
+        self.assertEqual(len(g1), 12)
+
+    def test_slide_count_bounds(self):
+        import tempfile
+        from pathlib import Path
+
+        from scripts.insta_cards.instagram import assets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src, _ = self._make_source(tmp, slide_count=1)
+            with self.assertRaises(assets.InstagramAssetError):
+                assets.build_ig_assets(src, Path(tmp) / "d1")
+        with tempfile.TemporaryDirectory() as tmp:
+            src, _ = self._make_source(tmp, slide_count=11)
+            with self.assertRaises(assets.InstagramAssetError):
+                assets.build_ig_assets(src, Path(tmp) / "d2")
+
+
 if __name__ == "__main__":
     unittest.main()
