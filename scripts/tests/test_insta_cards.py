@@ -1871,5 +1871,156 @@ class TestInstagramCaption(unittest.TestCase):
             caption.validate_caption("링크 없는 캡션", "slug-a")
 
 
+class TestInstagramApi(unittest.TestCase):
+    def _client(self):
+        from scripts.insta_cards.instagram.api import InstagramClient
+
+        return InstagramClient(
+            "17840000000000000", "IGtoken-secret", "https://apt-recom.kr"
+        )
+
+    def _manifest(self):
+        return {
+            "schema_version": 1,
+            "slug": "value-seoul-20260718",
+            "status": "published",
+            "instagram_assets": ["01-cover.jpg", "02-conditions.jpg"],
+            "asset_generation": "abc123def456",
+        }
+
+    def test_fetch_manifest_validates_contract(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        bad = self._manifest()
+        bad["slug"] = "other-slug"
+        responses = [
+            MagicMock(status_code=200, json=lambda: {"generation": "abc123def456"}),
+            MagicMock(status_code=200, json=lambda: bad),
+        ]
+        with patch.object(api.requests, "get", side_effect=responses):
+            with self.assertRaises(api.InstagramApiError):
+                client.fetch_manifest("value-seoul-20260718")
+
+    def test_fetch_manifest_rejects_path_traversal_assets(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        bad = self._manifest()
+        bad["instagram_assets"] = ["../../etc/passwd.jpg", "02-x.jpg"]
+        responses = [
+            MagicMock(status_code=200, json=lambda: {"generation": "abc123def456"}),
+            MagicMock(status_code=200, json=lambda: bad),
+        ]
+        with patch.object(api.requests, "get", side_effect=responses):
+            with self.assertRaises(api.InstagramApiError):
+                client.fetch_manifest("value-seoul-20260718")
+
+    def test_publish_waits_children_finished_before_parent(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        calls = []
+
+        def fake_post(url, data=None, timeout=None):
+            calls.append(("POST", url, dict(data or {})))
+            if "media_publish" in url:
+                return MagicMock(status_code=200, json=lambda: {"id": "MEDIA1"})
+            return MagicMock(status_code=200, json=lambda: {"id": f"C{len(calls)}"})
+
+        def fake_get(url, params=None, timeout=None):
+            calls.append(("GET", url, dict(params or {})))
+            if (
+                "fields=status_code" in url
+                or (params or {}).get("fields") == "status_code"
+            ):
+                return MagicMock(
+                    status_code=200, json=lambda: {"status_code": "FINISHED"}
+                )
+            return MagicMock(
+                status_code=200, json=lambda: {"permalink": "https://instagr.am/p/x"}
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"),
+                patch.object(api.requests, "post", side_effect=fake_post),
+                patch.object(api.requests, "get", side_effect=fake_get),
+                patch.object(api.time, "sleep"),
+            ):
+                result = client.publish_carousel(
+                    "value-seoul-20260718",
+                    self._manifest(),
+                    "캡션 apt-recom.kr/content/value-seoul-20260718",
+                )
+            self.assertEqual(result["media_id"], "MEDIA1")
+            # 순서: 자식 POST 2건 → 자식 폴링 GET → 부모 POST → 부모 폴링 → publish POST
+            post_urls = [c[1] for c in calls if c[0] == "POST"]
+            self.assertEqual(len([u for u in post_urls if "media_publish" in u]), 1)
+            parent_idx = next(
+                i
+                for i, c in enumerate(calls)
+                if c[0] == "POST" and c[2].get("media_type") == "CAROUSEL"
+            )
+            child_poll_idx = [
+                i
+                for i, c in enumerate(calls)
+                if c[0] == "GET" and (c[2].get("fields") == "status_code")
+            ]
+            self.assertTrue(any(i < parent_idx for i in child_poll_idx))
+            # 로그: pending → published 2건
+            log_lines = (Path(tmp) / "log.jsonl").read_text().strip().split("\n")
+            statuses = [json.loads(line)["status"] for line in log_lines]
+            self.assertEqual(statuses, ["published_pending", "published"])
+
+    def test_child_error_stops_before_parent(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+
+        def fake_post(url, data=None, timeout=None):
+            return MagicMock(status_code=200, json=lambda: {"id": "C1"})
+
+        def fake_get(url, params=None, timeout=None):
+            return MagicMock(status_code=200, json=lambda: {"status_code": "ERROR"})
+
+        with (
+            patch.object(api.requests, "post", side_effect=fake_post),
+            patch.object(api.requests, "get", side_effect=fake_get),
+            patch.object(api.time, "sleep"),
+        ):
+            with self.assertRaises(api.InstagramApiError):
+                client.publish_carousel(
+                    "value-seoul-20260718",
+                    self._manifest(),
+                    "캡션 apt-recom.kr/content/value-seoul-20260718",
+                )
+
+    def test_log_status_roundtrip(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from scripts.insta_cards.instagram import api
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"):
+                self.assertIsNone(api.read_log_status("s1"))
+                api.append_log({"slug": "s1", "status": "published_pending"})
+                api.append_log({"slug": "s1", "status": "published"})
+                self.assertEqual(api.read_log_status("s1"), "published")
+
+
 if __name__ == "__main__":
     unittest.main()
