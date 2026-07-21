@@ -71,15 +71,20 @@ class InstagramClient:
 
     def _get(self, path: str, **params) -> dict:
         params["access_token"] = self._token
-        return self._check(
-            requests.get(self._api(path), params=params, timeout=HTTP_TIMEOUT)
-        )
+        try:
+            resp = requests.get(self._api(path), params=params, timeout=HTTP_TIMEOUT)
+        except requests.RequestException as e:
+            # requests 예외 메시지의 URL 에 토큰(쿼리 파라미터)이 포함될 수 있어 마스킹 후 재던짐
+            raise InstagramApiError(self._mask(str(e))) from e
+        return self._check(resp)
 
     def _post(self, path: str, **data) -> dict:
         data["access_token"] = self._token
-        return self._check(
-            requests.post(self._api(path), data=data, timeout=HTTP_TIMEOUT)
-        )
+        try:
+            resp = requests.post(self._api(path), data=data, timeout=HTTP_TIMEOUT)
+        except requests.RequestException as e:
+            raise InstagramApiError(self._mask(str(e))) from e
+        return self._check(resp)
 
     def _poll_finished(self, container_id: str, timeout: int, label: str) -> None:
         deadline = time.monotonic() + timeout
@@ -105,10 +110,16 @@ class InstagramClient:
         return self._get(f"/{self.user_id}/content_publishing_limit")
 
     def _fetch_json(self, url: str) -> dict:
-        resp = requests.get(url, timeout=HTTP_TIMEOUT)
+        try:
+            resp = requests.get(url, timeout=HTTP_TIMEOUT)
+        except requests.RequestException as e:
+            raise InstagramApiError(self._mask(str(e))) from e
         if resp.status_code != 200:
             raise InstagramApiError(
-                f"{url} → {resp.status_code} — 배포 완료 후 재실행하세요"
+                self._mask(
+                    f"{url} → {resp.status_code} — 배포 완료 후 재실행하세요: "
+                    f"{resp.text[:500]}"
+                )
             )
         return resp.json()
 
@@ -144,11 +155,17 @@ class InstagramClient:
         base = f"{self.ig_base_url(slug)}/{manifest['asset_generation']}"
         urls = [f"{base}/{name}" for name in manifest["instagram_assets"]]
         for url in urls:
-            resp = requests.get(url, timeout=HTTP_TIMEOUT)
+            try:
+                resp = requests.get(url, timeout=HTTP_TIMEOUT)
+            except requests.RequestException as e:
+                raise InstagramApiError(self._mask(str(e))) from e
             ctype = resp.headers.get("Content-Type", "")
             if resp.status_code != 200 or not ctype.startswith("image/jpeg"):
                 raise InstagramApiError(
-                    f"{url} → {resp.status_code} {ctype} — 배포 완료 후 재실행하세요"
+                    self._mask(
+                        f"{url} → {resp.status_code} {ctype} — 배포 완료 후 재실행하세요: "
+                        f"{resp.text[:500]}"
+                    )
                 )
         return urls
 

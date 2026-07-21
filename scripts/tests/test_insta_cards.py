@@ -1946,8 +1946,12 @@ class TestInstagramApi(unittest.TestCase):
                 return MagicMock(
                     status_code=200, json=lambda: {"status_code": "FINISHED"}
                 )
+            # 자산 검증(Content-Type)·permalink 조회 공용 — MagicMock 기본 truthy 가 아닌
+            # 명시적 헤더/상태코드로 verify_assets 통과를 의도적으로 만든다
             return MagicMock(
-                status_code=200, json=lambda: {"permalink": "https://instagr.am/p/x"}
+                status_code=200,
+                headers={"Content-Type": "image/jpeg"},
+                json=lambda: {"permalink": "https://instagr.am/p/x"},
             )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -2006,6 +2010,22 @@ class TestInstagramApi(unittest.TestCase):
                     self._manifest(),
                     "캡션 apt-recom.kr/content/value-seoul-20260718",
                 )
+
+    def test_network_error_masks_token(self):
+        from unittest.mock import patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        boom = api.requests.exceptions.ConnectionError(
+            "HTTPSConnectionPool(host='graph.instagram.com'): "
+            "url=/v23.0/me?fields=user_id,username&access_token=IGtoken-secret"
+        )
+        with patch.object(api.requests, "get", side_effect=boom):
+            with self.assertRaises(api.InstagramApiError) as ctx:
+                client.verify_token()
+        self.assertNotIn("IGtoken-secret", str(ctx.exception))
+        self.assertIn("***TOKEN***", str(ctx.exception))
 
     def test_log_status_roundtrip(self):
         import tempfile
