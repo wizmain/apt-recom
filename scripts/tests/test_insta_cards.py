@@ -1462,11 +1462,20 @@ class TestFrontendPublish(unittest.TestCase):
         }
 
     def _setup_fs(self, tmp):
+        import json as _json
         from pathlib import Path
 
+        from PIL import Image
+
         root = Path(tmp) / "frontend"
-        cover_src = Path(tmp) / "01-cover.png"
-        cover_src.write_bytes(b"PNG-NEW")
+        pub_dir = Path(tmp) / "pubdir"
+        pub_dir.mkdir()
+        for name in ("01-cover.png", "02-conditions.png"):
+            Image.new("RGB", (1080, 1080), (10, 20, 40)).save(pub_dir / name)
+        (pub_dir / "publication.json").write_text(
+            _json.dumps({"slug": "a-slug", "status": "published"}), encoding="utf-8"
+        )
+        cover_src = pub_dir / "01-cover.png"
         return root, cover_src
 
     def test_publish_creates_posts_and_cover(self):
@@ -1477,6 +1486,9 @@ class TestFrontendPublish(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root, cover_src = self._setup_fs(tmp)
+            # 픽스처가 ig 자산 빌드를 위해 실제 PNG 를 요구하므로, 리터럴 바이트
+            # 대신 실제 소스 바이트를 캡처해 복사 신뢰성을 검증한다.
+            expected_cover_bytes = cover_src.read_bytes()
             posts_path = fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
             data = json.loads(posts_path.read_text(encoding="utf-8"))
             self.assertEqual(data[0]["slug"], "a-slug")
@@ -1484,7 +1496,7 @@ class TestFrontendPublish(unittest.TestCase):
                 data[0]["cover_image"], "/content/instagram/a-slug/cover.png"
             )
             cover = root / "public/content/instagram/a-slug/cover.png"
-            self.assertEqual(cover.read_bytes(), b"PNG-NEW")
+            self.assertEqual(cover.read_bytes(), expected_cover_bytes)
 
     def test_upsert_replaces_same_slug_and_sorts_deterministically(self):
         from scripts.insta_cards import frontend_publish as fp
@@ -1522,13 +1534,18 @@ class TestFrontendPublish(unittest.TestCase):
         from scripts.insta_cards import frontend_publish as fp
 
         with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
             root, cover_src = self._setup_fs(tmp)
             # 1차 발행으로 기존 상태 구성
             fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
             cover_dst = root / "public/content/instagram/a-slug/cover.png"
             posts_path = root / "src/content/instagram/posts.json"
             old_posts = posts_path.read_text(encoding="utf-8")
-            cover_src.write_bytes(b"PNG-V2")
+            # 원복 대상은 1차 발행 시점의 실제 cover 바이트 (ig 자산 빌드가 유효한
+            # PNG 를 요구하므로 리터럴 플레이스홀더 대신 실제 이미지를 사용)
+            original_cover_bytes = cover_src.read_bytes()
+            Image.new("RGB", (1080, 1080), (200, 30, 90)).save(cover_src)
 
             real_replace = fp.os.replace
             calls = {"n": 0}
@@ -1547,7 +1564,7 @@ class TestFrontendPublish(unittest.TestCase):
                     )
 
             # 기존 cover·posts.json 모두 원복, 임시/백업 잔존 없음
-            self.assertEqual(cover_dst.read_bytes(), b"PNG-NEW")
+            self.assertEqual(cover_dst.read_bytes(), original_cover_bytes)
             self.assertEqual(posts_path.read_text(encoding="utf-8"), old_posts)
             leftovers = [
                 p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
@@ -1561,13 +1578,18 @@ class TestFrontendPublish(unittest.TestCase):
         from scripts.insta_cards import frontend_publish as fp
 
         with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
             root, cover_src = self._setup_fs(tmp)
             # 1차 발행으로 기존 상태 구성
             fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
             cover_dst = root / "public/content/instagram/a-slug/cover.png"
             posts_path = root / "src/content/instagram/posts.json"
             old_posts = posts_path.read_text(encoding="utf-8")
-            cover_src.write_bytes(b"PNG-V2")
+            # 원복 대상은 1차 발행 시점의 실제 cover 바이트 (ig 자산 빌드가 유효한
+            # PNG 를 요구하므로 리터럴 플레이스홀더 대신 실제 이미지를 사용)
+            original_cover_bytes = cover_src.read_bytes()
+            Image.new("RGB", (1080, 1080), (200, 30, 90)).save(cover_src)
 
             real_replace = fp.os.replace
             calls = {"n": 0}
@@ -1586,12 +1608,547 @@ class TestFrontendPublish(unittest.TestCase):
                     )
 
             # ②(새 cover 배치) 실패 시에도 백업 원복 — cover 소실·백업 잔존 없음
-            self.assertEqual(cover_dst.read_bytes(), b"PNG-NEW")
+            self.assertEqual(cover_dst.read_bytes(), original_cover_bytes)
             self.assertEqual(posts_path.read_text(encoding="utf-8"), old_posts)
             leftovers = [
                 p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
             ]
             self.assertEqual(leftovers, [])
+
+    def test_publish_creates_ig_generation_assets(self):
+        import json
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            ig_root = root / "public/content/instagram/a-slug/ig"
+            latest = json.loads((ig_root / "latest.json").read_text(encoding="utf-8"))
+            gen_dir = ig_root / latest["generation"]
+            manifest = json.loads(
+                (gen_dir / "publication.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["instagram_assets"], ["01-cover.jpg", "02-conditions.jpg"]
+            )
+            self.assertTrue((gen_dir / "01-cover.jpg").is_file())
+
+    def test_republish_replaces_generation_and_prunes_old(self):
+        import json
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            ig_root = root / "public/content/instagram/a-slug/ig"
+            old_gen = json.loads((ig_root / "latest.json").read_text())["generation"]
+            # publication.json 내용 변경 → generation 변경
+            (cover_src.parent / "publication.json").write_text(
+                json.dumps({"slug": "a-slug", "status": "published", "v": 2}),
+                encoding="utf-8",
+            )
+            fp.publish_to_frontend(
+                self._record("a-slug", "2026-07-22"), cover_src, root
+            )
+            new_gen = json.loads((ig_root / "latest.json").read_text())["generation"]
+            self.assertNotEqual(old_gen, new_gen)
+            self.assertFalse((ig_root / old_gen).exists())  # 이전 세대 정리
+            self.assertTrue((ig_root / new_gen / "01-cover.jpg").is_file())
+
+    def test_posts_replace_failure_leaves_no_new_generation(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            ig_root = root / "public/content/instagram/a-slug/ig"
+            old_latest = (ig_root / "latest.json").read_text(encoding="utf-8")
+            (cover_src.parent / "publication.json").write_text(
+                json.dumps({"slug": "a-slug", "status": "published", "v": 3}),
+                encoding="utf-8",
+            )
+            real_replace = fp.os.replace
+            state = {"fail_on_posts": True}
+
+            def flaky(src, dst):
+                if state["fail_on_posts"] and str(dst).endswith("posts.json"):
+                    raise OSError("disk full")
+                return real_replace(src, dst)
+
+            with patch.object(fp.os, "replace", side_effect=flaky):
+                with self.assertRaises(OSError):
+                    fp.publish_to_frontend(
+                        self._record("a-slug", "2026-07-23"), cover_src, root
+                    )
+            # 실패 시: latest.json 원상 유지 + 새 세대 디렉토리 잔존 없음
+            self.assertEqual(
+                (ig_root / "latest.json").read_text(encoding="utf-8"), old_latest
+            )
+            gens = [d.name for d in ig_root.iterdir() if d.is_dir()]
+            self.assertEqual(gens, [json.loads(old_latest)["generation"]])
+
+    def test_missing_publication_json_raises_without_tmp_leftovers(self):
+        import tempfile
+
+        from scripts.insta_cards import frontend_publish as fp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+            # 1차 발행으로 기존 상태 구성 후 publication.json 제거 → 재발행 실패
+            fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            (cover_src.parent / "publication.json").unlink()
+            with self.assertRaises(fp.FrontendPublishError):
+                fp.publish_to_frontend(
+                    self._record("a-slug", "2026-07-24"), cover_src, root
+                )
+            # pre-swap 검증 실패 시에도 임시/백업 파일 잔존 없음
+            leftovers = [
+                p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
+            ]
+            self.assertEqual(leftovers, [])
+
+    def test_build_ig_assets_failure_leaves_no_tmp_leftovers(self):
+        import tempfile
+        from unittest.mock import patch
+
+        from scripts.insta_cards import frontend_publish as fp
+        from scripts.insta_cards.instagram.assets import InstagramAssetError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, cover_src = self._setup_fs(tmp)
+
+            def broken_build(source_dir, dest_dir):
+                # 부분 산출 후 실패 — 부분 gen_tmp 정리까지 검증
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                (dest_dir / "01-cover.jpg").write_bytes(b"partial")
+                raise InstagramAssetError("변환 실패")
+
+            with patch.object(fp, "build_ig_assets", side_effect=broken_build):
+                with self.assertRaises(InstagramAssetError):
+                    fp.publish_to_frontend(self._record("a-slug"), cover_src, root)
+            # 자산 준비 실패 시: 임시 파일 잔존 없음 + 공개 산출물 미배치
+            leftovers = [
+                p for p in root.rglob("*") if ".tmp-" in p.name or ".bak-" in p.name
+            ]
+            self.assertEqual(leftovers, [])
+            self.assertFalse(
+                (root / "public/content/instagram/a-slug/cover.png").exists()
+            )
+            self.assertFalse((root / "src/content/instagram/posts.json").exists())
+
+
+class TestInstagramAssets(unittest.TestCase):
+    def _make_source(self, tmp, slide_count=3):
+        import json
+        from pathlib import Path
+
+        from PIL import Image
+
+        src = Path(tmp) / "src"
+        src.mkdir()
+        names = [f"{i + 1:02d}-slide.png" for i in range(slide_count)]
+        names[0] = "01-cover.png"
+        for name in names:
+            Image.new("RGB", (1080, 1080), (10, 20, 40)).save(src / name)
+        (src / "publication.json").write_text(
+            json.dumps({"slug": "test-slug", "status": "published"}),
+            encoding="utf-8",
+        )
+        return src, names
+
+    def test_build_converts_png_to_ordered_jpeg_manifest(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+
+        from scripts.insta_cards.instagram import assets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src, names = self._make_source(tmp)
+            dest = Path(tmp) / "dest"
+            manifest = assets.build_ig_assets(src, dest)
+            expected = [n.replace(".png", ".jpg") for n in names]
+            self.assertEqual(manifest["instagram_assets"], expected)
+            self.assertEqual(len(manifest["asset_generation"]), 12)
+            for jpg in expected:
+                img = Image.open(dest / jpg)
+                self.assertEqual(img.format, "JPEG")
+                self.assertEqual(img.size, (1080, 1080))
+            saved = json.loads((dest / "publication.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["instagram_assets"], expected)
+            self.assertEqual(saved["slug"], "test-slug")
+
+    def test_generation_is_deterministic_and_content_sensitive(self):
+        from scripts.insta_cards.instagram import assets
+
+        g1 = assets.compute_generation(b"same-bytes")
+        g2 = assets.compute_generation(b"same-bytes")
+        g3 = assets.compute_generation(b"other-bytes")
+        self.assertEqual(g1, g2)
+        self.assertNotEqual(g1, g3)
+        self.assertEqual(len(g1), 12)
+
+    def test_slide_count_bounds(self):
+        import tempfile
+        from pathlib import Path
+
+        from scripts.insta_cards.instagram import assets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src, _ = self._make_source(tmp, slide_count=1)
+            with self.assertRaises(assets.InstagramAssetError):
+                assets.build_ig_assets(src, Path(tmp) / "d1")
+        with tempfile.TemporaryDirectory() as tmp:
+            src, _ = self._make_source(tmp, slide_count=11)
+            with self.assertRaises(assets.InstagramAssetError):
+                assets.build_ig_assets(src, Path(tmp) / "d2")
+
+
+class TestInstagramCaption(unittest.TestCase):
+    def _manifest(self, series="value", **over):
+        base = {
+            "slug": "value-seoul-20260718",
+            "series": series,
+            "status": "published",
+            "hook": "서울, 가격은 낮은데 생활점수는 높은 단지 5곳",
+            "summary": "가성비 넛지 상위 후보 중 ㎡당 가격이 낮은 5곳입니다.",
+            "data_as_of": "2026-07-18",
+            "period_label": "가성비 넛지 상위 30 후보 기준",
+            "map_ctas": [
+                {
+                    "id": "m",
+                    "label": "l",
+                    "nudges": ["cost"],
+                    "sigungu_code": None,
+                    "region_label": "노원구(서울)",
+                    "filters": {},
+                }
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_caption_structure(self):
+        from scripts.insta_cards.instagram import caption
+
+        text = caption.build_caption(self._manifest())
+        self.assertTrue(text.startswith("서울, 가격은 낮은데"))
+        self.assertIn("apt-recom.kr/content/value-seoul-20260718", text)
+        self.assertIn("데이터 기준 2026-07-18", text)
+        self.assertIn("투자 자문이 아닙니다", text)
+        self.assertIn("댓글로", text)  # 랭킹형 참여 유도
+        self.assertLessEqual(text.count("#"), 5)
+        self.assertIn("#노원구", text)  # region_label 정규화 동적 태그
+
+    def test_trade_top_carries_report_date_notice(self):
+        from scripts.insta_cards.instagram import caption
+
+        text = caption.build_caption(self._manifest(series="trade_top", map_ctas=[]))
+        self.assertIn("신고일 기준", text)
+
+    def test_forbidden_term_rejected(self):
+        from scripts.insta_cards.instagram import caption
+
+        with self.assertRaises(caption.CaptionError):
+            caption.validate_caption("무조건 오를 아파트 apt-recom.kr/content/x", "x")
+
+    def test_length_and_link_required(self):
+        from scripts.insta_cards.instagram import caption
+
+        with self.assertRaises(caption.CaptionError):
+            caption.validate_caption("x" * 2300, "slug-a")
+        with self.assertRaises(caption.CaptionError):
+            caption.validate_caption("링크 없는 캡션", "slug-a")
+
+
+class TestInstagramApi(unittest.TestCase):
+    def _client(self):
+        from scripts.insta_cards.instagram.api import InstagramClient
+
+        return InstagramClient(
+            "17840000000000000", "IGtoken-secret", "https://apt-recom.kr"
+        )
+
+    def _manifest(self):
+        return {
+            "schema_version": 1,
+            "slug": "value-seoul-20260718",
+            "status": "published",
+            "instagram_assets": ["01-cover.jpg", "02-conditions.jpg"],
+            "asset_generation": "abc123def456",
+        }
+
+    def test_fetch_manifest_validates_contract(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        bad = self._manifest()
+        bad["slug"] = "other-slug"
+        responses = [
+            MagicMock(status_code=200, json=lambda: {"generation": "abc123def456"}),
+            MagicMock(status_code=200, json=lambda: bad),
+        ]
+        with patch.object(api.requests, "get", side_effect=responses):
+            with self.assertRaises(api.InstagramApiError):
+                client.fetch_manifest("value-seoul-20260718")
+
+    def test_fetch_manifest_rejects_path_traversal_assets(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        bad = self._manifest()
+        bad["instagram_assets"] = ["../../etc/passwd.jpg", "02-x.jpg"]
+        responses = [
+            MagicMock(status_code=200, json=lambda: {"generation": "abc123def456"}),
+            MagicMock(status_code=200, json=lambda: bad),
+        ]
+        with patch.object(api.requests, "get", side_effect=responses):
+            with self.assertRaises(api.InstagramApiError):
+                client.fetch_manifest("value-seoul-20260718")
+
+    def test_publish_waits_children_finished_before_parent(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        calls = []
+
+        def fake_post(url, data=None, timeout=None):
+            calls.append(("POST", url, dict(data or {})))
+            if "media_publish" in url:
+                return MagicMock(status_code=200, json=lambda: {"id": "MEDIA1"})
+            return MagicMock(status_code=200, json=lambda: {"id": f"C{len(calls)}"})
+
+        def fake_get(url, params=None, timeout=None):
+            calls.append(("GET", url, dict(params or {})))
+            if (
+                "fields=status_code" in url
+                or (params or {}).get("fields") == "status_code"
+            ):
+                return MagicMock(
+                    status_code=200, json=lambda: {"status_code": "FINISHED"}
+                )
+            # 자산 검증(Content-Type)·permalink 조회 공용 — MagicMock 기본 truthy 가 아닌
+            # 명시적 헤더/상태코드로 verify_assets 통과를 의도적으로 만든다
+            return MagicMock(
+                status_code=200,
+                headers={"Content-Type": "image/jpeg"},
+                json=lambda: {"permalink": "https://instagr.am/p/x"},
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"),
+                patch.object(api.requests, "post", side_effect=fake_post),
+                patch.object(api.requests, "get", side_effect=fake_get),
+                patch.object(api.time, "sleep"),
+            ):
+                result = client.publish_carousel(
+                    "value-seoul-20260718",
+                    self._manifest(),
+                    "캡션 apt-recom.kr/content/value-seoul-20260718",
+                )
+            self.assertEqual(result["media_id"], "MEDIA1")
+            # 순서: 자식 POST 2건 → 자식 폴링 GET → 부모 POST → 부모 폴링 → publish POST
+            post_urls = [c[1] for c in calls if c[0] == "POST"]
+            self.assertEqual(len([u for u in post_urls if "media_publish" in u]), 1)
+            parent_idx = next(
+                i
+                for i, c in enumerate(calls)
+                if c[0] == "POST" and c[2].get("media_type") == "CAROUSEL"
+            )
+            child_poll_idx = [
+                i
+                for i, c in enumerate(calls)
+                if c[0] == "GET" and (c[2].get("fields") == "status_code")
+            ]
+            self.assertTrue(any(i < parent_idx for i in child_poll_idx))
+            # 로그: pending → published 2건
+            log_lines = (Path(tmp) / "log.jsonl").read_text().strip().split("\n")
+            statuses = [json.loads(line)["status"] for line in log_lines]
+            self.assertEqual(statuses, ["published_pending", "published"])
+
+    def test_child_error_stops_before_parent(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+
+        def fake_post(url, data=None, timeout=None):
+            return MagicMock(status_code=200, json=lambda: {"id": "C1"})
+
+        def fake_get(url, params=None, timeout=None):
+            return MagicMock(status_code=200, json=lambda: {"status_code": "ERROR"})
+
+        with (
+            patch.object(api.requests, "post", side_effect=fake_post),
+            patch.object(api.requests, "get", side_effect=fake_get),
+            patch.object(api.time, "sleep"),
+        ):
+            with self.assertRaises(api.InstagramApiError):
+                client.publish_carousel(
+                    "value-seoul-20260718",
+                    self._manifest(),
+                    "캡션 apt-recom.kr/content/value-seoul-20260718",
+                )
+
+    def test_network_error_masks_token(self):
+        from unittest.mock import patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        boom = api.requests.exceptions.ConnectionError(
+            "HTTPSConnectionPool(host='graph.instagram.com'): "
+            "url=/v23.0/me?fields=user_id,username&access_token=IGtoken-secret"
+        )
+        with patch.object(api.requests, "get", side_effect=boom):
+            with self.assertRaises(api.InstagramApiError) as ctx:
+                client.verify_token()
+        self.assertNotIn("IGtoken-secret", str(ctx.exception))
+        self.assertIn("***TOKEN***", str(ctx.exception))
+
+    def test_log_status_roundtrip(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from scripts.insta_cards.instagram import api
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"):
+                self.assertIsNone(api.read_log_status("s1"))
+                api.append_log({"slug": "s1", "status": "published_pending"})
+                api.append_log({"slug": "s1", "status": "published"})
+                self.assertEqual(api.read_log_status("s1"), "published")
+
+    def test_verify_assets_rejects_oversized_remote_asset(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        oversized = b"x" * (api.MAX_JPEG_BYTES + 1)
+        resp = MagicMock(
+            status_code=200,
+            headers={"Content-Type": "image/jpeg"},
+            content=oversized,
+        )
+        with patch.object(api.requests, "get", return_value=resp):
+            with self.assertRaises(api.InstagramApiError) as ctx:
+                client.verify_assets("value-seoul-20260718", self._manifest())
+        self.assertIn("8MB", str(ctx.exception))
+
+    def test_refresh_token_delegates_to_get(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        resp = MagicMock(
+            status_code=200,
+            json=lambda: {"access_token": "IGnew-token", "expires_in": 5184000},
+        )
+        with patch.object(api.requests, "get", return_value=resp) as mock_get:
+            result = client.refresh_token()
+        self.assertEqual(result["access_token"], "IGnew-token")
+        called_url = mock_get.call_args[0][0]
+        called_params = mock_get.call_args[1]["params"]
+        self.assertIn("/refresh_access_token", called_url)
+        self.assertEqual(called_params["grant_type"], "ig_refresh_token")
+
+
+class TestInstagramCli(unittest.TestCase):
+    def test_parser_options(self):
+        from scripts.insta_cards.instagram import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(["my-slug", "--dry-run", "--force"])
+        self.assertEqual(args.slug, "my-slug")
+        self.assertTrue(args.dry_run)
+        args2 = parser.parse_args(["--refresh-token"])
+        self.assertIsNone(args2.slug)
+
+    def test_duplicate_gate_requires_force(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import cli
+
+        client = MagicMock()
+        with patch.object(cli, "read_log_status", return_value="published"):
+            with self.assertRaises(SystemExit):
+                cli.run_publish(
+                    client, "dup-slug", caption_file=None, force=False, dry_run=False
+                )
+
+    def test_dry_run_does_not_publish(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import cli
+
+        client = MagicMock()
+        client.fetch_manifest.return_value = {
+            "slug": "s",
+            "series": "value",
+            "hook": "훅",
+            "summary": "요약",
+            "data_as_of": "2026-07-21",
+            "map_ctas": [],
+            "instagram_assets": ["01-a.jpg", "02-b.jpg"],
+            "asset_generation": "a" * 12,
+            "schema_version": 1,
+            "status": "published",
+        }
+        with patch.object(cli, "read_log_status", return_value=None):
+            cli.run_publish(client, "s", caption_file=None, force=False, dry_run=True)
+        client.verify_token.assert_called_once()
+        client.publish_carousel.assert_not_called()
+
+    def test_real_publish_checks_quota_before_publishing(self):
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import cli
+
+        client = MagicMock()
+        client.fetch_manifest.return_value = {
+            "slug": "s",
+            "series": "value",
+            "hook": "훅",
+            "summary": "요약",
+            "data_as_of": "2026-07-21",
+            "map_ctas": [],
+            "instagram_assets": ["01-a.jpg", "02-b.jpg"],
+            "asset_generation": "a" * 12,
+            "schema_version": 1,
+            "status": "published",
+        }
+        client.publish_carousel.return_value = {
+            "media_id": "MEDIA1",
+            "permalink": "https://instagr.am/p/x",
+        }
+        with patch.object(cli, "read_log_status", return_value=None):
+            cli.run_publish(client, "s", caption_file=None, force=False, dry_run=False)
+        client.publishing_quota.assert_called_once()
+        client.publish_carousel.assert_called_once()
 
 
 if __name__ == "__main__":
