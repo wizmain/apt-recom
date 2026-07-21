@@ -1814,5 +1814,62 @@ class TestInstagramAssets(unittest.TestCase):
                 assets.build_ig_assets(src, Path(tmp) / "d2")
 
 
+class TestInstagramCaption(unittest.TestCase):
+    def _manifest(self, series="value", **over):
+        base = {
+            "slug": "value-seoul-20260718",
+            "series": series,
+            "status": "published",
+            "hook": "서울, 가격은 낮은데 생활점수는 높은 단지 5곳",
+            "summary": "가성비 넛지 상위 후보 중 ㎡당 가격이 낮은 5곳입니다.",
+            "data_as_of": "2026-07-18",
+            "period_label": "가성비 넛지 상위 30 후보 기준",
+            "map_ctas": [
+                {
+                    "id": "m",
+                    "label": "l",
+                    "nudges": ["cost"],
+                    "sigungu_code": None,
+                    "region_label": "노원구(서울)",
+                    "filters": {},
+                }
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_caption_structure(self):
+        from scripts.insta_cards.instagram import caption
+
+        text = caption.build_caption(self._manifest())
+        self.assertTrue(text.startswith("서울, 가격은 낮은데"))
+        self.assertIn("apt-recom.kr/content/value-seoul-20260718", text)
+        self.assertIn("데이터 기준 2026-07-18", text)
+        self.assertIn("투자 자문이 아닙니다", text)
+        self.assertIn("댓글로", text)  # 랭킹형 참여 유도
+        self.assertLessEqual(text.count("#"), 5)
+        self.assertIn("#노원구", text)  # region_label 정규화 동적 태그
+
+    def test_trade_top_carries_report_date_notice(self):
+        from scripts.insta_cards.instagram import caption
+
+        text = caption.build_caption(self._manifest(series="trade_top", map_ctas=[]))
+        self.assertIn("신고일 기준", text)
+
+    def test_forbidden_term_rejected(self):
+        from scripts.insta_cards.instagram import caption
+
+        with self.assertRaises(caption.CaptionError):
+            caption.validate_caption("무조건 오를 아파트 apt-recom.kr/content/x", "x")
+
+    def test_length_and_link_required(self):
+        from scripts.insta_cards.instagram import caption
+
+        with self.assertRaises(caption.CaptionError):
+            caption.validate_caption("x" * 2300, "slug-a")
+        with self.assertRaises(caption.CaptionError):
+            caption.validate_caption("링크 없는 캡션", "slug-a")
+
+
 if __name__ == "__main__":
     unittest.main()
