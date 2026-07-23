@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "slug": "trade-top-20260717",
+  "status": "published",
+  "series": "trade_top",
+  "title": "최근 7일 신고 최고가 TOP 5",
+  "eyebrow": "신고일 기준 · 최근 7일",
+  "hook": "최근 7일 신고 최고가는 112억 5,000만원",
+  "summary": "신고일 기준 최고가 거래와 신고가 크게 늘어난 동네를 모았습니다.",
+  "generated_at": "2026-07-17T22:40:51",
+  "published_at": "2026-07-17",
+  "data_as_of": "2026-07-17",
+  "period_label": "신고일 기준 최근 7일",
+  "cover_image": "01-cover.png",
+  "cover_alt": "최근 7일 아파트 신고 최고가 TOP 5 카드",
+  "conditions": [
+    {
+      "label": "기간",
+      "value": "신고일 기준 최근 7일"
+    },
+    {
+      "label": "집계 단위",
+      "value": "단지별 최고가 1건"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-07-17"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "압구정 신현대",
+      "region": "강남구(서울)",
+      "pnu": "1168011000004260000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "112억 5,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "183㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "name": "래미안원베일리",
+      "region": "서초구(서울)",
+      "pnu": "1165010700000010000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "90억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "117㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "name": "연세리버테라스",
+      "region": "강남구(서울)",
+      "pnu": "1168010400001020000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "63억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "243㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 4,
+      "name": "청담자이",
+      "region": "강남구(서울)",
+      "pnu": "1168010400001340038",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "56억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "89㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 5,
+      "name": "래미안첼리투스",
+      "region": "용산구(서울)",
+      "pnu": "1117012900004360000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "52억 9,998만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "124㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    }
+  ],
+  "secondary_items": [
+    {
+      "rank": 1,
+      "name": "중랑구(서울)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신고 건수",
+          "value": "148건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+135건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "name": "남양주시(경기)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신고 건수",
+          "value": "218건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+66건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "name": "노원구(서울)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신고 건수",
+          "value": "122건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+64건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 4,
+      "name": "영통구(수원)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신고 건수",
+          "value": "117건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+55건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 5,
+      "name": "서북구(천안)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신고 건수",
+          "value": "119건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+50건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    }
+  ],
+  "comparison": null,
+  "narrative": {
+    "why": [],
+    "fit_for": null
+  },
+  "methodology": [
+    "최고가: 신고일 기준 최근 기간, 단지별 최고가 1건만 집계",
+    "급증: 직전 7일 대비 신고 건수 증가분 (현재 20건 이상 지역만)"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "신고일 기준이라 실제 계약 시점과 다를 수 있습니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-ranking.jpg",
+    "04-ranking-hot.jpg",
+    "05-caveats.jpg",
+    "06-cta.jpg"
+  ],
+  "asset_generation": "0ce24d78ba11"
+}

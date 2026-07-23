@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "slug": "compare-11440-vs-11200-20260717",
+  "status": "published",
+  "series": "compare",
+  "title": "마포구(서울) vs 성동구(서울) — 신혼육아",
+  "eyebrow": "동네 비교",
+  "hook": "마포구(서울) vs 성동구(서울), 신혼육아 점수가 높은 곳은?",
+  "summary": "신혼육아 기준으로 두 지역의 추천 상위 단지와 시세를 비교했습니다.",
+  "generated_at": "2026-07-17T22:41:01",
+  "published_at": "2026-07-17",
+  "data_as_of": "2026-07-17",
+  "period_label": "계약일 기준 최근 90일 실거래 + 넛지 점수",
+  "cover_image": "01-cover.png",
+  "cover_alt": "마포구(서울) 성동구(서울) 아파트 비교 카드",
+  "conditions": [
+    {
+      "label": "비교 기준",
+      "value": "신혼육아 넛지"
+    },
+    {
+      "label": "지역",
+      "value": "마포구(서울) / 성동구(서울)"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-07-17"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "롯데캐슬프레지던트",
+      "region": "마포구(서울)",
+      "pnu": "1144010200004670000",
+      "metrics": [
+        {
+          "label": "신혼육아 점수",
+          "value": "87.7점",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "96m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울공덕초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "61점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "정보 없음",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "name": "드림",
+      "region": "성동구(서울)",
+      "pnu": "1120010200008900115",
+      "metrics": [
+        {
+          "label": "신혼육아 점수",
+          "value": "84.3점",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "148m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울무학초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "71점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "정보 없음",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    }
+  ],
+  "secondary_items": null,
+  "comparison": {
+    "row_labels": [
+      "넛지 점수(상위10 평균)",
+      "중위 실거래가(90일)",
+      "거래 건수(90일)",
+      "평균 연식"
+    ],
+    "columns": [
+      {
+        "name": "마포구(서울)",
+        "values": [
+          "85.9점",
+          "13억 5,000만원",
+          "223건",
+          "21년"
+        ]
+      },
+      {
+        "name": "성동구(서울)",
+        "values": [
+          "82.9점",
+          "17억 8,000만원",
+          "193건",
+          "23년"
+        ]
+      }
+    ]
+  },
+  "narrative": {
+    "why": [
+      "신혼육아 상위 10개 단지 평균 점수는 마포구(서울) 가 더 높았습니다.",
+      "중위 실거래가·거래량·평균 연식은 비교표에서 확인하세요."
+    ],
+    "fit_for": null
+  },
+  "methodology": [
+    "점수는 각 지역 신혼육아 넛지 상위 10개 단지의 평균 (지역 전체 평균 아님)",
+    "가격·거래량은 계약일 기준 최근 90일 실거래 집계"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "신고 지연으로 최근 거래가 늦게 반영될 수 있습니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [
+    {
+      "id": "map-a",
+      "label": "마포구(서울) 추천 보기",
+      "nudges": [
+        "newlywed"
+      ],
+      "sigungu_code": "11440",
+      "region_label": "마포구(서울)",
+      "filters": {}
+    },
+    {
+      "id": "map-b",
+      "label": "성동구(서울) 추천 보기",
+      "nudges": [
+        "newlywed"
+      ],
+      "sigungu_code": "11200",
+      "region_label": "성동구(서울)",
+      "filters": {}
+    }
+  ],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-candidate-a.jpg",
+    "04-candidate-b.jpg",
+    "05-comparison.jpg",
+    "06-why.jpg",
+    "07-caveats.jpg",
+    "08-cta.jpg"
+  ],
+  "asset_generation": "ad2350b49716"
+}
