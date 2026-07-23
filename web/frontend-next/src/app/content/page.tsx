@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getPublishedPosts } from "@/lib/instagramContent";
+import { ContentNav } from "./ContentNav";
 
 export const metadata: Metadata = {
   title: "숫자로 보는 집 이야기 — 카드뉴스의 데이터 근거",
@@ -13,7 +14,8 @@ export default function ContentIndexPage() {
   const posts = getPublishedPosts();
   return (
     <main className="mx-auto max-w-xl px-4 py-8">
-      <h1 className="text-2xl font-extrabold text-gray-900">숫자로 보는 집 이야기</h1>
+      <ContentNav />
+      <h1 className="mt-5 text-2xl font-extrabold text-gray-900">숫자로 보는 집 이야기</h1>
       <p className="mt-1 text-sm text-gray-500">
         인스타에서 본 그 카드뉴스 — 순위와 가격이 어떻게 나왔는지, 기준일과 선정
         근거까지 투명하게 공개합니다.

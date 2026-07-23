@@ -71,6 +71,17 @@ test.describe("/content 콘텐츠 랜딩", () => {
     await viewLog;
   });
 
+  test("콘텐츠 네비 — 지도·실거래 대시보드 이동", async ({ page }) => {
+    await page.goto("/content");
+    await expect(page.getByRole("link", { name: /지도에서 찾기/ })).toBeVisible();
+    await page.getByRole("link", { name: /실거래 대시보드/ }).click();
+    // /?view=dashboard 소비 → 대시보드 뷰 렌더 + 쿼리 제거 (useViewParam 계약)
+    await expect(
+      page.getByRole("heading", { name: /아파트 거래 동향/ }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
   test("unknown slug → 404", async ({ page }) => {
     const res = await page.goto("/content/no-such-slug-000");
     expect(res?.status()).toBe(404);
