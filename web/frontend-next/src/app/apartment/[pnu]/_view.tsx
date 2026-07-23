@@ -1,3 +1,4 @@
+import { SiteNav } from "@/components/SiteNav";
 import type { ApartmentDetail, TradesResponse } from "@/types/apartment";
 import { resolveApartmentName } from "@/lib/apartmentName";
 import type { ResolvedRegion } from "@/types/region";
@@ -52,6 +53,10 @@ export function ApartmentDetailView({
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
+      {/* 홈 밖 SSR 페이지의 막다른 길 방지 — 콘텐츠 유입 동선의 복귀·회유 경로 */}
+      <div className="mb-5">
+        <SiteNav from="apartment" showContentLink />
+      </div>
       <header className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{aptName}</h1>
         {address ? (

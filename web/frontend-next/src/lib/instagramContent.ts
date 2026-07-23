@@ -163,6 +163,7 @@ export function buildMapCtaHref(post: ContentPost, cta: MapCta): `/?${string}` {
   const params = new URLSearchParams({ nudges: cta.nudges.join(",") });
   if (cta.sigungu_code) params.set("sigungu_code", cta.sigungu_code);
   if (cta.region_label) params.set("region_label", cta.region_label);
+  if (cta.keyword) params.set("keyword", cta.keyword);
   for (const key of FILTER_KEYS) {
     const value = cta.filters[key];
     if (typeof value === "number" && Number.isFinite(value))

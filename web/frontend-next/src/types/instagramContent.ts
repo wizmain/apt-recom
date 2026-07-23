@@ -35,6 +35,8 @@ export interface MapCta {
   nudges: string[];
   sigungu_code: string | null;
   region_label: string | null;
+  /** 시군구 코드 없는 시리즈의 키워드 지역 (구버전 발행분에는 없음) */
+  keyword?: string | null;
   filters: Record<string, number>;
 }
 

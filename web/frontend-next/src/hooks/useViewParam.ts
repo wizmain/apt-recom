@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAppStore } from "@/lib/store";
+import { logEvent } from "@/lib/logEvent";
 
 /**
  * `/?view=dashboard` 쿼리 → 홈 대시보드 뷰 부트스트랩 (1회 소비).
@@ -26,6 +27,10 @@ export function useViewParam(): void {
     if (searchParams.get("view") !== "dashboard") return;
     appliedRef.current = true;
     switchView("dashboard");
+    // 콘텐츠→대시보드 퍼널 계측 — source 는 SiteNav 의 from 파라미터
+    logEvent("dashboard_arrival", {
+      source: searchParams.get("from") ?? undefined,
+    });
     window.history.replaceState(null, "", window.location.pathname);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

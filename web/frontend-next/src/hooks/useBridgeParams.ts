@@ -35,6 +35,7 @@ export function useBridgeParams(): void {
   const searchParams = useSearchParams();
   const selectedPnu = useAppStore((s) => s.selectedPnu);
   const applyFilters = useAppStore((s) => s.applyFilters);
+  const addKeyword = useAppStore((s) => s.addKeyword);
   const selectRegion = useAppStore((s) => s.selectRegion);
   const setSelectedNudges = useAppStore((s) => s.setSelectedNudges);
   const { codes, loading } = useCodes("nudge");
@@ -82,6 +83,13 @@ export function useBridgeParams(): void {
     }
     const filterCount = Object.keys(filters).length;
     if (filterCount > 0) applyFilters(filters);
+
+    // 키워드 지역 소비 — 시군구 코드가 없는 콘텐츠 CTA(예: value 의 "서울")가
+    // 키워드 스코어링으로 랜딩과 같은 모집단을 재현한다 (nudge/score 의 keywords).
+    const keywordParam = searchParams.get("keyword");
+    if (keywordParam && keywordParam.trim() !== "") {
+      addKeyword(keywordParam.trim());
+    }
 
     // 지역 세팅 (sigungu_code 가 있는 경우만)
     if (sigCode) {

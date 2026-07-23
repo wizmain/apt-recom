@@ -74,12 +74,22 @@ test.describe("/content 콘텐츠 랜딩", () => {
   test("콘텐츠 네비 — 지도·실거래 대시보드 이동", async ({ page }) => {
     await page.goto("/content");
     await expect(page.getByRole("link", { name: /지도에서 찾기/ })).toBeVisible();
+    const arrivalLog = page.waitForRequest(
+      (r) =>
+        r.url().includes("/api/log/event") &&
+        r.method() === "POST" &&
+        JSON.stringify(r.postDataJSON()).includes("dashboard_arrival"),
+    );
     await page.getByRole("link", { name: /실거래 대시보드/ }).click();
     // /?view=dashboard 소비 → 대시보드 뷰 렌더 + 쿼리 제거 (useViewParam 계약)
     await expect(
       page.getByRole("heading", { name: /아파트 거래 동향/ }),
     ).toBeVisible();
     await expect(page).toHaveURL(/\/$/);
+    const arrival = (await arrivalLog).postDataJSON() as {
+      payload: { source: string };
+    };
+    expect(arrival.payload.source).toBe("content"); // SiteNav from 계측
   });
 
   test("unknown slug → 404", async ({ page }) => {
