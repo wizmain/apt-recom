@@ -1,6 +1,7 @@
 """FastAPI backend for apartment recommendation app."""
 
 import os
+import threading
 from pathlib import Path
 
 # ── Sentry 초기화 (DSN이 설정된 환경에서만 활성화) ────────────────────────
@@ -41,7 +42,21 @@ from database import (
     init_pool,
     close_pool,
 )
-from routers import apartments, nudge, detail, chat, commute, feedback, dashboard, codes, similar, admin, log, sitemap, events
+from routers import (
+    apartments,
+    nudge,
+    detail,
+    chat,
+    commute,
+    feedback,
+    dashboard,
+    codes,
+    similar,
+    admin,
+    log,
+    sitemap,
+    events,
+)
 from mcp_server import mcp as _mcp, mcp_asgi_app
 
 
@@ -69,6 +84,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         # 마이그레이션 실패해도 서버 기동은 계속 (운영 중단 방지)
         print(f"[startup] schema migration 실패: {e}")
+    # sitemap 캐시 사전 워밍 (백그라운드) — 배포 직후 첫 요청이 동기 생성(~9초,
+    # 프록시 타임아웃 502 위험)을 지불하지 않도록 기동 시 미리 채운다.
+    threading.Thread(target=sitemap._refresh_sitemap_in_background, daemon=True).start()
     try:
         async with _mcp.session_manager.run():
             yield

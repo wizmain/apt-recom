@@ -10,10 +10,13 @@ AAO(Assistive Agent Optimization) Phase 1의 일부로, 프론트와 같은 host
   (권위 있는 robots는 프론트 host에서 제공).
 """
 
+import logging
 import os
+import threading
+import time
 
-from fastapi import APIRouter
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi import APIRouter, Response
+from fastapi.responses import PlainTextResponse
 
 from database import DictConnection
 from routers.apartments import APARTMENT_VISIBLE_CONDITIONS
@@ -106,12 +109,56 @@ def _iter_sitemap_bytes():
     yield b"</urlset>\n"
 
 
+logger = logging.getLogger(__name__)
+
+# 생성 비용이 큼(3만+ URL, trade_history 집계 포함 ~9초) — 매 요청 생성 시
+# Railway 프록시 타임아웃(502)과 크롤러 지연의 원인이 되어 인메모리 캐시로 서빙.
+# TTL 은 프론트 sitemap revalidate(3600)와 동기. 본문 ~3MB 는 메모리 예산 내.
+_SITEMAP_TTL_SECONDS = 3600
+_sitemap_cache: dict = {"body": None, "generated_at": 0.0}
+_sitemap_refresh_lock = threading.Lock()
+
+
+def _refresh_sitemap_cache() -> None:
+    body = b"".join(_iter_sitemap_bytes())
+    _sitemap_cache["body"] = body
+    _sitemap_cache["generated_at"] = time.monotonic()
+
+
+def _refresh_sitemap_in_background() -> None:
+    # non-blocking acquire: 이미 다른 요청이 갱신 중이면 중복 생성하지 않는다.
+    if not _sitemap_refresh_lock.acquire(blocking=False):
+        return
+    try:
+        _refresh_sitemap_cache()
+    except Exception:
+        # 갱신 실패 시 이전(stale) 본문 유지 — 다음 요청이 재시도한다.
+        logger.exception("sitemap 백그라운드 갱신 실패 — stale 본문 유지")
+    finally:
+        _sitemap_refresh_lock.release()
+
+
 @router.get("/sitemap.xml")
 def sitemap_xml():
-    """전체 아파트 상세 URL을 포함한 sitemap."""
-    return StreamingResponse(
-        _iter_sitemap_bytes(),
+    """전체 아파트 상세 URL을 포함한 sitemap (인메모리 캐시, TTL 1시간).
+
+    - 콜드 스타트: 최초 요청 1회만 동기 생성 (lock 으로 동시 생성 방지)
+    - TTL 초과: stale 본문을 즉시 응답하고 백그라운드 스레드로 갱신
+      (stale-while-revalidate — 만료 순간에도 502/지연 없음)
+    """
+    body = _sitemap_cache["body"]
+    if body is None:
+        with _sitemap_refresh_lock:
+            if _sitemap_cache["body"] is None:
+                _refresh_sitemap_cache()
+            body = _sitemap_cache["body"]
+    elif time.monotonic() - _sitemap_cache["generated_at"] > _SITEMAP_TTL_SECONDS:
+        threading.Thread(target=_refresh_sitemap_in_background, daemon=True).start()
+    return Response(
+        content=body,
         media_type="application/xml; charset=utf-8",
+        # CDN/크롤러 캐시 힌트 — TTL 과 동기
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
