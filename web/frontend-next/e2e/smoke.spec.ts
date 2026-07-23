@@ -80,6 +80,9 @@ test.describe("frontend-next 스모크", () => {
     const res = await page.goto(`/apartment/${FIXTURE_PNU}`);
     expect(res?.status()).toBe(200);
     await expect(page.getByText(FIXTURE_APT_NAME).first()).toBeVisible();
+    // 홈 밖 SSR 페이지 공용 네비 (막다른 길 방지 — SiteNav)
+    await expect(page.getByRole("link", { name: /실거래 대시보드/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /콘텐츠/ })).toBeVisible();
     assertNoFatalErrors(sink);
   });
 

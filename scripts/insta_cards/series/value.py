@@ -155,6 +155,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
                 nudges=(args.nudge,),
                 sigungu_code=None,
                 region_label=args.region,
+                keyword=args.region,  # 시군구 코드가 없는 시리즈 — 키워드로 지역 재현
                 filters={"min_hhld": args.min_hhld},
             ),
         ),

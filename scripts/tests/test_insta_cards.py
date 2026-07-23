@@ -960,6 +960,7 @@ class TestValueSeries(unittest.TestCase):
         self.assertEqual(pub.series, p.Series.VALUE)
         self.assertEqual(len(pub.items), 5)
         self.assertEqual(pub.map_ctas[0].nudges, ("cost",))
+        self.assertEqual(pub.map_ctas[0].keyword, "서울")  # G1: 키워드 지역 재현
         self.assertEqual(pub.map_ctas[0].filters, {"min_hhld": 100})
 
 
