@@ -1,6 +1,7 @@
 import type { ContentPost } from "@/types/instagramContent";
 import { buildMapCtaHref } from "@/lib/instagramContent";
 import { ContentActions } from "./ContentActions";
+import { ContentNav } from "../ContentNav";
 import { CandidateCard } from "./sections/CandidateCard";
 import { ComparisonTable } from "./sections/ComparisonTable";
 import { ConditionChips } from "./sections/ConditionChips";
@@ -70,6 +71,9 @@ export function ContentView({ post }: { post: ContentPost }) {
   }));
   return (
     <article className="mx-auto max-w-xl px-4 pb-28 pt-6">
+      <div className="mb-5">
+        <ContentNav />
+      </div>
       <ContentHero post={post} />
       <ConditionChips post={post} />
       <SeriesBody post={post} />

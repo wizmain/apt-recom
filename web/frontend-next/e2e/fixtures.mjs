@@ -160,3 +160,24 @@ export const searchRegionResponse = {
   ],
   region_candidates: [],
 };
+
+/** 대시보드 요약 — Dashboard.tsx 가 중첩 접근하는 필드 전부 포함 (빈 객체면 크래시). */
+export const dashboardSummary = {
+  current_period: "2026-06-15 ~ 2026-07-14",
+  prev_label: "직전 30일",
+  last_updated: "2026-07-20",
+  data_lag_notice: "신고 지연을 감안해 30~60일 전 구간을 집계합니다.",
+  new_today: null,
+  trade: {
+    volume: 12345,
+    prev_volume: 11000,
+    median_price_m2: 8900000,
+    prev_median_price_m2: 8700000,
+  },
+  rent: {
+    volume: 23456,
+    prev_volume: 22000,
+    median_deposit_m2: 5200000,
+    prev_median_deposit_m2: 5100000,
+  },
+};

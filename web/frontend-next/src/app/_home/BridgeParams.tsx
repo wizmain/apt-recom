@@ -1,6 +1,7 @@
 "use client";
 
 import { useBridgeParams } from "@/hooks/useBridgeParams";
+import { useViewParam } from "@/hooks/useViewParam";
 
 /**
  * useBridgeParams(내부 useSearchParams)를 Suspense 경계 안으로 격리하는 래퍼.
@@ -14,5 +15,6 @@ import { useBridgeParams } from "@/hooks/useBridgeParams";
  */
 export function BridgeParams(): null {
   useBridgeParams();
+  useViewParam(); // /?view=dashboard — 대시보드 뷰 부트스트랩 (콘텐츠 네비 진입점)
   return null;
 }
