@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { useCodes } from "@/hooks/useCodes";
 import type { FilterState } from "@/lib/store/searchSlice";
-import { FILTER_KEYS } from "@/lib/instagramContent";
+import { FILTER_KEYS, getPublishedPost } from "@/lib/instagramContent";
 import { logEvent } from "@/lib/logEvent";
 
 /**
@@ -36,6 +36,7 @@ export function useBridgeParams(): void {
   const selectedPnu = useAppStore((s) => s.selectedPnu);
   const applyFilters = useAppStore((s) => s.applyFilters);
   const addKeyword = useAppStore((s) => s.addKeyword);
+  const setContentBanner = useAppStore((s) => s.setContentBanner);
   const selectRegion = useAppStore((s) => s.selectRegion);
   const setSelectedNudges = useAppStore((s) => s.setSelectedNudges);
   const { codes, loading } = useCodes("nudge");
@@ -100,9 +101,12 @@ export function useBridgeParams(): void {
     // nudge 프리셋 일괄 세팅 — 유효 코드 화이트리스트로 한 번 더 방어.
     setSelectedNudges(nudges, validCodes);
 
-    // 콘텐츠 유입 도달 측정 — content_slug 가 있을 때만 (store 미주입, 로깅 전용).
+    // 콘텐츠 유입 도달 측정 + 컨텍스트 배너 (B-1) — content_slug 가 있을 때만.
     const contentSlug = searchParams.get("content_slug");
     if (contentSlug) {
+      // 제목은 번들된 posts.json 조회 (네트워크 0). 미발행/미상 slug 는 배너 생략.
+      const post = getPublishedPost(contentSlug);
+      if (post) setContentBanner({ slug: contentSlug, title: post.title });
       logEvent("content_map_arrival", {
         content_slug: contentSlug,
         content_cta: searchParams.get("content_cta") ?? undefined,

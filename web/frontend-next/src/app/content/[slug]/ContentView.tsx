@@ -1,6 +1,8 @@
 import type { ContentPost } from "@/types/instagramContent";
 import { buildMapCtaHref } from "@/lib/instagramContent";
 import { ContentActions } from "./ContentActions";
+import { DashboardCta } from "./DashboardCta";
+import { RelatedContent } from "./RelatedContent";
 import { SiteNav } from "@/components/SiteNav";
 import { CandidateCard } from "./sections/CandidateCard";
 import { ComparisonTable } from "./sections/ComparisonTable";
@@ -78,7 +80,9 @@ export function ContentView({ post }: { post: ContentPost }) {
       <ConditionChips post={post} />
       <SeriesBody post={post} />
       <MethodologyNote post={post} />
+      {post.series === "trade_top" && <DashboardCta slug={post.slug} />}
       <ContentActions slug={post.slug} ctas={ctas} />
+      <RelatedContent currentSlug={post.slug} />
     </article>
   );
 }
