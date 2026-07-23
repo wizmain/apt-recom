@@ -8,9 +8,9 @@
     "eyebrow": "가성비 랭킹",
     "hook": "서울, 가격은 낮은데 생활점수는 높은 단지 5곳",
     "summary": "서울 가성비 넛지 상위 후보 중 ㎡당 가격이 낮은 5곳입니다.",
-    "generated_at": "2026-07-22T00:34:12",
-    "published_at": "2026-07-22",
-    "data_as_of": "2026-07-22",
+    "generated_at": "2026-07-23T20:21:38",
+    "published_at": "2026-07-23",
+    "data_as_of": "2026-07-23",
     "period_label": "가성비 넛지 상위 30 후보 기준",
     "cover_image": "/content/instagram/value-seoul-20260718/cover.png",
     "cover_alt": "서울 숨은 가성비 아파트 TOP 5 카드",
@@ -25,7 +25,7 @@
       },
       {
         "label": "기준일",
-        "value": "2026-07-22"
+        "value": "2026-07-23"
       }
     ],
     "items": [
@@ -168,7 +168,8 @@
         "region_label": "서울",
         "filters": {
           "min_hhld": 100
-        }
+        },
+        "keyword": "서울"
       }
     ]
   },
