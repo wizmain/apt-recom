@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardContentCards } from "./DashboardContentCards";
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { api, isCancel } from '@/lib/api';
 import TradeHistoryPanel from './TradeHistoryPanel';
@@ -498,6 +499,9 @@ export default function Dashboard() {
           <RankingChart data={ranking} type={rankingType} onTypeChange={setRankingType} />
         </Suspense>
       )}
+
+      {/* 콘텐츠 재순환 (B-3) — 대시보드 데이터로 만든 카드뉴스로 회유 */}
+      <DashboardContentCards />
     </div>
   );
 }

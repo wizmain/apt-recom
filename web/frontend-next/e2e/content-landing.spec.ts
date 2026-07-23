@@ -123,6 +123,11 @@ test.describe("/content 콘텐츠 랜딩", () => {
     await ctaClickLog;
 
     await expect(page).toHaveURL(/\/$/); // 소비 후 쿼리 제거 (useBridgeParams 규약)
+    // 컨텍스트 배너 (B-1): 유입 콘텐츠 제목 + 원문 복귀 + 닫기
+    await expect(page.getByText(new RegExp(escapeRegExp(ctaPost.title)))).toBeVisible();
+    await expect(page.getByRole("link", { name: "원문 보기" })).toBeVisible();
+    await page.getByRole("button", { name: "컨텍스트 배너 닫기" }).click();
+    await expect(page.getByRole("link", { name: "원문 보기" })).toBeHidden();
     const scoreBody = (await scoreReq).postDataJSON() as Record<string, unknown>;
     expect(scoreBody).toMatchObject({
       nudges: cta.nudges,
@@ -130,6 +135,40 @@ test.describe("/content 콘텐츠 랜딩", () => {
       ...cta.filters, // 필터가 score 요청 본문에 flat 전개 (nudgeSlice 계약)
     });
     await arrivalLog;
+  });
+
+  test("trade_top 랜딩 — 대시보드 보조 CTA (B-2)", async ({ page }) => {
+    test.skip(!tradeTopPost, "trade_top published 레코드 없음");
+    if (!tradeTopPost) return;
+    await page.goto(`/content/${tradeTopPost.slug}`);
+    await page
+      .getByRole("link", { name: /이번 주 전체 거래 흐름이 궁금하다면/ })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: /아파트 거래 동향/ }),
+    ).toBeVisible();
+  });
+
+  test("랜딩 하단 다른 이야기 (B-4)", async ({ page }) => {
+    await page.goto(`/content/${firstPost.slug}`);
+    await expect(page.getByRole("heading", { name: "다른 이야기" })).toBeVisible();
+    // 현재 글은 제외되고 다른 발행물 링크가 노출된다
+    const links = page.locator('section:has(h2:text("다른 이야기")) a');
+    await expect(links.first()).toBeVisible();
+    const hrefs = await links.evaluateAll((els) =>
+      els.map((el) => el.getAttribute("href")),
+    );
+    expect(hrefs).not.toContain(`/content/${firstPost.slug}`);
+  });
+
+  test("대시보드 — 콘텐츠 재순환 카드 (B-3)", async ({ page }) => {
+    await page.goto("/?view=dashboard");
+    await expect(
+      page.getByRole("heading", { name: "이 데이터로 만든 이야기" }),
+    ).toBeVisible();
+    await expect(
+      page.locator('section:has(h2:text("이 데이터로 만든 이야기")) a').first(),
+    ).toBeVisible();
   });
 
   test("trade_top — CTA 없음 + 단지 링크만", async ({ page }) => {

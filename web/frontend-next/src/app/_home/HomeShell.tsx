@@ -15,6 +15,7 @@ import FilterPanel from "./FilterPanel";
 import NudgeBar from "./NudgeBar";
 import ResultCards from "./ResultCards";
 import RecentTradesBanner from "./RecentTradesBanner";
+import { ContentContextBanner } from "./ContentContextBanner";
 import FirstRunHint from "./FirstRunHint";
 import ChatButton from "./ChatButton";
 import ChatModal from "./ChatModal";
@@ -164,6 +165,7 @@ export function HomeShell() {
 
       {viewMode === "map" ? (
         <div className="relative flex-1">
+          <ContentContextBanner />
           <MapView
             apartments={apartments}
             scoredApartments={nudgeResults}
