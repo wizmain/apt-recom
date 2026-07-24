@@ -1,0 +1,21 @@
+name: Content Index Drift Check
+
+on:
+  pull_request:
+    paths:
+      - 'web/frontend-next/src/content/instagram/posts.json'
+      - 'web/backend/content/content_index.json'
+      - 'scripts/sync_content_index.py'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      # stdlib 만 사용 — 별도 의존성 설치 불필요.
+      - name: Check content_index drift
+        run: python -m scripts.sync_content_index --check
