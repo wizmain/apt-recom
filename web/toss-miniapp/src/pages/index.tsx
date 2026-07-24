@@ -14,6 +14,8 @@ import type {
   DashboardRankingItem,
   DashboardRecentTrade,
 } from '../shared/types/dashboard';
+import type { ContentListItem } from '../types/content';
+import ContentCard from '../components/ContentCard';
 import { useApi } from '../hooks/useApi';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { formatPrice } from '../lib/format';
@@ -43,13 +45,17 @@ function HomePage() {
 
   const summary = useApi<DashboardSummary>(apiPaths.dashboardSummary(), {
     // 신고 지연 보정한 30~60일 전 윈도우(기본) 대신 오늘 기준 직전 30일 데이터 사용.
-    // 단점: 최근 며칠은 신고 지연으로 과소집계. data_lag_notice 가 안내.
+    // 단점: 최근 며칠은 신고 지연으로 과소집계될 수 있음.
     recent: true,
   });
   const ranking = useApi<DashboardRankingItem[]>(apiPaths.dashboardRanking());
   const recent = useApi<DashboardRecentTrade[]>(apiPaths.dashboardRecent(), {
     limit: 5,
   });
+  const content = useApi<ContentListItem[]>(apiPaths.content());
+  const goContent = () => navigation.navigate('/content', {});
+  const goArticle = (slug: string) =>
+    navigation.navigate('/content-article', { slug });
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -91,10 +97,25 @@ function HomePage() {
       <RecentCard state={recent} onTap={goApt} />
       <SummaryCard state={summary} />
       <RankingCard state={ranking} />
-
-      {summary.data?.data_lag_notice ? (
-        <Text style={styles.notice}>{summary.data.data_lag_notice}</Text>
-      ) : null}
+      {content.data && content.data.length > 0 && (
+        <View style={styles.contentSection}>
+          <View style={styles.contentHead}>
+            <Text style={styles.contentTitle}>숫자로 보는 집 이야기</Text>
+            <TouchableOpacity onPress={goContent} activeOpacity={0.8}>
+              <Text style={styles.contentMore}>전체 보기</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.contentGap}>
+            {content.data.slice(0, 2).map((item) => (
+              <ContentCard
+                key={item.slug}
+                item={item}
+                onPress={() => goArticle(item.slug)}
+              />
+            ))}
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -325,12 +346,6 @@ const styles = StyleSheet.create({
   recentMeta: { fontSize: 12, color: '#6B7684', marginTop: 4 },
   error: { color: '#E84A4A', fontSize: 13 },
   empty: { color: '#A2A8B4', fontSize: 13 },
-  notice: {
-    fontSize: 11,
-    color: '#A2A8B4',
-    textAlign: 'center',
-    marginTop: 8,
-  },
   offlineBar: {
     backgroundColor: '#FFF6E5',
     borderRadius: 10,
@@ -338,4 +353,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   offlineText: { color: '#B6791C', fontSize: 13 },
+  contentSection: { marginTop: 20 },
+  contentHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  contentTitle: { color: '#191F28', fontSize: 18, fontWeight: '900' },
+  contentMore: { color: '#3182F6', fontSize: 13, fontWeight: '700' },
+  contentGap: { gap: 12 },
 });

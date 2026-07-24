@@ -11,7 +11,6 @@ AAO(Assistive Agent Optimization) Phase 1의 일부로, 프론트와 같은 host
 """
 
 import logging
-import os
 import threading
 import time
 
@@ -19,11 +18,10 @@ from fastapi import APIRouter, Response
 from fastapi.responses import PlainTextResponse
 
 from database import DictConnection
+from frontend_config import FRONTEND_BASE_URL
 from routers.apartments import APARTMENT_VISIBLE_CONDITIONS
 
 router = APIRouter()
-
-FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://apt-recom.kr").rstrip("/")
 
 
 # 지역 허브(/region/{code}) 노출 조건 — /region 인덱스·dashboard_regions.apt_count 와

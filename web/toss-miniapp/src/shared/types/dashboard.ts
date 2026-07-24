@@ -11,7 +11,6 @@ export interface DashboardSummary {
   prev_period: string;
   prev_label?: string;
   comparison_mode?: string;
-  data_lag_notice?: string;
   trade: {
     volume: number;
     median_price_m2: number;

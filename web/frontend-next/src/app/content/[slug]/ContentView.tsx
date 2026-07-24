@@ -2,6 +2,7 @@ import type { ContentPost } from "@/types/instagramContent";
 import { buildMapCtaHref } from "@/lib/instagramContent";
 import { ContentActions } from "./ContentActions";
 import { DashboardCta } from "./DashboardCta";
+import { EmbedProvider } from "./EmbedContext";
 import { RelatedContent } from "./RelatedContent";
 import { SiteNav } from "@/components/SiteNav";
 import { CandidateCard } from "./sections/CandidateCard";
@@ -65,24 +66,34 @@ function SeriesBody({ post }: { post: ContentPost }) {
   }
 }
 
-export function ContentView({ post }: { post: ContentPost }) {
+export function ContentView({
+  post,
+  embed = false,
+}: {
+  post: ContentPost;
+  embed?: boolean;
+}) {
   const ctas = post.map_ctas.map((cta) => ({
     id: cta.id,
     label: cta.label,
     href: buildMapCtaHref(post, cta),
   }));
   return (
-    <article className="mx-auto max-w-xl px-4 pb-28 pt-6">
-      <div className="mb-5">
-        <SiteNav from="content" />
-      </div>
-      <ContentHero post={post} />
-      <ConditionChips post={post} />
-      <SeriesBody post={post} />
-      <MethodologyNote post={post} />
-      {post.series === "trade_top" && <DashboardCta slug={post.slug} />}
-      <ContentActions slug={post.slug} ctas={ctas} />
-      <RelatedContent currentSlug={post.slug} />
-    </article>
+    <EmbedProvider embed={embed}>
+      <article className="mx-auto max-w-xl px-4 pb-28 pt-6">
+        {!embed && (
+          <div className="mb-5">
+            <SiteNav from="content" />
+          </div>
+        )}
+        <ContentHero post={post} />
+        <ConditionChips post={post} />
+        <SeriesBody post={post} />
+        <MethodologyNote post={post} />
+        {post.series === "trade_top" && !embed && <DashboardCta slug={post.slug} />}
+        {!embed && <ContentActions slug={post.slug} ctas={ctas} />}
+        <RelatedContent currentSlug={post.slug} embed={embed} />
+      </article>
+    </EmbedProvider>
   );
 }

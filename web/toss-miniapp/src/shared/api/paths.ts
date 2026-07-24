@@ -25,6 +25,9 @@ export const apiPaths = {
   dashboardRanking: () => '/api/dashboard/ranking',
   dashboardRecent: () => '/api/dashboard/recent',
   dashboardTrades: () => '/api/dashboard/trades',
+
+  // 콘텐츠
+  content: () => '/api/content',
 } as const;
 
 export type ApiPaths = typeof apiPaths;

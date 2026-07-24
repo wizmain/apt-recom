@@ -89,7 +89,6 @@ export function RegionHubView({
               value={priceChange ?? "비교 불가"}
             />
           </div>
-          <p className="mt-3 text-xs text-gray-400">{summary.data_lag_notice}</p>
         </section>
       ) : (
         <p className="mt-6 text-sm text-gray-500">

@@ -192,6 +192,11 @@ def main(argv: list[str] | None = None) -> None:
     if args.publish:
         posts_path = publish_to_frontend(to_json_dict(pub), final_dir / "01-cover.png")
         print(f"frontend: {posts_path} 갱신 + cover 복사 — posts.json·cover 커밋 필요")
+        # 백엔드는 frontend 파일을 못 읽으므로 published 메타를 투영해 커밋(생성물).
+        from scripts.sync_content_index import build_index, read_posts, write_index
+
+        write_index(build_index(read_posts()))
+        print("backend: content_index.json 갱신 — 커밋 필요")
 
 
 if __name__ == "__main__":

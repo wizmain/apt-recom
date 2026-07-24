@@ -56,6 +56,7 @@ from routers import (
     log,
     sitemap,
     events,
+    content,
 )
 from mcp_server import mcp as _mcp, mcp_asgi_app
 
@@ -116,6 +117,7 @@ app.include_router(feedback.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(codes.router, prefix="/api")
 app.include_router(similar.router, prefix="/api")
+app.include_router(content.router, prefix="/api")
 # 내부 운영 라우터는 OpenAPI 스키마에서 제외 — /openapi.json 은 LLM discovery
 # (Link 헤더 service-desc·llms.txt)가 참조하는 public API 카탈로그라, 인증이
 # 걸린 admin 표면이라도 경로·파라미터 노출 자체가 노이즈·정보 노출이다.
