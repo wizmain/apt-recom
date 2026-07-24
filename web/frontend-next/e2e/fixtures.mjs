@@ -166,7 +166,6 @@ export const dashboardSummary = {
   current_period: "2026-06-15 ~ 2026-07-14",
   prev_label: "직전 30일",
   last_updated: "2026-07-20",
-  data_lag_notice: "신고 지연을 감안해 30~60일 전 구간을 집계합니다.",
   new_today: null,
   trade: {
     volume: 12345,
