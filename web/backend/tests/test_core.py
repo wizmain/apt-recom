@@ -1982,6 +1982,51 @@ if __name__ == "__main__":
             raw_conn.commit()
             conn.close()
 
+    @test("콘텐츠 /content: 목록 구조 + 절대 커버 URL + published_at DESC")
+    def test_content_list_structure():
+        from routers.content import list_content
+
+        items = list_content()
+        assert isinstance(items, list), "배열 아님"
+        if items:
+            it = items[0]
+            for k in [
+                "slug",
+                "series",
+                "title",
+                "eyebrow",
+                "summary",
+                "cover_image_url",
+                "cover_alt",
+                "data_as_of",
+                "published_at",
+            ]:
+                assert k in it, f"응답에 {k} 없음"
+            assert it["cover_image_url"].startswith("http"), "cover_image_url 절대 URL 아님"
+            dates = [x["published_at"] for x in items]
+            assert dates == sorted(dates, reverse=True), "published_at 내림차순 아님"
+
+    @test("콘텐츠 load_index 계약: 빈 배열 파일 → [], 누락 파일 → 500")
+    def test_content_index_contract():
+        import tempfile
+        from pathlib import Path
+        from fastapi import HTTPException
+        from routers.content import load_index
+
+        with tempfile.TemporaryDirectory() as d:
+            empty = Path(d) / "content_index.json"
+            empty.write_text("[]", encoding="utf-8")
+            assert load_index(empty) == [], "빈 배열 파일은 [] 여야"
+
+            missing = Path(d) / "nope.json"
+            raised = False
+            try:
+                load_index(missing)
+            except HTTPException as e:
+                raised = True
+                assert e.status_code == 500, f"누락 파일 status={e.status_code}"
+            assert raised, "누락 파일인데 예외 없음"
+
     # 모든 테스트 수집
     tests = [v for v in globals().values() if callable(v) and hasattr(v, "_test_name")]
 
