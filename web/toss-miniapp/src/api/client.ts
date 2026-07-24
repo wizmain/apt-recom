@@ -9,6 +9,10 @@
 // Phase 4 에서 plugin-env 도입 후 import.meta.env.API_BASE 로 교체할 것.
 const API_BASE = 'https://api.apt-recom.kr';
 
+// 프론트(웹) 오리진 — WebView 임베드 URL 등에 사용. 백엔드 API_BASE 와 별개 호스트.
+// Phase 4 에서 plugin-env 도입 시 env 로 교체할 것.
+const SITE_BASE = 'https://apt-recom.kr';
+
 // 모든 요청에 자동 부착되는 헤더. 인증/식별 헤더는 setAuthHeader() 로 변경.
 const defaultHeaders: Record<string, string> = {
   'content-type': 'application/json',
@@ -50,6 +54,25 @@ export function buildApiUrl(
   query?: RequestOptions['query']
 ): string {
   const url = `${API_BASE}${path}`;
+  if (!query) return url;
+  const search = Object.entries(query)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(
+      ([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`
+    )
+    .join('&');
+  return search ? `${url}?${search}` : url;
+}
+
+/**
+ * 프론트(웹) 절대 URL 조립 — WebView source URI 용. buildApiUrl 과 동일 인코딩,
+ * host 만 SITE_BASE.
+ */
+export function buildSiteUrl(
+  path: string,
+  query?: RequestOptions['query']
+): string {
+  const url = `${SITE_BASE}${path}`;
   if (!query) return url;
   const search = Object.entries(query)
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
