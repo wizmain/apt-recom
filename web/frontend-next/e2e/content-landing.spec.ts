@@ -186,4 +186,27 @@ test.describe("/content 콘텐츠 랜딩", () => {
       ).toHaveAttribute("href", `/apartment/${linked.pnu}`);
     }
   });
+
+  test("일반 상세 — SiteNav 노출", async ({ page }) => {
+    await page.goto(`/content/${firstPost.slug}`);
+    await expect(
+      page.getByRole("navigation", { name: "주요 화면 이동" }),
+    ).toBeVisible();
+  });
+
+  test("임베드 상세 — SiteNav·대시보드 CTA 미노출", async ({ page }) => {
+    await page.goto(`/content/${firstPost.slug}/embed`);
+    await expect(
+      page.getByRole("navigation", { name: "주요 화면 이동" }),
+    ).toHaveCount(0);
+    // 지도 CTA(홈으로) 링크가 임베드엔 없어야
+    await expect(page.locator('a[href^="/?"]')).toHaveCount(0);
+  });
+
+  test("임베드 관련 아티클 — 링크가 embed 유지", async ({ page }) => {
+    await page.goto(`/content/${firstPost.slug}/embed`);
+    const related = page.locator('a[href^="/content/"][href$="/embed"]');
+    // published ≥ 2 이므로 관련글 최소 1건 (RelatedContent RELATED_LIMIT=2)
+    await expect(related.first()).toBeVisible();
+  });
 });
