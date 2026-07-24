@@ -16,7 +16,6 @@ interface Summary {
   prev_period: string;
   prev_label?: string;
   comparison_mode?: string;
-  data_lag_notice?: string;
   trade: { volume: number; median_price_m2: number; prev_volume: number; prev_median_price_m2: number };
   rent: { volume: number; median_deposit_m2: number; prev_volume: number; prev_median_deposit_m2: number };
 }
@@ -323,18 +322,6 @@ export default function Dashboard({ onGoToMap }: DashboardProps) {
               </p>
             </div>
           ))}
-        </div>
-      )}
-
-      {summary?.data_lag_notice && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 sm:px-4 sm:py-3 shadow-sm">
-          <span aria-hidden className="mt-0.5 text-base leading-none">⚠️</span>
-          <div className="flex-1">
-            <p className="text-xs sm:text-sm font-semibold text-amber-900">데이터 수집 진행 중</p>
-            <p className="mt-0.5 text-xs sm:text-[13px] text-amber-800 leading-relaxed">
-              {summary.data_lag_notice}
-            </p>
-          </div>
         </div>
       )}
 

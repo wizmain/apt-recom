@@ -43,7 +43,7 @@ function HomePage() {
 
   const summary = useApi<DashboardSummary>(apiPaths.dashboardSummary(), {
     // 신고 지연 보정한 30~60일 전 윈도우(기본) 대신 오늘 기준 직전 30일 데이터 사용.
-    // 단점: 최근 며칠은 신고 지연으로 과소집계. data_lag_notice 가 안내.
+    // 단점: 최근 며칠은 신고 지연으로 과소집계될 수 있음.
     recent: true,
   });
   const ranking = useApi<DashboardRankingItem[]>(apiPaths.dashboardRanking());
@@ -91,10 +91,6 @@ function HomePage() {
       <RecentCard state={recent} onTap={goApt} />
       <SummaryCard state={summary} />
       <RankingCard state={ranking} />
-
-      {summary.data?.data_lag_notice ? (
-        <Text style={styles.notice}>{summary.data.data_lag_notice}</Text>
-      ) : null}
     </ScrollView>
   );
 }
@@ -325,12 +321,6 @@ const styles = StyleSheet.create({
   recentMeta: { fontSize: 12, color: '#6B7684', marginTop: 4 },
   error: { color: '#E84A4A', fontSize: 13 },
   empty: { color: '#A2A8B4', fontSize: 13 },
-  notice: {
-    fontSize: 11,
-    color: '#A2A8B4',
-    textAlign: 'center',
-    marginTop: 8,
-  },
   offlineBar: {
     backgroundColor: '#FFF6E5',
     borderRadius: 10,

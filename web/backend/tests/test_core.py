@@ -1780,7 +1780,6 @@ if __name__ == "__main__":
             "rent",
             "last_updated",
             "new_today",
-            "data_lag_notice",
         ]:
             assert k in api, f"응답에 {k} 없음"
 

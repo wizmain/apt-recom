@@ -108,18 +108,6 @@ def dashboard_regions(q: str = Query("", description="검색어")):
     return results
 
 
-_DATA_LAG_NOTICE = (
-    "실거래 신고 지연(30일 이내 신고 의무)을 피하기 위해 현재 구간은 '30~60일 전' 30일 윈도우로 집계합니다. "
-    "전국 거래 데이터 수집이 진행 중이라 전년 동기 구간의 일부 지역(비수도권 등) 데이터가 아직 누락되어 있어 "
-    "전년 대비 비교 수치는 부정확할 수 있습니다."
-)
-
-_DATA_LAG_NOTICE_RECENT = (
-    "오늘 기준 직전 30일간 실거래 데이터입니다. 실거래 신고 의무가 30일 이내라 "
-    "최근 며칠 거래는 아직 신고되지 않아 일부 누락될 수 있습니다(과소집계)."
-)
-
-
 def _format_period(period_start, period_end) -> str:
     """2026-02-18 ~ 2026-03-19 → '2/18~3/19' 포맷."""
     return (
@@ -304,7 +292,6 @@ def dashboard_summary(
         "prev_period": stats["prev_period"],
         "prev_label": "전년 동기",
         "comparison_mode": "yoy",
-        "data_lag_notice": _DATA_LAG_NOTICE_RECENT if recent else _DATA_LAG_NOTICE,
         "last_updated": last_updated,
         "new_today": (new_today_row["cnt"] or 0) if new_today_row else 0,
         "trade": {

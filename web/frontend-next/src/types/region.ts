@@ -40,7 +40,6 @@ export interface DashboardSummary {
   /** "전년 동기" — comparison_mode=yoy 고정 (MoM 아님, 문구 그대로 사용할 것) */
   prev_label: string;
   comparison_mode: string;
-  data_lag_notice: string;
   last_updated: string | null;
   new_today: number;
   trade: {
