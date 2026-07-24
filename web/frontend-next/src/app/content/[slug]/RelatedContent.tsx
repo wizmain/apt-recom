@@ -7,7 +7,13 @@ import { getPublishedPosts } from "@/lib/instagramContent";
  */
 const RELATED_LIMIT = 2;
 
-export function RelatedContent({ currentSlug }: { currentSlug: string }) {
+export function RelatedContent({
+  currentSlug,
+  embed = false,
+}: {
+  currentSlug: string;
+  embed?: boolean;
+}) {
   const related = getPublishedPosts()
     .filter((p) => p.slug !== currentSlug)
     .slice(0, RELATED_LIMIT);
@@ -19,7 +25,7 @@ export function RelatedContent({ currentSlug }: { currentSlug: string }) {
         {related.map((post) => (
           <li key={post.slug}>
             <Link
-              href={`/content/${post.slug}`}
+              href={embed ? `/content/${post.slug}/embed` : `/content/${post.slug}`}
               className="flex items-center gap-3 rounded-2xl border border-gray-100 p-3 hover:border-blue-300"
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- next/image 미도입(spec §2) */}
