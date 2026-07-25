@@ -23,6 +23,7 @@ FILTER_ALLOWLIST = frozenset(
     {
         "min_area",
         "max_area",
+        "min_smallest_area",
         "min_price",
         "max_price",
         "min_floor",

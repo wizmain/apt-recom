@@ -930,6 +930,7 @@ class TestValueSeries(unittest.TestCase):
 
         args = MagicMock()
         args.region, args.nudge, args.min_hhld = "서울", "cost", 100
+        args.min_smallest_area = 59
 
         with (
             patch(
@@ -961,7 +962,13 @@ class TestValueSeries(unittest.TestCase):
         self.assertEqual(len(pub.items), 5)
         self.assertEqual(pub.map_ctas[0].nudges, ("cost",))
         self.assertEqual(pub.map_ctas[0].keyword, "서울")  # G1: 키워드 지역 재현
-        self.assertEqual(pub.map_ctas[0].filters, {"min_hhld": 100})
+        # 랜딩 선정 조건과 지도 필터가 같아야 모집단이 일치한다.
+        self.assertEqual(
+            pub.map_ctas[0].filters, {"min_hhld": 100, "min_smallest_area": 59}
+        )
+        self.assertIn(
+            "최소 주택형", [c.label for c in pub.conditions]
+        )  # 면적 하한 고지
 
 
 class TestCompareSeries(unittest.TestCase):
@@ -1407,12 +1414,31 @@ class TestCli(unittest.TestCase):
                         "value",
                         "--region",
                         "서울",
+                        "--min-smallest-area",
+                        "59",
                         "--slug",
                         "value-seoul-20260713",
                         "--dry-run",
                     ]
                 )
             self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_value_requires_min_smallest_area(self):
+        """면적 하한 누락은 조용히 통과하지 않고 즉시 차단된다 (2026-07-25)."""
+        from scripts.insta_cards import cli
+
+        with self.assertRaises(SystemExit):
+            cli.main(
+                [
+                    "--series",
+                    "value",
+                    "--region",
+                    "서울",
+                    "--slug",
+                    "value-seoul-20260713",
+                    "--dry-run",
+                ]
+            )
 
     def test_main_writes_publication(self):
         import tempfile
@@ -1433,6 +1459,8 @@ class TestCli(unittest.TestCase):
                         "value",
                         "--region",
                         "서울",
+                        "--min-smallest-area",
+                        "59",
                         "--slug",
                         "value-seoul-20260713",
                     ]

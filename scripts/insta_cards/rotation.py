@@ -81,6 +81,7 @@ def _build_command(series: str, params: dict, slug: str) -> str:
     elif series == "value":
         parts.append(f'--region "{params["keyword"]}"')
         parts.append(f"--nudge {params['nudge']}")
+        parts.append(f"--min-smallest-area {params['min_smallest_area']}")
     elif series == "compare":
         parts.append(f"--regions {params['regions']}")
         parts.append(f"--nudge {params['nudge']}")
@@ -107,7 +108,11 @@ def resolve(cfg: dict, target: date) -> dict:
         slug = f"trade-top-{stamp}"
     elif series == "value":
         region = s["regions"][occ % len(s["regions"])]
-        params = {"keyword": region["keyword"], "nudge": s["nudge"]}
+        params = {
+            "keyword": region["keyword"],
+            "nudge": s["nudge"],
+            "min_smallest_area": s["min_smallest_area"],
+        }
         slug = f"value-{region['slug']}-{stamp}"
     elif series == "compare":
         pair = s["pairs"][occ % len(s["pairs"])]
