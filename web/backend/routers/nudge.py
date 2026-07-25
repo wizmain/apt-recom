@@ -35,6 +35,10 @@ class NudgeScoreRequest(BaseModel):
     # Filters
     min_area: float | None = None
     max_area: float | None = None
+    # 단지에서 가장 작은 주택형의 하한 — 즉 "모든 주택형이 이 값 이상"인 단지만.
+    # min_area(주택형 하나라도 이 값 이상)와 방향이 다르다: 소형 주택형이 섞인
+    # 오피스텔·도시형생활주택 단지를 제외하는 용도.
+    min_smallest_area: float | None = None
     min_price: int | None = None
     max_price: int | None = None
     min_floor: int | None = None
@@ -131,6 +135,9 @@ def nudge_score(
         if req.max_area is not None:
             conditions.append("ai.min_area <= %s")
             params.append(req.max_area)
+        if req.min_smallest_area is not None:
+            conditions.append("ai.min_area >= %s")
+            params.append(req.min_smallest_area)
         if req.min_price is not None:
             conditions.append(
                 "ps.price_per_m2 * COALESCE(ai.avg_area, 60) / 10000 >= %s"

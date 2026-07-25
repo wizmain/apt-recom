@@ -31,7 +31,12 @@ export function useApartments() {
 
 export function countActiveFilters(f: FilterState): number {
   let count = 0;
-  if (f.min_area !== undefined || f.max_area !== undefined) count++;
+  if (
+    f.min_area !== undefined ||
+    f.max_area !== undefined ||
+    f.min_smallest_area !== undefined
+  )
+    count++;
   if (f.min_price !== undefined || f.max_price !== undefined) count++;
   if (f.min_floor !== undefined) count++;
   if (f.min_hhld !== undefined || f.max_hhld !== undefined) count++;
