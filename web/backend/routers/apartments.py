@@ -29,6 +29,9 @@ def list_apartments(
     ne_lng: float | None = Query(None),
     min_area: float | None = Query(None, description="최소 면적 (㎡)"),
     max_area: float | None = Query(None, description="최대 면적 (㎡)"),
+    min_smallest_area: float | None = Query(
+        None, description="가장 작은 주택형의 하한 (㎡) — 모든 주택형이 이 값 이상"
+    ),
     min_price: int | None = Query(None, description="최소 가격 (만원)"),
     max_price: int | None = Query(None, description="최대 가격 (만원)"),
     min_floor: int | None = Query(None, description="최소 최고층"),
@@ -90,6 +93,9 @@ def list_apartments(
         if max_area is not None:
             conditions.append("ai.min_area <= %s")
             params.append(max_area)
+        if min_smallest_area is not None:
+            conditions.append("ai.min_area >= %s")
+            params.append(min_smallest_area)
 
         # Price filter (최근 거래가 기준 — price_per_m2 * avg_area / 10000)
         if min_price is not None:

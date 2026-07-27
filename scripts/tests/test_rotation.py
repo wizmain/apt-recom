@@ -22,6 +22,7 @@ def make_cfg():
             "trade_top": {"days": 7},
             "value": {
                 "nudge": "cost",
+                "min_smallest_area": 59,
                 "regions": [
                     {"keyword": "강남구", "slug": "gangnam"},
                     {"keyword": "서초구", "slug": "seocho"},
@@ -98,6 +99,14 @@ class TestResolve(unittest.TestCase):
         self.assertIn("--regions 11350,41463", cmd)
         self.assertIn("--budget 60000", cmd)
         self.assertIn("--area-a 59", cmd)
+
+    def test_value_carries_min_smallest_area(self):
+        """면적 하한이 params·명령 양쪽에 실려야 한다 (소형단지 혼입 방지)."""
+        from scripts.insta_cards.rotation import resolve
+
+        a = resolve(make_cfg(), date(2026, 7, 28))  # 화 value
+        self.assertEqual(a["params"]["min_smallest_area"], 59)
+        self.assertIn("--min-smallest-area 59", a["command"])
 
     def test_before_anchor_raises(self):
         from scripts.insta_cards.rotation import resolve

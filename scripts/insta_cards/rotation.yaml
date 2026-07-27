@@ -11,7 +11,7 @@
 
 timezone: Asia/Seoul
 # 날짜→인덱스 기준일(포함). 요일 계산에도 사용. 파일럿 시작일로 갱신 가능.
-anchor_date: "2026-07-27"   # 월요일
+anchor_date: "2026-07-27"   # 파일럿 1일차(월) — 14회 창: 2026-07-27 ~ 2026-08-09
 
 # 요일(mon..sun) → series. Phase 0: trade_top 월 1회, 주말은 지역 로테이션 포맷으로.
 weekday_format:
@@ -32,6 +32,13 @@ series:
   value:
     # --region 은 키워드(자치구명). slug 는 romanized 고정.
     nudge: cost
+    # 단지에서 가장 작은 주택형의 하한(㎡) — 모든 주택형이 이 값 이상인 단지만.
+    # 없으면 ㎡당 가격 오름차순이 오피스텔·도시형생활주택 단지를 상위로 끌어올려
+    # "가성비 아파트" 훅과 실제 물건이 어긋난다 (2026-07-25 파일럿 1일차 검수:
+    # 강남구 5곳 전부가 전용 20~55㎡ 소형이었다).
+    # 59 = 최소 주택형이 국민주택 규모 하단 이상. 이 값이 정책의 단일 출처다
+    # (CLI 는 value 시리즈에 --min-smallest-area 를 필수로 요구).
+    min_smallest_area: 59
     regions:
       - { keyword: "강남구", slug: gangnam }
       - { keyword: "서초구", slug: seocho }

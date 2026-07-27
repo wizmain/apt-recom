@@ -1,7 +1,12 @@
-"""value — 가성비 넛지 상위 후보 중 min_hhld 통과 + ㎡당 가격 오름차순 TOP 5.
+"""value — 넛지 상위 후보 중 min_hhld·min_smallest_area 통과 + ㎡당 가격 오름차순 TOP 5.
 
 의미론 (변경 금지, PRD §9): min_hhld 미달 혼입·price 전무·5개 미만은 모두
 예외로 발행 중단. fallback 없음.
+
+min_smallest_area 는 필수다(2026-07-25). 없으면 ㎡당 가격 오름차순 정렬이
+도시형생활주택·오피스텔급 소형 단지(전용 20~55㎡)를 상위로 끌어올려 "가성비
+아파트" 훅과 실제 물건이 어긋난다. 값의 출처는 rotation.yaml 의
+series.value.min_smallest_area 다.
 """
 
 from __future__ import annotations
@@ -79,6 +84,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
             "top_n": CANDIDATE_POOL_SIZE,
             "keyword": args.region,
             "min_hhld": args.min_hhld,
+            "min_smallest_area": args.min_smallest_area,
         }
     )
     if not candidates:
@@ -133,6 +139,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         conditions=(
             Condition("지역", args.region),
             Condition("최소 세대수", f"{args.min_hhld}세대"),
+            Condition("최소 주택형", f"{args.min_smallest_area:g}㎡ 이상"),
             Condition("기준일", today),
         ),
         items=items,
@@ -141,6 +148,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         narrative=Narrative(why=copy.why, fit_for=copy.fit_for),
         methodology=(
             f"가성비 넛지 상위 {CANDIDATE_POOL_SIZE}개 후보 중 ㎡당 가격 오름차순 {LIST_SIZE}곳",
+            f"모든 주택형이 전용 {args.min_smallest_area:g}㎡ 이상인 단지만 후보",
             "가격은 apt_price_score 의 ㎡당 가격 (로컬 적재 기준)",
         ),
         caveats=(
@@ -156,7 +164,11 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
                 sigungu_code=None,
                 region_label=args.region,
                 keyword=args.region,  # 시군구 코드가 없는 시리즈 — 키워드로 지역 재현
-                filters={"min_hhld": args.min_hhld},
+                # 랜딩 선정 조건과 동일한 필터를 지도에도 실어 모집단을 일치시킨다.
+                filters={
+                    "min_hhld": args.min_hhld,
+                    "min_smallest_area": args.min_smallest_area,
+                },
             ),
         ),
     )

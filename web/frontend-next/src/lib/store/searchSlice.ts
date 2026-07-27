@@ -6,6 +6,9 @@ import { useAppStore } from "./index";
 export type FilterState = {
   min_area?: number;
   max_area?: number;
+  /** 가장 작은 주택형의 하한(㎡) — 모든 주택형이 이 값 이상인 단지만.
+   *  콘텐츠 딥링크 전용(FilterPanel 미노출). min_area 와 방향이 반대다. */
+  min_smallest_area?: number;
   min_price?: number;
   max_price?: number;
   min_floor?: number;

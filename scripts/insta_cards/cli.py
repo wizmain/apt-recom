@@ -68,6 +68,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="value: 키워드 / lifestyle: 시군구 코드",
     )
     parser.add_argument("--min-hhld", type=int, default=DEFAULT_MIN_HOUSEHOLDS)
+    parser.add_argument(
+        "--min-smallest-area",
+        type=float,
+        default=None,
+        help="가장 작은 주택형의 하한(㎡) — 모든 주택형이 이 값 이상인 단지만. "
+        "value 시리즈 필수 (소형 오피스텔 단지 제외)",
+    )
     # budget-choice
     parser.add_argument("--budget", type=int, default=None, help="예산 상한 (만원)")
     parser.add_argument("--area-a", type=float, default=None)
@@ -120,8 +127,13 @@ def _validate_series_args(parser, series: Series, args) -> None:
         require(["budget", "area-a", "area-b"])
     if series is Series.LIFESTYLE:
         require(["profile", "region"])
-    if series is Series.VALUE and args.region is None:
-        args.region = "서울"  # 기존 CLI 기본값 하위호환
+    if series is Series.VALUE:
+        # 면적 하한은 필수 — 누락 시 소형(오피스텔·도시형생활주택) 단지가 ㎡당 가격
+        # 상위를 점령한다(2026-07-25). 기본값을 두지 않는 이유: 정책값 출처를
+        # rotation.yaml 하나로 유지하고, 빠뜨렸을 때 조용히 통과시키지 않기 위함.
+        require(["min-smallest-area"])
+        if args.region is None:
+            args.region = "서울"  # 기존 CLI 기본값 하위호환
     if args.nudge is None:
         args.nudge = DEFAULT_NUDGES.get(series, "cost")
     if args.nudge not in NUDGE_LABELS:

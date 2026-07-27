@@ -97,6 +97,49 @@ def test_filter_area():
         assert r["min_area"] <= 85, f"{r['bld_nm']} min_area={r['min_area']} > 85"
 
 
+@test("필터: min_smallest_area → 소형 주택형 있는 단지 제외")
+def test_filter_min_smallest_area():
+    """min_area(주택형 하나라도 N 이상)와 방향이 반대임을 확인.
+
+    오피스텔·도시형생활주택은 소형 주택형이 섞여 min_area 로는 걸러지지 않는다
+    (2026-07-25 인스타 value 시리즈 검수에서 드러난 갭).
+    """
+    from database import DictConnection
+
+    threshold = 59
+    conn = DictConnection()
+    rows = conn.execute(
+        """
+        SELECT a.bld_nm, ai.min_area, ai.max_area
+        FROM apartments a
+        JOIN apt_area_info ai ON a.pnu = ai.pnu
+        WHERE ai.min_area >= %s
+        LIMIT 10
+    """,
+        [threshold],
+    ).fetchall()
+    # 반대 방향(min_area 필터)은 통과하지만 이 필터는 걸러야 하는 단지가 존재해야
+    # 두 필터가 실제로 구분된다.
+    loose_only = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM apt_area_info
+        WHERE max_area >= %s AND min_area < %s
+    """,
+        [threshold, threshold],
+    ).fetchone()
+    conn.close()
+    assert len(rows) > 0, f"모든 주택형이 {threshold}㎡ 이상인 단지가 없음"
+    for r in rows:
+        assert r["min_area"] >= threshold, (
+            f"{r['bld_nm']} min_area={r['min_area']} < {threshold}"
+        )
+    assert loose_only["n"] > 0, (
+        "min_area 로는 통과하나 min_smallest_area 로는 걸러질 단지가 없음 — "
+        "두 필터가 구분되지 않으므로 필터 추가 의미를 재검토할 것"
+    )
+
+
 @test("필터: 최고층 15 이상")
 def test_filter_floor():
     from database import DictConnection
@@ -2002,7 +2045,9 @@ if __name__ == "__main__":
                 "published_at",
             ]:
                 assert k in it, f"응답에 {k} 없음"
-            assert it["cover_image_url"].startswith("http"), "cover_image_url 절대 URL 아님"
+            assert it["cover_image_url"].startswith("http"), (
+                "cover_image_url 절대 URL 아님"
+            )
             dates = [x["published_at"] for x in items]
             assert dates == sorted(dates, reverse=True), "published_at 내림차순 아님"
 

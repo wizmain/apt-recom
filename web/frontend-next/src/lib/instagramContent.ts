@@ -12,10 +12,11 @@ const SERIES_VALUES: readonly Series[] = [
   "lifestyle",
 ];
 
-// useBridgeParams 소비 allowlist와 동일 (FilterState 9키 — searchSlice.ts)
+// useBridgeParams 소비 allowlist와 동일 (FilterState 10키 — searchSlice.ts)
 export const FILTER_KEYS = [
   "min_area",
   "max_area",
+  "min_smallest_area",
   "min_price",
   "max_price",
   "min_floor",
