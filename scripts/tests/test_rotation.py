@@ -19,7 +19,7 @@ def make_cfg():
             "sun": "lifestyle",
         },
         "series": {
-            "trade_top": {"days": 7},
+            "trade_top": {"days": 7, "min_hhld": 100},
             "value": {
                 "nudge": "cost",
                 "min_smallest_area": 59,
@@ -99,6 +99,14 @@ class TestResolve(unittest.TestCase):
         self.assertIn("--regions 11350,41463", cmd)
         self.assertIn("--budget 60000", cmd)
         self.assertIn("--area-a 59", cmd)
+
+    def test_trade_top_carries_min_hhld(self):
+        """세대수 하한이 명령에 실려야 한다 (부티크 빌라 혼입 방지)."""
+        from scripts.insta_cards.rotation import resolve
+
+        a = resolve(make_cfg(), date(2026, 7, 27))  # 월 trade_top
+        self.assertEqual(a["params"]["min_hhld"], 100)
+        self.assertIn("--min-hhld 100", a["command"])
 
     def test_value_carries_min_smallest_area(self):
         """면적 하한이 params·명령 양쪽에 실려야 한다 (소형단지 혼입 방지)."""

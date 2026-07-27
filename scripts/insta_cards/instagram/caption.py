@@ -58,7 +58,8 @@ def build_caption(manifest: dict) -> str:
         d=manifest["data_as_of"]
     )
     if series == "trade_top":
-        notice += "\n신고일 기준 · 계약일과 다를 수 있습니다"
+        # 적재일 기준임을 명시 — 신고일 컬럼은 없다 (series/trade_top.py 주석 참고).
+        notice += "\n데이터 적재일 기준 · 실제 계약은 이보다 앞섭니다"
 
     caption = "\n".join(
         [
