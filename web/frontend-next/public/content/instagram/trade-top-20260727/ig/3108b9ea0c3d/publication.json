@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "slug": "trade-top-20260727",
+  "status": "published",
+  "series": "trade_top",
+  "title": "최근 7일 최고가 TOP 5",
+  "eyebrow": "적재 기준 · 최근 7일",
+  "hook": "최근 7일 새로 포착된 최고가는 57억 5,000만원",
+  "summary": "새로 포착된 거래 중 최고가와, 신규 거래가 크게 늘어난 동네를 모았습니다.",
+  "generated_at": "2026-07-27T10:47:14",
+  "published_at": "2026-07-27",
+  "data_as_of": "2026-07-27",
+  "period_label": "적재 기준 최근 7일",
+  "cover_image": "01-cover.png",
+  "cover_alt": "최근 7일 아파트 최고가 TOP 5 카드",
+  "conditions": [
+    {
+      "label": "기간",
+      "value": "적재 기준 최근 7일"
+    },
+    {
+      "label": "집계 단위",
+      "value": "단지별 최고가 1건"
+    },
+    {
+      "label": "최소 세대수",
+      "value": "100세대"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-07-27"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "잠실아시아선수촌",
+      "region": "송파구(서울)",
+      "pnu": "1171010100000860000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "57억 5,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "151㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "name": "압구정현대8차",
+      "region": "강남구(서울)",
+      "pnu": "1168011000004810000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "57억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "108㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "name": "래미안 신반포팰리스",
+      "region": "서초구(서울)",
+      "pnu": "1165010600001580000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "47억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "104㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 4,
+      "name": "래미안대치팰리스2단지",
+      "region": "강남구(서울)",
+      "pnu": "1168010600010270000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "47억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "93㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 5,
+      "name": "트리마제",
+      "region": "성동구(서울)",
+      "pnu": "1120011400007180000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "46억 5,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "85㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    }
+  ],
+  "secondary_items": [
+    {
+      "rank": 1,
+      "name": "영통구(수원)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "189건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+85건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "name": "군포시(경기)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "143건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+78건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "name": "연수구(인천)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "137건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+67건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 4,
+      "name": "수지구(용인)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "152건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+60건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 5,
+      "name": "오산시(경기)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "133건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+59건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    }
+  ],
+  "comparison": null,
+  "narrative": {
+    "why": [],
+    "fit_for": null
+  },
+  "methodology": [
+    "최고가: 최근 기간 새로 적재된 거래 중 단지별 최고가 1건만 집계",
+    "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+    "급증: 직전 7일 대비 신규 적재 건수 증가분 (현재 20건 이상 지역만)"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "데이터 적재일 기준이라 실제 계약 시점은 이보다 앞섭니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-ranking.jpg",
+    "04-ranking-hot.jpg",
+    "05-caveats.jpg",
+    "06-cta.jpg"
+  ],
+  "asset_generation": "3108b9ea0c3d"
+}
