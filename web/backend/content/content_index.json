@@ -1,5 +1,16 @@
 [
   {
+    "slug": "trade-top-20260727",
+    "series": "trade_top",
+    "title": "최근 7일 최고가 TOP 5",
+    "eyebrow": "적재 기준 · 최근 7일",
+    "summary": "새로 포착된 거래 중 최고가와, 신규 거래가 크게 늘어난 동네를 모았습니다.",
+    "cover_image": "/content/instagram/trade-top-20260727/cover.png",
+    "cover_alt": "최근 7일 아파트 최고가 TOP 5 카드",
+    "data_as_of": "2026-07-27",
+    "published_at": "2026-07-27"
+  },
+  {
     "slug": "value-seoul-20260718",
     "series": "value",
     "title": "숨은 가성비 TOP 5 — 서울",
