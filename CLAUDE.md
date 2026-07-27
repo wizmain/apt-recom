@@ -40,7 +40,8 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 | **cwd** | 항상 프로젝트 루트 (`apt-recom/`) |
 | **백엔드 서버** | `cd web/backend && ../../.venv/bin/uvicorn main:app --reload --port 8000` |
 | **프론트엔드** | `cd web/frontend && npm run dev` |
-| **백엔드 테스트** | `.venv/bin/python web/backend/tests/test_core.py` |
+| **백엔드 테스트** | `.venv/bin/python web/backend/tests/test_core.py` (라이브 DB 필요 — CI 미실행) |
+| **스크립트 테스트** | `.venv/bin/python -m unittest discover -s scripts/tests -t .` (DB·네트워크 불요, CI 실행) |
 | **타입 체크** | `cd web/frontend && npm run check` |
 | **린트** | `cd web/frontend && npm run lint` |
 | **프론트 빌드** | `cd web/frontend && npm run build` |

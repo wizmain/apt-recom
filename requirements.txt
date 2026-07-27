@@ -1,6 +1,13 @@
 # 워크스페이스 루트 .venv 의 로컬 스크립트/배치 전용 의존성.
 # 백엔드(Railway) 배포 의존성은 web/backend/requirements.txt 에 있다.
 # scripts/insta_cards 직접 의존:
-Pillow
+# Pillow 은 하한을 고정한다 — 카드 텍스트 한도 검증(textrules.check_field)이 실제
+# 폰트로 픽셀 폭을 재므로, 렌더 스택이 로컬과 CI 에서 크게 벌어지면 같은 문구가
+# 환경에 따라 통과/실패할 수 있다. 가변 폰트 지정(set_variation_by_name)에도
+# FreeType 2.9.1+ 가 필요하다. (2026-07-27)
+Pillow>=12.1
 PyYAML
 requests
+# instagram/cli.py 가 .env 에서 IG 토큰을 읽는다. 로컬에는 다른 경로로 설치돼
+# 있어 누락이 드러나지 않다가, 깨끗한 CI 환경 첫 실행에서 잡혔다 (2026-07-27).
+python-dotenv

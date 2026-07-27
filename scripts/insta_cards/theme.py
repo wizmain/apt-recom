@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -24,15 +25,24 @@ COLOR_TEXT_GRAY = (148, 163, 184)
 COLOR_BAR_TRACK = (40, 51, 92)
 COLOR_ZEBRA = (22, 34, 70)  # 표·리스트 짝수행 배경 (배경보다 살짝 밝은 네이비)
 
-FONT_PATH = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
-# index 는 AppleSDGothicNeo.ttc 실측 결과(0=Regular,2=Medium,4=SemiBold,
-# 6=Bold,14=ExtraBold) — 폰트 교체 시 재실측할 것.
-FONT_WEIGHT_INDEX = {
-    "regular": 0,
-    "medium": 2,
-    "semibold": 4,
-    "bold": 6,
-    "extrabold": 14,
+# 저장소에 고정한 가변 폰트(OFL, assets/fonts/OFL.txt). 이전에는 macOS 전용
+# /System/Library/Fonts/AppleSDGothicNeo.ttc 를 참조해 Linux(CI)에서 렌더·검증이
+# 모두 불가능했다 — textrules.check_field 가 실제 폰트로 픽셀 폭을 재기 때문에
+# 폰트는 렌더링만이 아니라 **검증 로직의 입력**이다. 환경마다 폰트가 다르면 같은
+# 문구가 환경에 따라 통과/실패해 CI 초록불이 실제 안전을 보장하지 못한다.
+# 그래서 로컬·CI가 같은 파일을 쓰도록 저장소에 넣었다 (2026-07-27).
+FONT_PATH = str(
+    Path(__file__).resolve().parent / "assets" / "fonts" / "NotoSansKR-VF.ttf"
+)
+
+# 가변 폰트의 named instance 이름 (wght 축). ttc index 방식과 달리 파일 하나로
+# 모든 굵기를 낸다. 폰트 교체 시 get_variation_names() 로 재확인할 것.
+FONT_WEIGHT_VARIATION = {
+    "regular": "Regular",
+    "medium": "Medium",
+    "semibold": "SemiBold",
+    "bold": "Bold",
+    "extrabold": "ExtraBold",
 }
 
 FOOTER_BRAND = "apt-recom.kr"
@@ -45,9 +55,16 @@ _measuring_image = Image.new("RGB", (1, 1))
 def get_font(weight: str, size: int) -> ImageFont.FreeTypeFont:
     key = (weight, size)
     if key not in _font_cache:
-        _font_cache[key] = ImageFont.truetype(
-            FONT_PATH, size, index=FONT_WEIGHT_INDEX[weight]
-        )
+        # layout_engine 고정: Pillow 는 Raqm(HarfBuzz)이 있으면 그걸 쓰는데,
+        # Linux 휠에는 포함되고 macOS 휠에는 없어 같은 폰트·같은 문자열의 폭이
+        # 환경마다 달라진다 (실측: CI 1418px vs 로컬 1412px). 폰트를 저장소에
+        # 고정한 이유가 환경 무관 동일 측정이므로 엔진도 함께 고정한다.
+        # 한글은 조합 완성형이라 BASIC 레이아웃으로 충분하다. (2026-07-27)
+        font = ImageFont.truetype(FONT_PATH, size, layout_engine=ImageFont.Layout.BASIC)
+        # wght 축 기본값이 100(Thin) 이라 반드시 지정해야 한다 — 빠뜨리면
+        # 모든 텍스트가 얇게 렌더된다.
+        font.set_variation_by_name(FONT_WEIGHT_VARIATION[weight])
+        _font_cache[key] = font
     return _font_cache[key]
 
 
