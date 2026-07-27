@@ -55,7 +55,12 @@ _measuring_image = Image.new("RGB", (1, 1))
 def get_font(weight: str, size: int) -> ImageFont.FreeTypeFont:
     key = (weight, size)
     if key not in _font_cache:
-        font = ImageFont.truetype(FONT_PATH, size)
+        # layout_engine 고정: Pillow 는 Raqm(HarfBuzz)이 있으면 그걸 쓰는데,
+        # Linux 휠에는 포함되고 macOS 휠에는 없어 같은 폰트·같은 문자열의 폭이
+        # 환경마다 달라진다 (실측: CI 1418px vs 로컬 1412px). 폰트를 저장소에
+        # 고정한 이유가 환경 무관 동일 측정이므로 엔진도 함께 고정한다.
+        # 한글은 조합 완성형이라 BASIC 레이아웃으로 충분하다. (2026-07-27)
+        font = ImageFont.truetype(FONT_PATH, size, layout_engine=ImageFont.Layout.BASIC)
         # wght 축 기본값이 100(Thin) 이라 반드시 지정해야 한다 — 빠뜨리면
         # 모든 텍스트가 얇게 렌더된다.
         font.set_variation_by_name(FONT_WEIGHT_VARIATION[weight])

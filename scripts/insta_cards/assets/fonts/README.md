@@ -44,6 +44,23 @@ Google 의 Noto Sans CJK 는 Adobe 의 Source Han Sans 소스로 빌드되므로
 
 그래서 로컬과 CI 가 같은 파일을 쓰도록 고정했다.
 
+## 폰트만 고정해서는 부족하다 — 레이아웃 엔진도 고정한다
+
+Pillow 는 Raqm(HarfBuzz)이 있으면 그 엔진으로 글자를 배치한다. **Linux 휠에는 Raqm 이 포함되고
+macOS 휠에는 없어서**, 같은 폰트·같은 문자열인데도 폭이 달라진다. CI 첫 실행에서 실측된 차이:
+
+| 환경 | Raqm | 샘플 폭 |
+|------|------|---------|
+| macOS (Pillow 12.1.1 / 12.3.0) | False | 1412px |
+| Linux CI (초기) | True | 1418px |
+
+0.42% 차이라 작아 보이지만, 한도 근처 문구가 환경에 따라 통과/실패할 수 있다. 그래서
+`theme.get_font()` 은 `layout_engine=ImageFont.Layout.BASIC` 을 명시한다. 한글은 조합 완성형이라
+BASIC 으로 충분하다.
+
+워크플로(`.github/workflows/ci-scripts-tests.yml`)는 테스트 전에 이 샘플 폭이 기준값(1412px)과
+일치하는지 확인하고, 어긋나면 거기서 멈춘다 — 렌더 스택이 갈라진 상태로 초록불이 뜨지 않게.
+
 ## 교체 시 확인할 것
 
 폰트를 바꾸면 폭 측정값이 달라져 **기존 발행물이 텍스트 한도를 넘길 수 있다.** 다음을 모두 할 것.
