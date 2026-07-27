@@ -78,6 +78,7 @@ def _build_command(series: str, params: dict, slug: str) -> str:
     ]
     if series == "trade_top":
         parts.append(f"--days {params['days']}")
+        parts.append(f"--min-hhld {params['min_hhld']}")
     elif series == "value":
         parts.append(f'--region "{params["keyword"]}"')
         parts.append(f"--nudge {params['nudge']}")
@@ -104,7 +105,7 @@ def resolve(cfg: dict, target: date) -> dict:
     s = cfg["series"][series]
 
     if series == "trade_top":
-        params = {"days": s["days"]}
+        params = {"days": s["days"], "min_hhld": s["min_hhld"]}
         slug = f"trade-top-{stamp}"
     elif series == "value":
         region = s["regions"][occ % len(s["regions"])]

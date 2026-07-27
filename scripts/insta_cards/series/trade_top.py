@@ -1,8 +1,18 @@
-"""trade_top — 신고일 기준 최고가 TOP 5 + 직전 기간 대비 신고 급증 동네 TOP 5.
+"""trade_top — 적재 기준 최고가 TOP 5 + 직전 기간 대비 신규 적재 급증 동네 TOP 5.
 
 의미론 (변경 금지):
-- 최고가: 신고일(created_at) 기준 최근 N일, 단지별 최고가 1건 (DISTINCT ON).
+- 최고가: 적재일(created_at) 기준 최근 N일, 단지별 최고가 1건 (DISTINCT ON).
 - 급증: 직전 동일 기간 대비 증가 건수 — 카운트만으로 '급증' 표현 금지 (spec §5-5).
+
+표기 (2026-07-25 정정): created_at 은 **우리 파이프라인 적재일**이다. 거래 스키마에
+신고일 컬럼이 없어(PRD §1) 이전에는 이 창을 "신고일 기준"으로 표기했으나, 계약일과
+적재일이 2주 이상 벌어지는 사례가 실재해(1일차 검수: 계약 7/3~7/13 → 적재 7/20~7/24)
+"적재 기준"으로 정직하게 표기한다 (PRD §7-2 원칙).
+
+세대수 가드 (2026-07-26): total_hhld_cnt 가 확인된 단지만 후보다. 없으면 14세대급
+부티크 빌라가 대단지와 나란히 "아파트 최고가"로 실린다(1일차 검수: 이니그마빌 3위).
+매핑되지 않은 거래(pnu NULL)도 함께 제외된다 — 세대수를 확인할 수 없고 표시명이
+API 원본이라 단지명 신뢰도가 낮다.
 """
 
 from __future__ import annotations
@@ -29,29 +39,30 @@ LIST_SIZE = 5
 MIN_REPORT_COUNT = 20  # 표본 미달 지역 제외 (제안서 '표본 적은 지역 순위 제외')
 
 
-def fetch_top_price_trades(conn, days: int) -> list[dict]:
+def fetch_top_price_trades(conn, days: int, min_hhld: int) -> list[dict]:
+    # JOIN(LEFT 아님) + total_hhld_cnt 조건이 세대수 미확인·미매핑 거래를 함께 걸러낸다.
     rows = query_all(
         conn,
         """
         SELECT pnu, apt_display_name, sgg_cd, deal_amount, exclu_use_ar
         FROM (
-            SELECT DISTINCT ON (COALESCE(m.pnu, t.sgg_cd || ':' || t.apt_nm))
+            SELECT DISTINCT ON (m.pnu)
                 m.pnu,
-                COALESCE(a.display_name, a.bld_nm, t.apt_nm) AS apt_display_name,
+                COALESCE(a.display_name, a.bld_nm) AS apt_display_name,
                 t.sgg_cd,
                 t.deal_amount,
                 t.exclu_use_ar
             FROM trade_history t
-            LEFT JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
-            LEFT JOIN apartments a ON a.pnu = m.pnu
+            JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
+            JOIN apartments a ON a.pnu = m.pnu
             WHERE t.created_at >= NOW() - (%s || ' days')::interval
-            ORDER BY COALESCE(m.pnu, t.sgg_cd || ':' || t.apt_nm),
-                     t.deal_amount DESC
+              AND a.total_hhld_cnt >= %s
+            ORDER BY m.pnu, t.deal_amount DESC
         ) per_complex
         ORDER BY deal_amount DESC
         LIMIT %s
         """,
-        [days, LIST_SIZE],
+        [days, min_hhld, LIST_SIZE],
     )
     names = _load_sigungu_names(conn)
     return [
@@ -124,6 +135,7 @@ def build_publication(
     price_rows: list[dict],
     hot_rows: list[dict],
     days: int,
+    min_hhld: int,
     *,
     slug: str,
     status: str,
@@ -163,7 +175,7 @@ def build_publication(
             region=None,
             pnu=None,
             metrics=(
-                Metric("신고 건수", f"{r['current_count']:,}건", ""),
+                Metric("신규 거래", f"{r['current_count']:,}건", ""),
                 Metric("직전 대비", f"+{r['delta']:,}건", ""),
             ),
             reasons=(),
@@ -175,26 +187,27 @@ def build_publication(
     if copy_overrides:
         copy = apply_overrides(copy, copy_overrides)
 
-    period_label = f"신고일 기준 최근 {days}일"
+    period_label = f"적재 기준 최근 {days}일"
     today = date.today().isoformat()
     return Publication(
         schema_version=SCHEMA_VERSION,
         slug=slug,
         status=status,
         series=Series.TRADE_TOP,
-        title=f"최근 {days}일 신고 최고가 TOP 5",
-        eyebrow=f"신고일 기준 · 최근 {days}일",
+        title=f"최근 {days}일 최고가 TOP 5",
+        eyebrow=f"적재 기준 · 최근 {days}일",
         hook=copy.hook,
-        summary="신고일 기준 최고가 거래와 신고가 크게 늘어난 동네를 모았습니다.",
+        summary="새로 포착된 거래 중 최고가와, 신규 거래가 크게 늘어난 동네를 모았습니다.",
         generated_at=datetime.now().isoformat(timespec="seconds"),
         published_at=published_at,
         data_as_of=today,
         period_label=period_label,
         cover_image="01-cover.png",
-        cover_alt=f"최근 {days}일 아파트 신고 최고가 TOP 5 카드",
+        cover_alt=f"최근 {days}일 아파트 최고가 TOP 5 카드",
         conditions=(
             Condition("기간", period_label),
             Condition("집계 단위", "단지별 최고가 1건"),
+            Condition("최소 세대수", f"{min_hhld}세대"),
             Condition("기준일", today),
         ),
         items=items,
@@ -202,12 +215,13 @@ def build_publication(
         comparison=None,
         narrative=Narrative(why=copy.why, fit_for=copy.fit_for),
         methodology=(
-            "최고가: 신고일 기준 최근 기간, 단지별 최고가 1건만 집계",
-            f"급증: 직전 {days}일 대비 신고 건수 증가분 (현재 {MIN_REPORT_COUNT}건 이상 지역만)",
+            "최고가: 최근 기간 새로 적재된 거래 중 단지별 최고가 1건만 집계",
+            f"{min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+            f"급증: 직전 {days}일 대비 신규 적재 건수 증가분 (현재 {MIN_REPORT_COUNT}건 이상 지역만)",
         ),
         caveats=(
             "투자 자문이 아닙니다.",
-            "신고일 기준이라 실제 계약 시점과 다를 수 있습니다.",
+            "데이터 적재일 기준이라 실제 계약 시점은 이보다 앞섭니다.",
             "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다.",
         ),
         map_ctas=(),  # 랭킹은 넛지 조건이 아님 — 가짜 의도 부여 금지 (PRD Q3)
@@ -220,7 +234,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         warning = stale_trade_warning(conn)
         if warning:
             print(warning)
-        price_rows = fetch_top_price_trades(conn, args.days)
+        price_rows = fetch_top_price_trades(conn, args.days, args.min_hhld)
         hot_rows = fetch_hot_districts(conn, args.days)
     finally:
         conn.close()
@@ -228,6 +242,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         price_rows,
         hot_rows,
         args.days,
+        args.min_hhld,
         slug=slug,
         status=status,
         published_at=published_at,

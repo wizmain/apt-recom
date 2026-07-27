@@ -531,10 +531,11 @@ def build_slides(pub: Publication) -> list[tuple[str, Image.Image]]:
         return [
             ("01-cover.png", render_cover(pub)),
             ("02-conditions.png", render_conditions(pub)),
-            ("03-ranking.png", render_ranking(pub, pub.items, "신고 최고가 TOP 5")),
+            # "신고" 금지 — created_at 은 적재일이다 (series/trade_top.py 주석 참고).
+            ("03-ranking.png", render_ranking(pub, pub.items, "최고가 거래 TOP 5")),
             (
                 "04-ranking-hot.png",
-                render_ranking(pub, pub.secondary_items, "신고 급증 동네 TOP 5"),
+                render_ranking(pub, pub.secondary_items, "신규 거래 급증 동네 TOP 5"),
             ),
             ("05-caveats.png", render_caveats(pub)),
             ("06-cta.png", render_cta(pub)),

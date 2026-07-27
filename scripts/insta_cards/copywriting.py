@@ -178,5 +178,6 @@ def build_compare_copy(
 
 
 def build_trade_top_copy(days: int, top_amount_manwon: int) -> CopyBundle:
-    hook = f"최근 {days}일 신고 최고가는 {format_eok(top_amount_manwon)}"
+    # "신고" 대신 "새로 포착된" — created_at 은 적재일이다 (trade_top 모듈 주석 참고).
+    hook = f"최근 {days}일 새로 포착된 최고가는 {format_eok(top_amount_manwon)}"
     return CopyBundle(hook=hook, why=(), fit_for=None)

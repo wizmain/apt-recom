@@ -831,6 +831,7 @@ class TestTradeTopSeries(unittest.TestCase):
             self._price_rows(),
             self._hot_rows(),
             days=7,
+            min_hhld=100,
             slug="trade-top-20260713",
             status="draft",
             published_at=None,
@@ -842,8 +843,18 @@ class TestTradeTopSeries(unittest.TestCase):
         self.assertEqual(len(pub.secondary_items), 5)
         self.assertEqual(pub.map_ctas, ())
         self.assertIn(
-            "직전", pub.secondary_items[0].metrics[1].label + pub.methodology[1]
+            "직전", pub.secondary_items[0].metrics[1].label + pub.methodology[2]
         )
+        # 적재일 창을 "신고일"로 표기하지 않는다 (PRD §1·§7-2 — 신고일 컬럼 없음).
+        surfaced = " ".join(
+            (pub.title, pub.eyebrow, pub.summary, pub.period_label, pub.hook)
+            + pub.methodology
+            + pub.caveats
+            + tuple(c.value for c in pub.conditions)
+        )
+        self.assertNotIn("신고", surfaced)
+        self.assertIn("적재", surfaced)
+        self.assertIn("최소 세대수", [c.label for c in pub.conditions])
 
     def test_insufficient_rows_raise(self):
         from scripts.insta_cards.series import trade_top
@@ -853,11 +864,62 @@ class TestTradeTopSeries(unittest.TestCase):
                 self._price_rows(3),
                 self._hot_rows(),
                 days=7,
+                min_hhld=100,
                 slug="trade-top-20260713",
                 status="draft",
                 published_at=None,
                 copy_overrides=None,
             )
+
+    def test_no_report_date_wording_in_source(self):
+        """'신고일' 표기가 코드 어디에도 남지 않아야 한다.
+
+        Publication 필드만 검사하면 slides.py 슬라이드 제목·caption.py 고지처럼
+        하드코딩된 문구를 놓친다 (2026-07-26 1일차 시각 검수에서 3곳 발견).
+        """
+        import ast
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "insta_cards"
+        offenders = []
+        for path in root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            # docstring 은 제외 — 왜 '신고일'을 쓰지 않는지 설명해야 한다.
+            docstrings = {
+                id(ast.get_docstring(node, clean=False))
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef)
+                and ast.get_docstring(node)
+            }
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and "신고일" in node.value
+                    and id(node.value) not in docstrings
+                ):
+                    offenders.append(f"{path.name}:{node.lineno}: {node.value[:60]}")
+        self.assertEqual(offenders, [], "적재일을 '신고일'로 표기한 문자열이 남아 있음")
+
+    def test_price_sql_filters_by_min_hhld(self):
+        """세대수 미달·미매핑 거래를 SQL 단계에서 제외한다 (부티크 빌라 혼입 방지)."""
+        from unittest.mock import patch
+
+        from scripts.insta_cards.series import trade_top
+
+        captured = {}
+
+        def fake_query_all(conn, sql, params=None):
+            captured.setdefault("calls", []).append((sql, params))
+            return []
+
+        with patch("scripts.insta_cards.series.trade_top.query_all", fake_query_all):
+            trade_top.fetch_top_price_trades(None, 7, 100)
+        sql, params = captured["calls"][0]
+        self.assertIn("total_hhld_cnt >= %s", sql)
+        self.assertIn(100, params)
+        # LEFT JOIN 이면 미매핑 거래가 살아남아 API 원본명이 그대로 실린다.
+        self.assertNotIn("LEFT JOIN", sql)
 
     def test_hot_sql_filters_by_min_report_count(self):
         from unittest.mock import patch
@@ -1879,11 +1941,13 @@ class TestInstagramCaption(unittest.TestCase):
         self.assertLessEqual(text.count("#"), 5)
         self.assertIn("#노원구", text)  # region_label 정규화 동적 태그
 
-    def test_trade_top_carries_report_date_notice(self):
+    def test_trade_top_carries_load_date_notice(self):
+        """적재일 기준임을 캡션에 고지한다 — '신고일' 표기는 부정확(PRD §1)."""
         from scripts.insta_cards.instagram import caption
 
         text = caption.build_caption(self._manifest(series="trade_top", map_ctas=[]))
-        self.assertIn("신고일 기준", text)
+        self.assertIn("적재일 기준", text)
+        self.assertNotIn("신고일", text)
 
     def test_forbidden_term_rejected(self):
         from scripts.insta_cards.instagram import caption
