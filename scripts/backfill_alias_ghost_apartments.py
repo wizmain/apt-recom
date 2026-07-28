@@ -278,19 +278,46 @@ def classify(cur, headers, ghost: dict, sgg_map, by_name, by_addr, areas) -> dic
     return result
 
 
-def apply_remaps(conn, cur, remaps: list[dict], logger_print) -> int:
-    applied = 0
+def apply_remaps(conn, cur, remaps: list[dict], logger_print) -> tuple[int, int]:
+    """REMAP 건을 반영한다. 전제조건이 깨진 건은 건너뛴다.
+
+    반환: (반영 건수, 건너뛴 건수)
+    """
+    applied = skipped = 0
     for r in remaps:
+        ghost, canon = r["ghost_pnu"], r["canonical_pnu"]
+
+        cur.execute("SELECT 1 FROM apartments WHERE pnu = %s", [ghost])
+        if not cur.fetchone():
+            logger_print(f"  건너뜀(유령 없음): {r['ghost_nm']}")
+            skipped += 1
+            continue
+        cur.execute("SELECT lat FROM apartments WHERE pnu = %s", [canon])
+        row = cur.fetchone()
+        if not row or row["lat"] is None:
+            logger_print(f"  건너뜀(진본 없음/좌표 없음): {r['ghost_nm']} → {canon}")
+            skipped += 1
+            continue
+
         cur.execute(
             "UPDATE trade_apt_mapping SET pnu = %s, match_method = %s WHERE pnu = %s",
-            [r["canonical_pnu"], MATCH_METHOD, r["ghost_pnu"]],
+            [canon, MATCH_METHOD, ghost],
         )
-        cur.execute("DELETE FROM apt_price_score WHERE pnu = %s", [r["ghost_pnu"]])
-        cur.execute("DELETE FROM apartments WHERE pnu = %s", [r["ghost_pnu"]])
+        cur.execute("DELETE FROM apt_price_score WHERE pnu = %s", [ghost])
+        cur.execute("DELETE FROM apartments WHERE pnu = %s", [ghost])
         applied += 1
-        logger_print(f"  반영: {r['ghost_nm']} → {r['canonical_pnu']} ({r['canonical_nm']})")
     conn.commit()
-    return applied
+    return applied, skipped
+
+
+def load_reviewed_remaps(path: str) -> list[dict]:
+    """리포트 JSON 에서 REMAP 건만 읽는다.
+
+    --apply 는 전 대상을 재분석하므로 Kakao 응답 변화에 따라 검토 시점과 다른
+    집합이 반영될 수 있다. 검토한 결과를 그대로 적용하려면 이 경로를 쓴다.
+    """
+    data = json.loads(Path(path).read_text())
+    return [r for r in data if r.get("status") == "REMAP"]
 
 
 def main() -> int:
@@ -299,7 +326,22 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="처리할 유령 수 (0=전체)")
     ap.add_argument("--apply", action="store_true", help="REMAP 건 실제 반영 (기본은 리포트만)")
     ap.add_argument("--out", default="", help="결과 JSON 저장 경로")
+    ap.add_argument("--from-report", default="",
+                    help="리포트 JSON 의 REMAP 건을 재분석 없이 그대로 반영 (--apply 필요)")
     args = ap.parse_args()
+
+    if args.from_report:
+        if not args.apply:
+            raise SystemExit("--from-report 는 --apply 와 함께 써야 합니다.")
+        conn = _connect(args.target)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        remaps = load_reviewed_remaps(args.from_report)
+        print(f"[{args.target}] APPLY (검토본) — REMAP {len(remaps)}건\n")
+        applied, skipped = apply_remaps(conn, cur, remaps, print)
+        print(f"\n반영 완료: {applied}건 (건너뜀 {skipped}건)")
+        print("가격점수 재계산 필요 (12h 거래 배치가 recalc_price 수행)")
+        conn.close()
+        return 0
 
     if not KAKAO_API_KEY:
         raise SystemExit("KAKAO_API_KEY 환경변수가 없습니다.")
@@ -362,8 +404,8 @@ def main() -> int:
 
     if args.apply and remaps:
         print(f"\n=== 반영 {len(remaps)}건 ===")
-        applied = apply_remaps(conn, cur, remaps, print)
-        print(f"\n반영 완료: {applied}건")
+        applied, skipped = apply_remaps(conn, cur, remaps, print)
+        print(f"\n반영 완료: {applied}건 (건너뜀 {skipped}건)")
         print("가격점수 재계산 필요 (12h 거래 배치가 recalc_price 수행)")
     elif args.apply:
         print("\n반영할 REMAP 건이 없습니다.")
