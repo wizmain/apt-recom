@@ -61,6 +61,52 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[\s\-·()（）,.]", "", name).lower()
 
 
+# 괄호 별칭 후보의 최소 길이. `세종마루(CB5-3BL)` 처럼 괄호가 별칭이 아니라
+# 블록/동 코드인 경우가 있어, 너무 짧은 조각은 오매칭 위험이 커 제외한다.
+_MIN_ALIAS_LEN = 3
+
+_PAREN_BLOCK_RE = re.compile(r"[(（]([^)）]*)[)）]")
+
+
+def _name_variants(apt_nm: str) -> list[str]:
+    """거래명에서 검색·조회용 이름 변형을 우선순위대로 생성.
+
+    국토부 거래명은 `세종리첸시아파밀리에H3블록(산울마을6단지)` 처럼 괄호 안에
+    실제 단지명(별칭)을 담는 경우가 있다. 이 형태를 그대로 쓰면 Kakao POI
+    (`산울마을6단지세종리첸시아파밀리에H3아파트`)와 완전 불일치해 검색이 0건이 되고,
+    K-APT 진본 이름 인덱스 조회도 빗나간다.
+
+    반환 순서:
+      1) 원본
+      2) 괄호 블록을 제거한 본명
+      3) 괄호 안 별칭 (짧은 조각은 _MIN_ALIAS_LEN 으로 제외)
+
+    중복과 빈 문자열은 제거한다. 괄호가 없으면 원본 1개만 반환하므로
+    기존 동작과 동일하다.
+    """
+    if not apt_nm:
+        return []
+
+    variants = [apt_nm.strip()]
+
+    stripped = _PAREN_BLOCK_RE.sub("", apt_nm).strip()
+    if stripped:
+        variants.append(stripped)
+
+    for alias in _PAREN_BLOCK_RE.findall(apt_nm):
+        alias = alias.strip()
+        if len(alias) >= _MIN_ALIAS_LEN:
+            variants.append(alias)
+
+    seen: set[str] = set()
+    result = []
+    for v in variants:
+        if v and v not in seen:
+            seen.add(v)
+            result.append(v)
+    return result
+
+
 def _has_modern_brand(apt_nm: str) -> bool:
     if not apt_nm:
         return False
@@ -206,38 +252,48 @@ def _resolve_one(
         "bjd_code": None, "bld_params": None, "bld_info": None,
     }
 
-    # 1. Kakao 키워드 검색
+    # 1. Kakao 키워드 검색 — 이름 변형을 우선순위대로 시도하고 첫 성공에서 중단.
+    #    괄호 별칭형 거래명(`...H3블록(산울마을6단지)`)은 원본으로는 0건이라
+    #    변형 없이는 좌표 없는 TRADE_ fallback 으로 빠진다.
+    #    변형이 1개(괄호 없는 이름)면 호출 수는 기존과 동일하다.
     query = f"{region} {apt_nm} 아파트"
-    resp = _api_get_with_retry(
-        KAKAO_KEYWORD_URL, kakao_limiter,
-        headers=headers, params={"query": query, "size": 5}, timeout=5,
-    )
     new_plat, plat, lat, lng = None, None, None, None
 
-    if resp and resp.ok:
+    for variant in _name_variants(apt_nm):
+        resp = _api_get_with_retry(
+            KAKAO_KEYWORD_URL, kakao_limiter,
+            headers=headers,
+            params={"query": f"{region} {variant} 아파트", "size": 5},
+            timeout=5,
+        )
+        if not (resp and resp.ok):
+            continue
         docs = resp.json().get("documents", [])
-        if docs:
-            apt_docs = [d for d in docs if "아파트" in (d.get("category_name") or "")]
-            doc = apt_docs[0] if apt_docs else docs[0]
-            new_plat = doc.get("road_address_name") or None
-            plat = doc.get("address_name") or None
-            lat = float(doc["y"]) if doc.get("y") else None
-            lng = float(doc["x"]) if doc.get("x") else None
-        else:
-            # 키워드 검색 실패 → 주소 검색 fallback
-            resp2 = _api_get_with_retry(
-                KAKAO_ADDRESS_URL, kakao_limiter,
-                headers=headers, params={"query": query, "size": 1}, timeout=5,
-            )
-            if resp2 and resp2.ok:
-                docs2 = resp2.json().get("documents", [])
-                if docs2:
-                    doc = docs2[0]
-                    road = doc.get("road_address")
-                    new_plat = road["address_name"] if road else doc.get("address_name")
-                    plat = doc.get("address_name") or None
-                    lat = float(doc["y"]) if doc.get("y") else None
-                    lng = float(doc["x"]) if doc.get("x") else None
+        if not docs:
+            continue
+        apt_docs = [d for d in docs if "아파트" in (d.get("category_name") or "")]
+        doc = apt_docs[0] if apt_docs else docs[0]
+        new_plat = doc.get("road_address_name") or None
+        plat = doc.get("address_name") or None
+        lat = float(doc["y"]) if doc.get("y") else None
+        lng = float(doc["x"]) if doc.get("x") else None
+        break
+
+    if lat is None and lng is None:
+        # 모든 변형의 키워드 검색 실패 → 주소 검색 fallback (원본 질의 기준)
+        resp2 = _api_get_with_retry(
+            KAKAO_ADDRESS_URL, kakao_limiter,
+            headers=headers, params={"query": query, "size": 1}, timeout=5,
+        )
+        if resp2 and resp2.ok:
+            docs2 = resp2.json().get("documents", [])
+            if docs2:
+                doc = docs2[0]
+                road = doc.get("road_address")
+                new_plat = road["address_name"] if road else doc.get("address_name")
+                plat = doc.get("address_name") or None
+                lat = float(doc["y"]) if doc.get("y") else None
+                lng = float(doc["x"]) if doc.get("x") else None
 
     result["lat"] = lat
     result["lng"] = lng
@@ -812,10 +868,25 @@ def enrich_new_apartments(conn, logger):
 
         # [3] K-APT 진본 우선 바인딩 — 같은 시군구에 K-APT 연동 + 이름 일치 단지가
         # 이미 존재하면 Kakao 결과보다 우선 사용 (오매칭으로 유령 생성 방지)
-        canonical_pnu = kapt_name_index.get((sgg_cd, _normalize_name(apt_nm)))
+        #
+        # 원본 이름은 완전일치라 그대로 수락한다. 괄호 별칭 변형은 그보다 느슨한
+        # 매칭이므로(`세종마루(CB5-3BL)` 처럼 괄호가 블록 코드인 경우가 있다)
+        # 거래 타임라인 정합성을 통과한 경우에만 수락한다.
+        canonical_pnu = None
+        method = None
+        for variant_idx, variant in enumerate(_name_variants(apt_nm)):
+            hit = kapt_name_index.get((sgg_cd, _normalize_name(variant)))
+            if not hit:
+                continue
+            if variant_idx == 0:
+                canonical_pnu, method = hit, "kapt_canonical"
+                break
+            if _timeline_consistent(existing_use_apr_index.get(hit), min_dy, med_by):
+                canonical_pnu, method = hit, "kapt_canonical_alias"
+                break
+
         if canonical_pnu:
             pnu = canonical_pnu
-            method = "kapt_canonical"
             matched += 1
             cur.execute(
                 "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
