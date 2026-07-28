@@ -1,8 +1,11 @@
 name: Fill Missing Apartment Addresses
 
+# 정기 스케줄 종료 (2026-07-28).
+#   - "Phase 2 대상: 0건" 이 최소 2026-06-28 이후 매일 반복
+#   - batch/fill_addresses.py phase2 는 체크포인트(pnu > last_pnu) 이후만 조회하므로
+#     체크포인트 이전의 미보충분은 정기 실행으로 재시도되지 않는다 → 계속 0건
+# 잔여분 보충은 일회성 작업으로 처리한다 (Phase 1 수동 실행 / 체크포인트 리셋 후 Phase 2).
 on:
-  schedule:
-    - cron: '0 16 * * *'  # 매일 16:00 UTC (한국 01:00) — 주소 보충 완료 시 비활성화
   workflow_dispatch:
 
 jobs:
