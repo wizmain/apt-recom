@@ -1,6 +1,186 @@
 [
   {
     "schema_version": 1,
+    "slug": "value-gangnam-20260728",
+    "status": "published",
+    "series": "value",
+    "title": "숨은 가성비 TOP 5 — 강남구",
+    "eyebrow": "가성비 랭킹",
+    "hook": "강남구, 가격은 낮은데 생활점수는 높은 단지 5곳",
+    "summary": "강남구 가성비 넛지 상위 후보 중 ㎡당 가격이 낮은 5곳입니다.",
+    "generated_at": "2026-07-28T09:15:02",
+    "published_at": "2026-07-28",
+    "data_as_of": "2026-07-28",
+    "period_label": "가성비 넛지 상위 30 후보 기준",
+    "cover_image": "/content/instagram/value-gangnam-20260728/cover.png",
+    "cover_alt": "강남구 숨은 가성비 아파트 TOP 5 카드",
+    "conditions": [
+      {
+        "label": "지역",
+        "value": "강남구"
+      },
+      {
+        "label": "최소 세대수",
+        "value": "100세대"
+      },
+      {
+        "label": "최소 주택형",
+        "value": "59㎡ 이상"
+      },
+      {
+        "label": "기준일",
+        "value": "2026-07-28"
+      }
+    ],
+    "items": [
+      {
+        "rank": 1,
+        "name": "역삼쌍용플래티넘밸류",
+        "region": "강남구",
+        "pnu": "1168010100008260037",
+        "metrics": [
+          {
+            "label": "㎡당 가격",
+            "value": "1,151만원/㎡",
+            "unit": ""
+          },
+          {
+            "label": "가성비 점수",
+            "value": "77.7",
+            "unit": ""
+          }
+        ],
+        "reasons": [
+          "마트",
+          "가격 점수"
+        ]
+      },
+      {
+        "rank": 2,
+        "name": "우성캐릭터199 아파트",
+        "region": "강남구",
+        "pnu": "1168011800004670024",
+        "metrics": [
+          {
+            "label": "㎡당 가격",
+            "value": "1,197만원/㎡",
+            "unit": ""
+          },
+          {
+            "label": "가성비 점수",
+            "value": "74.8",
+            "unit": ""
+          }
+        ],
+        "reasons": [
+          "마트",
+          "가격 점수"
+        ]
+      },
+      {
+        "rank": 3,
+        "name": "청담대우유로카운티",
+        "region": "강남구",
+        "pnu": "1168010400000500005",
+        "metrics": [
+          {
+            "label": "㎡당 가격",
+            "value": "1,244만원/㎡",
+            "unit": ""
+          },
+          {
+            "label": "가성비 점수",
+            "value": "72.5",
+            "unit": ""
+          }
+        ],
+        "reasons": [
+          "마트",
+          "가격 점수"
+        ]
+      },
+      {
+        "rank": 4,
+        "name": "논현쌍용",
+        "region": "강남구",
+        "pnu": "1168010800001030000",
+        "metrics": [
+          {
+            "label": "㎡당 가격",
+            "value": "1,251만원/㎡",
+            "unit": ""
+          },
+          {
+            "label": "가성비 점수",
+            "value": "71.4",
+            "unit": ""
+          }
+        ],
+        "reasons": [
+          "마트",
+          "가격 점수"
+        ]
+      },
+      {
+        "rank": 5,
+        "name": "삼성롯데캐슬킹덤",
+        "region": "강남구",
+        "pnu": "1168010500000430000",
+        "metrics": [
+          {
+            "label": "㎡당 가격",
+            "value": "1,281만원/㎡",
+            "unit": ""
+          },
+          {
+            "label": "가성비 점수",
+            "value": "78.0",
+            "unit": ""
+          }
+        ],
+        "reasons": [
+          "마트",
+          "가격 점수"
+        ]
+      }
+    ],
+    "secondary_items": null,
+    "comparison": null,
+    "narrative": {
+      "why": [
+        "가성비 넛지 상위 후보 중에서 ㎡당 가격이 낮은 순서로 골랐습니다."
+      ],
+      "fit_for": null
+    },
+    "methodology": [
+      "가성비 넛지 상위 30개 후보 중 ㎡당 가격 오름차순 5곳",
+      "모든 주택형이 전용 59㎡ 이상인 단지만 후보",
+      "가격은 apt_price_score 의 ㎡당 가격 (로컬 적재 기준)"
+    ],
+    "caveats": [
+      "투자 자문이 아닙니다.",
+      "가격 데이터는 로컬 적재 시점 기준입니다.",
+      "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+    ],
+    "map_ctas": [
+      {
+        "id": "map-main",
+        "label": "가성비 조건 그대로 강남구 지도에서 보기",
+        "nudges": [
+          "cost"
+        ],
+        "sigungu_code": null,
+        "region_label": "강남구",
+        "filters": {
+          "min_hhld": 100,
+          "min_smallest_area": 59.0
+        },
+        "keyword": "강남구"
+      }
+    ]
+  },
+  {
+    "schema_version": 1,
     "slug": "trade-top-20260727",
     "status": "published",
     "series": "trade_top",
