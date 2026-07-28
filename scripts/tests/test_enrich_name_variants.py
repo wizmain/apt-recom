@@ -1,11 +1,13 @@
-"""batch.trade.enrich_apartments 의 이름 변형 생성 테스트.
+"""batch.trade.name_matching 의 이름 변형 생성 테스트.
 
 DB·네트워크 없이 순수 함수만 검증한다 (CI 대상).
+enrich_apartments 를 직접 import 하면 batch.db → psycopg2 까지 끌려와
+DB 드라이버가 없는 CI 에서 ImportError 가 난다. 규칙만 담은 모듈을 쓴다.
 """
 
 import unittest
 
-from batch.trade.enrich_apartments import (
+from batch.trade.name_matching import (
     _MIN_ALIAS_LEN,
     _name_variants,
     _names_overlap,
