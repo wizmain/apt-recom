@@ -1,8 +1,10 @@
 name: Initial Nationwide Trade Collection
 
+# 초기 수집 완료로 정기 스케줄 종료 (2026-07-28).
+#   - 진행률 101% (전체 7353쌍 / 완료 7433쌍 / 남은 0쌍), 최소 2026-05-29 이후 계속 0쌍
+#   - 신규 월은 Trade Data Batch (12h) 가 커버하므로 정기 실행이 불필요
+# 신규 시군구 편입 등으로 미수집 구간이 생기면 workflow_dispatch 로 수동 실행.
 on:
-  schedule:
-    - cron: '0 15 * * *'  # 매일 15:00 UTC (한국 00:00) — 초기 수집 완료 시 비활성화
   workflow_dispatch:
 
 jobs:

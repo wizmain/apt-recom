@@ -1,18 +1,17 @@
 name: Enrich New Apartments
 
+# 자동 트리거 종료 (2026-07-28).
+#   - batch.run --type trade 가 이미 enrich_new_apartments 를 호출한다 (batch/run.py)
+#     → 12h 거래 배치가 신규 아파트 보충을 담당하므로 별도 자동 실행은 중복
+#   - 트리거 소스였던 Initial Nationwide Trade Collection 도 정기 스케줄을 종료
+# 거래 배치 밖에서 보충만 따로 돌려야 할 때 workflow_dispatch 로 수동 실행.
 on:
-  workflow_run:
-    workflows: ["Initial Nationwide Trade Collection"]
-    types: [completed]
   workflow_dispatch:
 
 jobs:
   enrich:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion != 'cancelled'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
