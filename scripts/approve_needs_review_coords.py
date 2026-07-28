@@ -1,27 +1,43 @@
-"""needs_review 좌표 후보 중 안전 구간(Tier A)을 일괄 승인·반영한다.
+"""needs_review 좌표 후보를 구간별로 일괄 승인·폐기한다.
 
 배경
   batch/kakao_poi_coord_pipeline.py 의 자동승인 조건은
     address_score >= 1.0  AND  distance <= 1000m (아파트 POI 기준 total >= 82)
-  인데, 이 중 address_score 게이트가 정상 후보를 대량으로 붙잡고 있다.
-  Kakao POI 가 지번을 `산울동 산 14` 로, DB 는 `산울동 378-4` 로 적는 식의
-  표기 차이만으로 address_mismatch(0.0) 가 되기 때문이다.
+  인데, 두 게이트가 각각 다른 방식으로 정상 후보를 붙잡는다.
+    - address_score: Kakao 가 지번을 `산울동 산 14` 로, DB 는 `산울동 378-4` 로
+      적는 표기 차이만으로 0.0 이 된다
+    - distance: 현재 좌표가 틀려서 멀어진 경우까지 페널티(-20)를 받는다
+  전자는 근거리 오탐(Tier A), 후자는 원거리 오좌표(Tier B/C)로 나타난다.
 
-Tier A 정의 — 이름이 완전히 일치하는 아파트 POI 가 코앞에 있는 경우
-  rank 1 · match_status='needs_review'
-  · 아파트 카테고리(reason 에 apt_category)
-  · name_score >= 1.0 (이름 완전일치)
-  · distance <= 200m
-  · bad_place_word 없음
-  · 대상 아파트의 coord_source 가 PROTECTED_SOURCES 가 아님
+Tier A — 주소 표기만 어긋난 근거리
+  아파트 POI · name_score >= 1.0 · distance <= 200m · bad_place_word 없음
+  반영해도 좌표 이동이 200m 를 넘지 않아 이동 상한 자체가 안전장치다.
 
-  주소 표기 불일치만이 보류 사유이고, 반영해도 좌표 이동이 200m 를 넘지 않아
-  최악의 경우에도 같은 단지 반경 안이다. 이동 상한이 곧 안전장치다.
+Tier B — 이름·주소 완전일치인데 거리로만 보류
+  아파트 POI · name_score >= 1.0 · address_score >= 1.0 · distance > 1000m
+  DB 주소를 독립 지오코딩해 현재 좌표와 POI 중 어느 쪽이 실제 주소 위치인지
+  확인하고, 현재 좌표가 틀렸다고 확인된 건만 반영한다.
 
-  거리로만 보류된 원거리 건(주소는 완전일치, 현재 좌표가 틀린 케이스)은
-  Tier B 로 분리되어 있으며 이 스크립트의 대상이 아니다.
+Tier C — 남은 원거리 전체를 지오코딩 판정만으로 정리
+  distance > 1000m 인 rank1 전부. 이름/주소 점수를 조건에 걸지 않는다.
+  Tier B 가 name_score >= 1.0 을 요구해 `서산 한성필하우스아파트` vs
+  `석림한성필하우스아파트` 처럼 지번은 같고 표기만 다른 건을 놓쳤기 때문이다.
+  판정 결과에 따라 두 방향으로 처리한다.
+    POI_RIGHT     → 좌표 반영
+    CURRENT_RIGHT → 후보를 rejected 로 닫는다(좌표 불변). 짧은 아파트명이
+                    전국의 동명 지명·상호를 끌어온 경우로, 재검토해도 결론이
+                    같아 큐에서 영구 제거한다
+    AMBIGUOUS / NO_GEOCODE → 조치 없음
 
-반영 내용 (PNU 1건당)
+지오코딩 판정 (Tier B/C)
+  DB 주소를 Kakao 주소검색으로 지오코딩해 제3의 기준점을 만든다.
+    POI_RIGHT     지오코딩 지점이 POI 에 근접(<=GEO_NEAR_M)이고
+                  현재 좌표와는 멀다(>GEO_FAR_M) → 현재 좌표가 틀림
+    CURRENT_RIGHT 그 반대 → POI 가 동명의 다른 장소
+  대상 DB 기준으로 반영 시점에 재검증하므로, 로컬에서 만든 판정 목록을
+  프로덕션에 그대로 적용하지 않는다.
+
+반영 내용 (좌표 반영 대상 1건당)
   1. apt_coord_history 에 old→new 기록 (롤백 근거)
   2. apartments.lat/lng/coord_source 갱신
      coord_source 는 kakao_place_poi_verified — PROTECTED_SOURCES 에 포함되어
@@ -29,13 +45,14 @@ Tier A 정의 — 이름이 완전히 일치하는 아파트 POI 가 코앞에 �
   3. 해당 후보 행의 match_status 를 bulk_verified 로 변경
 
 사용
-  .venv/bin/python scripts/approve_needs_review_coords.py                    # 리포트 (기본)
-  .venv/bin/python scripts/approve_needs_review_coords.py --limit 20
-  .venv/bin/python scripts/approve_needs_review_coords.py --apply            # 로컬 반영
-  .venv/bin/python scripts/approve_needs_review_coords.py --target both --apply
+  .venv/bin/python scripts/approve_needs_review_coords.py --tier a           # 리포트 (기본)
+  .venv/bin/python scripts/approve_needs_review_coords.py --tier b --apply
+  .venv/bin/python scripts/approve_needs_review_coords.py --tier c --target both --apply
 
 롤백
-  apt_coord_history 의 method='bulk_review_tier_a' 행으로 old_lat/old_lng 복원 가능.
+  apt_coord_history 의 method='bulk_review_tier_a'/'_b'/'_c' 행으로
+  old_lat/old_lng 복원 가능. rejected 처리는 좌표를 바꾸지 않으므로
+  match_status 를 needs_review 로 되돌리면 원상복구된다.
 """
 
 from __future__ import annotations
@@ -71,7 +88,8 @@ GEO_FAR_M = 1000.0   # 이 초과면 "틀린 좌표"
 
 NEW_COORD_SOURCE = "kakao_place_poi_verified"
 NEW_MATCH_STATUS = "bulk_verified"
-HISTORY_METHOD = {"a": "bulk_review_tier_a", "b": "bulk_review_tier_b"}
+HISTORY_METHOD = {"a": "bulk_review_tier_a", "b": "bulk_review_tier_b",
+                  "c": "bulk_review_tier_c"}
 
 KAKAO_ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 
@@ -107,6 +125,32 @@ SELECT_SQL_B = _SELECT_COLS + """
       AND cd.distance_m > %s
     ORDER BY cd.distance_m DESC, cd.pnu
 """
+
+# Tier C — Tier A/B 처리 후 남은 원거리 구간 전체를 지오코딩 판정만으로 정리한다.
+# 이름·주소 점수를 조건에 걸지 않는다. Tier B 가 name_score >= 1.0 을 요구해
+# `서산 한성필하우스아파트` vs `석림한성필하우스아파트` 처럼 지번은 같고 표기만
+# 다른 건을 놓쳤기 때문이다. 판정 근거는 이름이 아니라 "DB 주소를 지오코딩한
+# 지점이 어느 좌표에 붙는가" 하나로 통일한다.
+#   POI_RIGHT     → 좌표 반영 (현재 좌표가 틀렸음이 확인됨)
+#   CURRENT_RIGHT → 후보를 rejected 로 닫음. 좌표는 건드리지 않는다.
+#                   짧은 아파트명이 전국의 동명 지명·상호를 끌어온 경우로,
+#                   재검토해도 결론이 같아 큐에서 영구 제거한다.
+SELECT_SQL_C = """
+    SELECT cd.pnu, cd.kakao_place_id, cd.place_name, cd.address_name,
+           cd.road_address_name, cd.lat AS new_lat, cd.lng AS new_lng,
+           cd.distance_m, cd.name_score, cd.address_score, cd.total_score, cd.reason,
+           a.bld_nm, a.plat_plc, a.new_plat_plc,
+           a.lat AS old_lat, a.lng AS old_lng, a.coord_source AS old_coord_source
+    FROM apt_coord_candidates cd
+    JOIN apartments a ON a.pnu = cd.pnu
+    WHERE cd.match_status = 'needs_review'
+      AND cd.rank = 1
+      AND cd.distance_m > %s
+      AND (a.coord_source IS NULL OR a.coord_source NOT IN %s)
+    ORDER BY cd.distance_m DESC, cd.pnu
+"""
+
+REJECTED_STATUS = "rejected"
 
 
 def _connect(target: str):
@@ -146,7 +190,7 @@ def _geocode(addr: str, headers: dict) -> tuple[float, float] | None:
     return (float(docs[0]["y"]), float(docs[0]["x"])) if docs else None
 
 
-def verify_tier_b(rows: list[dict], headers: dict) -> list[dict]:
+def verify_by_geocode(rows: list[dict], headers: dict) -> list[dict]:
     """DB 주소를 독립 지오코딩해 현재 좌표와 POI 중 어느 쪽이 맞는지 판정한다.
 
     주소가 지오코딩된 지점이 POI 에 붙어 있고 현재 좌표와는 멀면 현재 좌표가
@@ -173,18 +217,34 @@ def verify_tier_b(rows: list[dict], headers: dict) -> list[dict]:
 def select_targets(cur, tier: str, limit: int, headers: dict) -> list[dict]:
     if tier == "a":
         sql, params = SELECT_SQL_A, [MIN_NAME_SCORE, PROTECTED_SOURCES, TIER_A_MAX_DISTANCE_M]
-    else:
+    elif tier == "b":
         sql, params = SELECT_SQL_B, [MIN_NAME_SCORE, PROTECTED_SOURCES, TIER_B_MIN_DISTANCE_M]
+    else:
+        sql, params = SELECT_SQL_C, [TIER_B_MIN_DISTANCE_M, PROTECTED_SOURCES]
     if limit > 0:
         sql += " LIMIT %s"
         params.append(limit)
     cur.execute(sql, params)
     rows = [dict(r) for r in cur.fetchall()]
 
-    if tier == "b":
+    if tier in ("b", "c"):
         print(f"  지오코딩 검증 {len(rows)}건...")
-        rows = verify_tier_b(rows, headers)
+        rows = verify_by_geocode(rows, headers)
     return rows
+
+
+def close_rejected(conn, rows: list[dict]) -> int:
+    """CURRENT_RIGHT 후보를 rejected 로 닫는다. 좌표는 건드리지 않는다."""
+    write = conn.cursor()
+    closed = 0
+    for r in rows:
+        write.execute(
+            "UPDATE apt_coord_candidates SET match_status=%s WHERE pnu=%s AND rank=1",
+            [REJECTED_STATUS, r["pnu"]],
+        )
+        closed += write.rowcount
+    conn.commit()
+    return closed
 
 
 def apply_one(conn, cur, rows: list[dict], tier: str) -> int:
@@ -234,16 +294,20 @@ def report(rows: list[dict], tier: str) -> None:
         srcs[r["old_coord_source"] or "(없음)"] = srcs.get(r["old_coord_source"] or "(없음)", 0) + 1
     print(f"  기존 coord_source: {sorted(srcs.items(), key=lambda x: -x[1])}")
 
-    if tier == "b":
+    if tier in ("b", "c"):
         tally: dict[str, int] = {}
         for r in rows:
             tally[r["verdict"]] = tally.get(r["verdict"], 0) + 1
         print(f"  지오코딩 판정: {sorted(tally.items(), key=lambda x: -x[1])}")
-        skipped = [r for r in rows if r["verdict"] != "POI_RIGHT"]
-        if skipped:
-            print("  [반영 제외]")
-            for r in skipped:
-                print(f"    {r['verdict']} {(r['bld_nm'] or '')[:22]:24s} "
+        print(f"    POI_RIGHT     → 좌표 반영 {tally.get('POI_RIGHT', 0)}건")
+        if tier == "c":
+            print(f"    CURRENT_RIGHT → rejected 로 닫음 {tally.get('CURRENT_RIGHT', 0)}건 (좌표 불변)")
+        print(f"    그 외          → 조치 없음 "
+              f"{sum(v for k, v in tally.items() if k in ('AMBIGUOUS', 'NO_GEOCODE'))}건")
+
+        if tier == "b":
+            for r in [x for x in rows if x["verdict"] != "POI_RIGHT"]:
+                print(f"    [제외] {r['verdict']} {(r['bld_nm'] or '')[:22]:24s} "
                       f"주소={r['plat_plc'] or r['new_plat_plc']}")
                 print(f"        지오코딩→POI {r['d_geo_poi'] and round(r['d_geo_poi'])}m "
                       f"/ →현재좌표 {r['d_geo_cur'] and round(r['d_geo_cur'])}m")
@@ -263,15 +327,19 @@ def run(target: str, tier: str, apply: bool, limit: int, out: str, headers: dict
     rows = select_targets(cur, tier, limit, headers)
     report(rows, tier)
 
-    # Tier B 는 지오코딩으로 현재 좌표가 틀렸다고 확인된 건만 반영한다.
+    # Tier B/C 는 지오코딩으로 현재 좌표가 틀렸다고 확인된 건만 반영한다.
     applicable = [r for r in rows if tier == "a" or r["verdict"] == "POI_RIGHT"]
+    # Tier C 는 반대 판정(현재 좌표가 맞고 POI 가 동명 타 장소)을 큐에서 닫는다.
+    rejectable = [r for r in rows if tier == "c" and r["verdict"] == "CURRENT_RIGHT"]
 
-    if apply and applicable:
-        applied = apply_one(conn, cur, applicable, tier)
-        print(f"\n  반영 완료: {applied}건 (후보 {len(rows)}건 중)")
-    elif not apply:
+    if apply:
+        applied = apply_one(conn, cur, applicable, tier) if applicable else 0
+        closed = close_rejected(conn, rejectable) if rejectable else 0
+        print(f"\n  좌표 반영: {applied}건 / rejected 처리: {closed}건 (후보 {len(rows)}건 중)")
+    else:
         conn.rollback()
-        print(f"\n  REPORT 모드 — DB 변경 없음 (반영 대상 {len(applicable)}건)")
+        print(f"\n  REPORT 모드 — DB 변경 없음 "
+              f"(반영 대상 {len(applicable)}건, rejected 대상 {len(rejectable)}건)")
 
     if out:
         Path(out).write_text(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
@@ -283,7 +351,7 @@ def run(target: str, tier: str, apply: bool, limit: int, out: str, headers: dict
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--tier", choices=["a", "b"], default="a")
+    ap.add_argument("--tier", choices=["a", "b", "c"], default="a")
     ap.add_argument("--target", choices=["local", "railway", "both"], default="local")
     ap.add_argument("--apply", action="store_true", help="실제 반영 (기본은 리포트)")
     ap.add_argument("--limit", type=int, default=0, help="처리 건수 제한 (0=전체)")
@@ -293,13 +361,16 @@ def main() -> int:
     if args.tier == "a":
         print(f"Tier A: 아파트 POI · name >= {MIN_NAME_SCORE} · "
               f"distance <= {TIER_A_MAX_DISTANCE_M:.0f}m · bad_place_word 없음")
-    else:
+    elif args.tier == "b":
         print(f"Tier B: 아파트 POI · name >= {MIN_NAME_SCORE} · address_score >= 1.0 · "
               f"distance > {TIER_B_MIN_DISTANCE_M:.0f}m · DB 주소 지오코딩으로 재검증")
+    else:
+        print(f"Tier C: distance > {TIER_B_MIN_DISTANCE_M:.0f}m 전체 · 이름/주소 점수 무관 · "
+              f"DB 주소 지오코딩 판정만으로 반영·폐기 결정")
 
     headers = {"Authorization": f"KakaoAK {os.environ.get('KAKAO_API_KEY', '')}"}
-    if args.tier == "b" and not os.environ.get("KAKAO_API_KEY"):
-        raise SystemExit("Tier B 검증에는 KAKAO_API_KEY 가 필요합니다.")
+    if args.tier in ("b", "c") and not os.environ.get("KAKAO_API_KEY"):
+        raise SystemExit(f"Tier {args.tier.upper()} 검증에는 KAKAO_API_KEY 가 필요합니다.")
 
     targets = ["local", "railway"] if args.target == "both" else [args.target]
     for target in targets:
