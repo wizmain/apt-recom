@@ -6,6 +6,6 @@
 # React 가 URL 파싱해 해당 아파트 상세 모달을 오픈.
 /apartment/*  /index.html  200
 
-# NOTE: sitemap.xml 은 빌드 시점에 scripts/fetch-sitemap.mjs 가 백엔드에서 받아
-# public/sitemap.xml 정적 파일로 저장한다. CF Pages `_redirects` 의 외부 host
-# rewrite(200) 는 지원되지 않아 index.html 로 흡수되던 문제를 우회한다.
+# NOTE: 이 배포는 sitemap 을 제공하지 않는다. 과거에는 빌드 시점에 백엔드에서 받아
+# public/sitemap.xml 로 저장했으나, 레거시 호스트가 운영 도메인 URL 3만여 건을
+# 광고하는 구조여서 제거했다. 운영 sitemap 은 apt-recom.kr/sitemap.xml 하나뿐이다.

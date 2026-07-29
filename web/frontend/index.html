@@ -6,7 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>집토리 - 라이프스타일 아파트 찾기</title>
     <meta name="description" content="집토리는 라이프스타일 키워드로 대한민국 아파트를 찾아주는 서비스입니다. NUDGE 스코어링, 가격·안전 점수, 실거래가, 학군·시설 거리를 한 화면에서 비교하세요." />
-    <link rel="canonical" href="https://apt-recom.kr/" />
+
+    <!-- 레거시 배포(apt-recom.pages.dev) 전용 색인 차단. 운영은 https://apt-recom.kr 의
+         Worker `apt-recom-next` 가 별도로 서빙한다. 상세 배경과 제거 조건은 public/_headers 참고.
+         canonical 은 제거했다 — 과거 이 파일은 모든 경로(SPA fallback 포함)에서 홈을 canonical 로
+         지목해 /apartment/* 전체가 홈의 중복본으로 신고됐고, noindex 와 canonical 을 함께 두면
+         크롤러에 상충 신호가 된다. -->
+    <meta name="robots" content="noindex, nofollow" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
