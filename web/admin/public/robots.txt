@@ -1,0 +1,17 @@
+# 관리자 콘솔(admin.apt-recom.kr) 전용 robots.txt.
+#
+# 이 호스트는 검색 결과에 노출되면 안 된다. 실제 차단은 public/_headers 의
+# `X-Robots-Tag: noindex, nofollow` 가 담당하며, 이 파일은 그 헤더가 확실히
+# 읽히도록 크롤 경로를 열어두는 역할이다.
+#
+# `Disallow: /` 를 쓰지 않는 이유:
+# Disallow 로 막으면 크롤러가 페이지를 가져가지 못해 noindex 를 읽을 수 없다.
+# 그 상태에서 외부 링크로 URL 이 발견되면 내용 없이 URL 만 색인되는
+# ("indexed, though blocked by robots.txt") 상태가 되어 오히려 노출된다.
+# 확실히 색인에서 빼려면 크롤은 허용한 채 noindex 를 읽히는 편이 맞다.
+#
+# 이 파일이 없으면 SPA fallback 이 /robots.txt 요청에도 HTML 을 반환해
+# 크롤러가 robots 규칙을 전혀 얻지 못한다.
+
+User-agent: *
+Allow: /
