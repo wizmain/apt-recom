@@ -28,7 +28,11 @@ def make_cfg():
                     {"keyword": "서초구", "slug": "seocho"},
                 ],
             },
-            "compare": {"nudge": "newlywed", "pairs": ["11440,11200", "11680,11650"]},
+            "compare": {
+                "nudge": "newlywed",
+                "min_hhld": 100,
+                "pairs": ["11710,11740", "11680,11650"],
+            },
             "lifestyle": {
                 "profiles": ["pet", "newlywed"],
                 "regions": ["11680", "11650"],
@@ -87,7 +91,7 @@ class TestResolve(unittest.TestCase):
             resolve(cfg, date(2026, 7, 28))["slug"], "value-gangnam-20260728"
         )
         self.assertEqual(
-            resolve(cfg, date(2026, 7, 29))["slug"], "compare-11440-vs-11200-20260729"
+            resolve(cfg, date(2026, 7, 29))["slug"], "compare-11710-vs-11740-20260729"
         )
 
     def test_command_shape(self):
@@ -105,6 +109,14 @@ class TestResolve(unittest.TestCase):
         from scripts.insta_cards.rotation import resolve
 
         a = resolve(make_cfg(), date(2026, 7, 27))  # 월 trade_top
+        self.assertEqual(a["params"]["min_hhld"], 100)
+        self.assertIn("--min-hhld 100", a["command"])
+
+    def test_compare_carries_min_hhld(self):
+        """세대수 하한이 params·명령 양쪽에 실려야 한다 (빌라급 단지 대표 방지)."""
+        from scripts.insta_cards.rotation import resolve
+
+        a = resolve(make_cfg(), date(2026, 7, 29))  # 수 compare
         self.assertEqual(a["params"]["min_hhld"], 100)
         self.assertIn("--min-hhld 100", a["command"])
 

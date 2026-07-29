@@ -86,6 +86,7 @@ def _build_command(series: str, params: dict, slug: str) -> str:
     elif series == "compare":
         parts.append(f"--regions {params['regions']}")
         parts.append(f"--nudge {params['nudge']}")
+        parts.append(f"--min-hhld {params['min_hhld']}")
     elif series == "lifestyle":
         parts.append(f"--profile {params['profile']}")
         parts.append(f"--region {params['region']}")
@@ -117,7 +118,7 @@ def resolve(cfg: dict, target: date) -> dict:
         slug = f"value-{region['slug']}-{stamp}"
     elif series == "compare":
         pair = s["pairs"][occ % len(s["pairs"])]
-        params = {"regions": pair, "nudge": s["nudge"]}
+        params = {"regions": pair, "nudge": s["nudge"], "min_hhld": s["min_hhld"]}
         slug = f"compare-{pair.replace(',', '-vs-')}-{stamp}"
     elif series == "lifestyle":
         profile = s["profiles"][occ % len(s["profiles"])]

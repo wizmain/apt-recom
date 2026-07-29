@@ -1061,7 +1061,7 @@ class TestCompareSeries(unittest.TestCase):
             "mgmt_cost": None,
         }
         args = MagicMock()
-        args.regions, args.nudge = "11440,41135", "newlywed"
+        args.regions, args.nudge, args.min_hhld = "11440,41135", "newlywed", 100
 
         def fake_scored(payload):
             return self._scored(1 if payload["sigungu_code"] == "11440" else 100)
@@ -1108,6 +1108,39 @@ class TestCompareSeries(unittest.TestCase):
         self.assertEqual(len(pub.map_ctas), 2)
         self.assertEqual(pub.comparison.row_labels, compare.COMPARISON_ROW_LABELS)
         self.assertIn("상위 10개", " ".join(pub.methodology))
+        # 세대수 하한이 조건·방법론·지도 CTA 필터까지 관통해야 한다 (2026-07-29).
+        self.assertIn("100세대", " ".join(c.value for c in pub.conditions))
+        self.assertIn("100세대 이상", " ".join(pub.methodology))
+        self.assertTrue(all(c.filters["min_hhld"] == 100 for c in pub.map_ctas))
+
+    def test_undersized_candidate_raises(self):
+        """API 가 세대수 하한을 무시하면 조용히 통과시키지 않고 중단한다."""
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.series import compare
+
+        args = MagicMock()
+        args.regions, args.nudge, args.min_hhld = "11440,41135", "newlywed", 100
+        undersized = self._scored(1)
+        undersized[0]["total_hhld_cnt"] = 17  # 파일럿 3일차의 '드림' 사례
+        with (
+            patch(
+                "scripts.insta_cards.series.compare.post_nudge_score",
+                return_value=undersized,
+            ),
+            patch(
+                "scripts.insta_cards.series.compare.get_region_name",
+                return_value="서울 마포구",
+            ),
+        ):
+            with self.assertRaises(ValueError):
+                compare.run(
+                    args,
+                    slug="compare-x-20260729",
+                    status="draft",
+                    published_at=None,
+                    copy_overrides=None,
+                )
 
     def test_empty_top10_raises(self):
         from unittest.mock import MagicMock, patch
@@ -1115,7 +1148,7 @@ class TestCompareSeries(unittest.TestCase):
         from scripts.insta_cards.series import compare
 
         args = MagicMock()
-        args.regions, args.nudge = "11440,41135", "newlywed"
+        args.regions, args.nudge, args.min_hhld = "11440,41135", "newlywed", 100
         with (
             patch(
                 "scripts.insta_cards.series.compare.post_nudge_score", return_value=[]
