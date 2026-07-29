@@ -138,6 +138,9 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
     ]
     if args.max_price is not None:
         conditions.append(Condition("예산", f"{format_eok(args.max_price)} 이하"))
+    # 세대수 하한은 payload·select_candidates 로 이미 적용된다 — 카드에도 공시한다
+    # (trade_top·value·compare 와 같은 표기, 2026-07-29).
+    conditions.append(Condition("최소 세대수", f"{args.min_hhld}세대"))
     conditions.append(Condition("기준일", today))
 
     cta_filters = {"min_hhld": args.min_hhld}
@@ -170,6 +173,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         narrative=Narrative(why=copy.why, fit_for=copy.fit_for),
         methodology=(
             f"{profile_label} 넛지 상위 {SCORE_POOL_SIZE} 후보와 최근 90일 계약 거래 보유 단지의 교집합",
+            f"{args.min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
             "표시 가격은 각 단지의 최근 계약 거래 기준",
         ),
         caveats=(

@@ -35,12 +35,26 @@
    ```
 
 5. **배포 완료 확인** → **게시**
-   머지 후 Cloudflare(웹) 배포가 끝나 원격 자산이 200이 되면:
+   머지 후 Cloudflare(웹) 배포가 끝나면, **자산 200 만 보지 말고 `latest.json` 의 generation 이
+   로컬과 일치하는지까지 확인한다.**
+   ```
+   # 로컬 generation
+   cat web/frontend-next/public/content/instagram/{slug}/ig/latest.json
+   # 원격 generation (같은 값이어야 한다)
+   curl -s https://apt-recom.kr/content/instagram/{slug}/ig/latest.json
+   ```
+   일치하면 게시:
    ```
    .venv/bin/python -m scripts.insta_cards.instagram {slug}
    ```
    `verify_assets` 가 원격 200/jpeg/8MB 를 강제하므로, 배포 전이면 게시가 실패한다(안전망). 실패 시
    배포 완료를 기다렸다 재실행.
+
+   **왜 generation 까지 보나 (2026-07-29 3일차 실측)**: `latest.json` 의 캐시 헤더가
+   `max-age=31536000, immutable, no-cache` 라 revalidate 에 의존한다. 머지 직후 게시하면 엣지에 따라
+   **이전 generation 을 받아** 새 자산 URL 이 404 가 되고 게시가 막힌다. 그때 재생성·재발행을
+   시도하지 말고 **몇 분 뒤 같은 명령을 재실행**하면 된다(원인은 캐시, 자산은 정상).
+   재생성으로 우회하면 generation 이 또 바뀌어 같은 문제를 반복한다.
 
 6. **(선택) 스토리 리마인드** — 프로필 링크는 **고정 `/content` 인덱스**라 매일 갱신 불필요.
 
@@ -74,6 +88,21 @@
 - API 가 하한을 무시하면 `verify_min_households` 가 발행을 중단시킨다(조용한 약화 금지).
 - **큐 순서 주의**: compare 큐 0번은 파일럿 직전 수동 발행분(2026-07-17 마포 vs 성동)과 겹쳐
   마지막으로 돌렸다. 큐 편집 시 과거 발행분과의 재등장 간격(PRD §5-2, ≥8주)을 함께 확인할 것.
+
+## 데이터 품질 가드 — 시리즈별 정책값 (2026-07-29 정렬)
+정책값의 단일 출처는 **`rotation.yaml` 의 `series.{시리즈}.*`** 이고, 리졸버가 명령에 자동으로 실어준다.
+CLI 기본값에 기대지 않는다 — 기본값이 바뀌면 어느 카드가 어떤 하한으로 나갔는지 추적할 수 없다.
+
+| 시리즈 | 정책값 | 카드 공시 |
+|---|---|---|
+| `trade_top` | `min_hhld: 100` | 조건 + 방법론 |
+| `value` | `min_hhld` + `min_smallest_area: 59` | 조건 + 방법론 |
+| `compare` | `min_hhld: 100` | 조건 + 방법론 + `map_cta.filters` |
+| `lifestyle` | `min_hhld: 100` | 조건 + 방법론 + `map_cta.filters` |
+| `budget_choice` | (해당 없음 — 예산·면적 밴드로 후보가 좁혀짐) | — |
+
+**적용과 공시는 별개다.** lifestyle 은 하한을 적용하면서도 카드에 표기하지 않고 있었다(2026-07-29 정렬).
+가드를 추가할 때는 payload·검증·조건·방법론·`map_cta.filters` 다섯 곳을 함께 본다.
 
 ## 문구 오버라이드 (2026-07-29 추가)
 - 템플릿 문구가 데이터를 오해하게 만들 때만 `--copy-file` 을 쓴다. 파일은 **추적되는 경로**

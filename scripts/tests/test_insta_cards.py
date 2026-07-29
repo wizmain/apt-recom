@@ -1429,6 +1429,9 @@ class TestLifestyleSeries(unittest.TestCase):
         self.assertEqual(pub.map_ctas[0].nudges, ("newlywed",))
         self.assertEqual(pub.map_ctas[0].filters["max_price"], 70000)
         self.assertIn("min_hhld", pub.map_ctas[0].filters)
+        # 적용만 하지 말고 카드에도 공시해야 한다 (2026-07-29).
+        self.assertIn("100세대", " ".join(c.value for c in pub.conditions))
+        self.assertIn("100세대 이상", " ".join(pub.methodology))
 
 
 class TestCli(unittest.TestCase):

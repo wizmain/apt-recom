@@ -78,6 +78,10 @@ series:
 
   lifestyle:
     # profile(넛지) × region(코드). idx 로 각각 순환.
+    # 최소 세대수. 생성기는 넛지 payload·select_candidates 로 이미 하한을 적용하지만,
+    # 값이 CLI 기본값에만 의존하면 정책 출처가 흩어진다(2026-07-29 정렬).
+    # trade_top·compare 와 같은 값이지만 시리즈별로 명시 선언한다.
+    min_hhld: 100
     profiles: [pet, newlywed, senior, education, safety]
     regions:
       - "11680"  # 강남구

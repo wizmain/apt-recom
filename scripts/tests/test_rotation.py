@@ -34,6 +34,7 @@ def make_cfg():
                 "pairs": ["11710,11740", "11680,11650"],
             },
             "lifestyle": {
+                "min_hhld": 100,
                 "profiles": ["pet", "newlywed"],
                 "regions": ["11680", "11650"],
             },
@@ -117,6 +118,14 @@ class TestResolve(unittest.TestCase):
         from scripts.insta_cards.rotation import resolve
 
         a = resolve(make_cfg(), date(2026, 7, 29))  # 수 compare
+        self.assertEqual(a["params"]["min_hhld"], 100)
+        self.assertIn("--min-hhld 100", a["command"])
+
+    def test_lifestyle_carries_min_hhld(self):
+        """세대수 하한이 params·명령 양쪽에 실려야 한다 (정책 출처는 rotation.yaml)."""
+        from scripts.insta_cards.rotation import resolve
+
+        a = resolve(make_cfg(), date(2026, 7, 30))  # 목 lifestyle
         self.assertEqual(a["params"]["min_hhld"], 100)
         self.assertIn("--min-hhld 100", a["command"])
 

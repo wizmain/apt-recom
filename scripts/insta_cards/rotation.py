@@ -90,6 +90,7 @@ def _build_command(series: str, params: dict, slug: str) -> str:
     elif series == "lifestyle":
         parts.append(f"--profile {params['profile']}")
         parts.append(f"--region {params['region']}")
+        parts.append(f"--min-hhld {params['min_hhld']}")
     elif series == "budget_choice":
         parts.append(f"--regions {params['regions']}")
         parts.append(f"--budget {params['budget']}")
@@ -123,7 +124,7 @@ def resolve(cfg: dict, target: date) -> dict:
     elif series == "lifestyle":
         profile = s["profiles"][occ % len(s["profiles"])]
         code = s["regions"][occ % len(s["regions"])]
-        params = {"profile": profile, "region": code}
+        params = {"profile": profile, "region": code, "min_hhld": s["min_hhld"]}
         slug = f"lifestyle-{profile}-{code}-{stamp}"
     elif series == "budget_choice":
         item = s["items"][occ % len(s["items"])]
