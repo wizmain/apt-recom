@@ -1,0 +1,17 @@
+# Cloudflare Pages 응답 헤더 규칙 — 레거시 배포(apt-recom.pages.dev) 전용.
+#
+# 이 배포는 운영 서비스가 아니다. 운영은 Worker `apt-recom-next`(Next.js)가
+# https://apt-recom.kr 에서 서빙하며, 이 Pages 프로젝트와는 완전히 별개다.
+#
+# 문제: Pages 의 SPA fallback 이 존재하지 않는 경로까지 전부 200 + index.html 로
+# 응답한다. 그 결과 이 호스트의 모든 URL 이 운영 사이트의 중복본으로 크롤되어
+# Google Search Console 색인 리포트를 오염시킨다.
+#
+# 대응: 모든 응답에 noindex 를 부착해 검색엔진 색인 대상에서 제외한다.
+# meta 태그가 아니라 헤더로 거는 이유는 SPA fallback·정적 자산·비 HTML 응답까지
+# 예외 없이 덮기 위해서다.
+#
+# 제거 조건: Cloudflare 대시보드에서 Pages 프로젝트 `apt-recom` 을 삭제하면
+# 이 파일을 포함한 배포 전체가 사라진다. 그때까지의 한시적 차단 장치다.
+/*
+  X-Robots-Tag: noindex, nofollow

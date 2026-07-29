@@ -1,51 +1,18 @@
-# 집토리 (apt-recom) — robots.txt
-# AI 에이전트·검색 크롤러 정책. 권위 있는 소스는 프론트 도메인(apt-recom.kr)의 이 파일이다.
-# 백엔드 API 도메인은 별도 robots.txt에서 Disallow-all 로 분리 관리.
+# 레거시 배포(apt-recom.pages.dev) 전용 robots.txt.
+#
+# 운영 서비스의 권위 있는 robots 는 Next.js 쪽이며 apt-recom.kr/robots.txt 로 서빙된다
+# (web/frontend-next/src/app/robots.ts). 이 파일은 그 사본이 아니라, 색인되면 안 되는
+# 중복 호스트를 위한 별도 정책이다.
+#
+# 크롤을 Disallow 로 막지 않는 이유:
+# Disallow 로 막으면 크롤러가 페이지에 접근하지 못해 noindex(X-Robots-Tag, public/_headers)
+# 를 읽을 수 없고, 이미 색인된 URL 이 그대로 남는다. 색인을 걷어내려면 크롤은 허용한 채
+# noindex 를 읽히는 편이 맞다.
+#
+# Sitemap 지시어는 제거했다. 이 호스트가 운영 도메인의 URL 3만여 건을 광고하면서
+# 정작 자기 자신을 중복본으로 노출시키던 구조였다.
+#
+# 제거 조건: Pages 프로젝트 `apt-recom` 삭제 시 배포와 함께 사라진다.
 
 User-agent: *
 Allow: /
-Disallow: /admin/
-Disallow: /api/
-
-# AI / LLM agent 명시적 허용
-User-agent: GPTBot
-Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
-User-agent: OAI-SearchBot
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: Claude-Web
-Allow: /
-
-User-agent: anthropic-ai
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
-
-User-agent: Applebot-Extended
-Allow: /
-
-User-agent: CCBot
-Allow: /
-
-User-agent: Bytespider
-Allow: /
-
-User-agent: Amazonbot
-Allow: /
-
-User-agent: FacebookBot
-Allow: /
-
-# sitemap 은 프론트와 같은 host 에서 제공 (Cloudflare Pages `_redirects` 프록시 경유)
-Sitemap: https://apt-recom.kr/sitemap.xml
