@@ -1,6 +1,11 @@
 """compare — 비교표는 지역 집계, 후보 장은 각 지역 넛지 1위 단지 (spec §5-3).
 
 점수는 '넛지 상위 10개 단지 평균' — '지역 전체 평균' 표현 금지 (PRD 계약).
+
+min_hhld 는 필수다(2026-07-29). 없으면 넛지 점수 상위에 17~21세대 빌라급 단지가
+올라와 지역 대표 단지로 실리고(파일럿 3일차 검수: 성동구 1위가 17세대 '드림'),
+상위 10개 평균 점수도 그 단지들이 끌어올린다. 값의 출처는 rotation.yaml 의
+series.compare.min_hhld 다.
 """
 
 from __future__ import annotations
@@ -78,6 +83,23 @@ def fetch_region_aggregate(conn, sigungu_code: str, days: int = AGGREGATE_DAYS) 
     }
 
 
+def verify_min_households(
+    region_name: str, candidates: list[dict], min_households: int
+) -> None:
+    """API 가 세대수 하한을 실제로 적용했는지 확인 (value.select_candidates 와 같은 계약).
+
+    조용히 약한 필터로 돌아가지 않도록, 미달 단지가 섞이면 발행을 중단한다.
+    """
+    undersized = [
+        c for c in candidates if (c.get("total_hhld_cnt") or 0) < min_households
+    ]
+    if undersized:
+        raise ValueError(
+            f"{region_name} nudge/score 응답에 min_hhld({min_households}) 미달 단지 "
+            f"{len(undersized)}건 포함 — API 필터 동작을 확인할 것."
+        )
+
+
 def _column_values(avg_score: float, aggregate: dict) -> tuple[str, ...]:
     median = aggregate["median_amount"]
     avg_age = aggregate["avg_age"]
@@ -102,10 +124,16 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
     for code in codes:
         name = get_region_name(code)
         top10 = post_nudge_score(
-            {"nudges": [nudge], "top_n": TOP_N, "sigungu_code": code}
+            {
+                "nudges": [nudge],
+                "top_n": TOP_N,
+                "sigungu_code": code,
+                "min_hhld": args.min_hhld,
+            }
         )
         if not top10:
             raise ValueError(f"{name}({code}) 에 대한 넛지 점수 결과가 없습니다.")
+        verify_min_households(name, top10, args.min_hhld)
         regions.append(
             {
                 "code": code,
@@ -168,6 +196,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         conditions=(
             Condition("비교 기준", f"{nudge_label} 넛지"),
             Condition("지역", f"{regions[0]['name']} / {regions[1]['name']}"),
+            Condition("최소 세대수", f"{args.min_hhld}세대"),
             Condition("기준일", today),
         ),
         items=tuple(items),
@@ -185,6 +214,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         narrative=Narrative(why=copy.why, fit_for=copy.fit_for),
         methodology=(
             f"점수는 각 지역 {nudge_label} 넛지 상위 {TOP_N}개 단지의 평균 (지역 전체 평균 아님)",
+            f"{args.min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
             f"가격·거래량은 계약일 기준 최근 {AGGREGATE_DAYS}일 실거래 집계",
         ),
         caveats=(
@@ -199,7 +229,8 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
                 nudges=(nudge,),
                 sigungu_code=r["code"],
                 region_label=r["name"],
-                filters={},
+                # 랜딩 후보 모집단과 지도 재계산 모집단을 일치시킨다.
+                filters={"min_hhld": args.min_hhld},
             )
             for i, r in enumerate(regions)
         ),
