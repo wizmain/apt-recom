@@ -98,11 +98,18 @@ CLI 기본값에 기대지 않는다 — 기본값이 바뀌면 어느 카드가
 | `trade_top` | `min_hhld: 100` | 조건 + 방법론 |
 | `value` | `min_hhld` + `min_smallest_area: 59` | 조건 + 방법론 |
 | `compare` | `min_hhld: 100` | 조건 + 방법론 + `map_cta.filters` |
-| `lifestyle` | `min_hhld: 100` | 조건 + 방법론 + `map_cta.filters` |
+| `lifestyle` | `min_hhld: 100` + `min_smallest_area: 59` | 조건 + 방법론 + `map_cta.filters` |
 | `budget_choice` | (해당 없음 — 예산·면적 밴드로 후보가 좁혀짐) | — |
 
 **적용과 공시는 별개다.** lifestyle 은 하한을 적용하면서도 카드에 표기하지 않고 있었다(2026-07-29 정렬).
 가드를 추가할 때는 payload·검증·조건·방법론·`map_cta.filters` 다섯 곳을 함께 본다.
+
+**세대수 하한은 면적 하한을 대체하지 못한다 (2026-07-30 4일차 실측).** 강남 반려동물 4위로
+한화진넥스빌(294세대)이 올라왔는데 전 주택형이 전용 35~51㎡였다. 23~34억 단지 사이에 4.6억으로
+실려 랭킹이 임의로 보였다. → lifestyle 도 `min_smallest_area`(현재 59) 필수. **두 하한은 걸러내는
+대상이 다르다**: `min_hhld` 는 빌라급(세대수 적음), `min_smallest_area` 는 소형 전용 단지(세대수 많음).
+주택형 하한은 nudge/score 응답에 대응 필드가 없어 사후 검증이 불가하다(`min_hhld` 만 검증) — API 적용을
+신뢰하는 대신, 검수 때 **단지 전체 주택형 범위**를 눈으로 확인한다.
 
 ## 문구 오버라이드 (2026-07-29 추가)
 - 템플릿 문구가 데이터를 오해하게 만들 때만 `--copy-file` 을 쓴다. 파일은 **추적되는 경로**

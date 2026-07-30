@@ -1388,6 +1388,7 @@ class TestLifestyleSeries(unittest.TestCase):
         }
         args = MagicMock()
         args.profile, args.region, args.min_hhld = "newlywed", "41135", 100
+        args.min_smallest_area = 59
         args.max_price, args.min_area, args.max_area = 70000, None, None
 
         with (
@@ -1429,9 +1430,14 @@ class TestLifestyleSeries(unittest.TestCase):
         self.assertEqual(pub.map_ctas[0].nudges, ("newlywed",))
         self.assertEqual(pub.map_ctas[0].filters["max_price"], 70000)
         self.assertIn("min_hhld", pub.map_ctas[0].filters)
+        # 랜딩 TOP5 와 지도 재계산 모집단이 같아야 한다 (2026-07-30).
+        self.assertEqual(pub.map_ctas[0].filters["min_smallest_area"], 59)
         # 적용만 하지 말고 카드에도 공시해야 한다 (2026-07-29).
-        self.assertIn("100세대", " ".join(c.value for c in pub.conditions))
+        conditions = " ".join(c.value for c in pub.conditions)
+        self.assertIn("100세대", conditions)
+        self.assertIn("59㎡ 이상", conditions)
         self.assertIn("100세대 이상", " ".join(pub.methodology))
+        self.assertIn("모든 주택형이 전용 59㎡ 이상", " ".join(pub.methodology))
 
 
 class TestCli(unittest.TestCase):
@@ -1534,6 +1540,25 @@ class TestCli(unittest.TestCase):
                     "서울",
                     "--slug",
                     "value-seoul-20260713",
+                    "--dry-run",
+                ]
+            )
+
+    def test_lifestyle_requires_min_smallest_area(self):
+        """세대수 하한만으로는 전 주택형 소형 단지가 통과한다 — 누락 즉시 차단 (2026-07-30)."""
+        from scripts.insta_cards import cli
+
+        with self.assertRaises(SystemExit):
+            cli.main(
+                [
+                    "--series",
+                    "lifestyle",
+                    "--profile",
+                    "pet",
+                    "--region",
+                    "11680",
+                    "--slug",
+                    "lifestyle-pet-11680-20260730",
                     "--dry-run",
                 ]
             )

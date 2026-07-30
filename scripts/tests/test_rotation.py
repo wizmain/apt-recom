@@ -35,6 +35,7 @@ def make_cfg():
             },
             "lifestyle": {
                 "min_hhld": 100,
+                "min_smallest_area": 59,
                 "profiles": ["pet", "newlywed"],
                 "regions": ["11680", "11650"],
             },
@@ -128,6 +129,14 @@ class TestResolve(unittest.TestCase):
         a = resolve(make_cfg(), date(2026, 7, 30))  # 목 lifestyle
         self.assertEqual(a["params"]["min_hhld"], 100)
         self.assertIn("--min-hhld 100", a["command"])
+
+    def test_lifestyle_carries_min_smallest_area(self):
+        """면적 하한이 params·명령 양쪽에 실려야 한다 (전 주택형 소형 단지 혼입 방지)."""
+        from scripts.insta_cards.rotation import resolve
+
+        a = resolve(make_cfg(), date(2026, 7, 30))  # 목 lifestyle
+        self.assertEqual(a["params"]["min_smallest_area"], 59)
+        self.assertIn("--min-smallest-area 59", a["command"])
 
     def test_value_carries_min_smallest_area(self):
         """면적 하한이 params·명령 양쪽에 실려야 한다 (소형단지 혼입 방지)."""
