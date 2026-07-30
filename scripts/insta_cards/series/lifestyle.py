@@ -2,6 +2,11 @@
 
 통근시간 조건은 지원하지 않는다 — 조건 칩에 '지하철·버스 접근성 반영'으로
 표기 (통근시간 사칭 금지). /api/commute 표시 연동은 후속 (--destination).
+
+min_hhld·min_smallest_area 는 둘 다 필수다. 세대수 하한만으로는 전 주택형이
+소형인 단지가 통과해 라이프스타일 훅과 실제 물건이 어긋난다(2026-07-30 4일차:
+강남 반려동물 4위가 294세대인데 전용 35~51㎡, 23~34억 사이에 4.6억). 값의 출처는
+rotation.yaml 의 series.lifestyle.* 다.
 """
 
 from __future__ import annotations
@@ -88,6 +93,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         "top_n": SCORE_POOL_SIZE,
         "sigungu_code": args.region,
         "min_hhld": args.min_hhld,
+        "min_smallest_area": args.min_smallest_area,
     }
     if args.max_price is not None:
         payload["max_price"] = args.max_price
@@ -97,6 +103,8 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         payload["max_area"] = args.max_area
     scored = post_nudge_score(payload)
 
+    # min_hhld 는 응답의 total_hhld_cnt 로 사후 검증한다(select_candidates). 주택형
+    # 하한은 응답에 대응 필드가 없어 검증할 수 없고 API 적용을 신뢰한다 — value 와 동일.
     picked = select_candidates(eligible, scored, args.min_hhld)
 
     items = []
@@ -138,9 +146,22 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
     ]
     if args.max_price is not None:
         conditions.append(Condition("예산", f"{format_eok(args.max_price)} 이하"))
+    # 두 하한은 payload 로 이미 적용된다 — 카드에도 공시한다(2026-07-29·07-30).
+    # 한 칩으로 묶는 이유: 조건 칩은 6개가 상한(textrules.MAX_CONDITIONS, 조건 슬라이드
+    # 레이아웃)인데 lifestyle 은 --max-price 까지 붙으면 초과한다. 정확한 문장은
+    # 방법론에 각각 남기고, 칩은 요약만 싣는다.
+    conditions.append(
+        Condition(
+            "후보 하한",
+            f"{args.min_hhld}세대 · 전용 {args.min_smallest_area:g}㎡ 이상",
+        )
+    )
     conditions.append(Condition("기준일", today))
 
-    cta_filters = {"min_hhld": args.min_hhld}
+    cta_filters = {
+        "min_hhld": args.min_hhld,
+        "min_smallest_area": args.min_smallest_area,
+    }
     if args.max_price is not None:
         cta_filters["max_price"] = args.max_price
     if args.min_area is not None:
@@ -170,6 +191,8 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         narrative=Narrative(why=copy.why, fit_for=copy.fit_for),
         methodology=(
             f"{profile_label} 넛지 상위 {SCORE_POOL_SIZE} 후보와 최근 90일 계약 거래 보유 단지의 교집합",
+            f"{args.min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+            f"모든 주택형이 전용 {args.min_smallest_area:g}㎡ 이상인 단지만 후보",
             "표시 가격은 각 단지의 최근 계약 거래 기준",
         ),
         caveats=(
