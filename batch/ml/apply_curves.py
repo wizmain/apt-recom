@@ -30,11 +30,16 @@ CURVES_PATH = REPO_ROOT / "models" / "distance_curves.json"
 
 RMSE_SKIP_THRESHOLD = 20.0
 DECAY_GRID = [float(d) for d in range(50, 3001, 25)]
+# scoring.py `_DECAY_MULTIPLIER` 와 동일해야 한다 (일치 검증: 아래 테스트 참조).
 PROFILE_MULTIPLIER = {"metro": 1.0, "major_city": 1.3, "provincial": 1.8}
 DEFAULT_MAX_DISTANCE_M = 3000.0
 
 
 def _log_decay_score(d: float, decay: float, max_d: float) -> float:
+    """런타임 로그 감쇠 커널의 복제 — web/backend/services/scoring.py
+    `log_decay_score` 와 동일해야 한다 (배포 경계로 import 불가).
+    scripts/tests/test_scoring_formula_consistency.py 가 일치를 검증한다.
+    """
     if d >= max_d:
         return 0.0
     return 100.0 * max(0.0, 1.0 - math.log(1 + d / decay) / math.log(1 + max_d / decay))

@@ -10,6 +10,7 @@
 
 import json
 import numpy as np
+from datetime import date
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error
@@ -22,6 +23,10 @@ from batch.ml.build_vectors import FACILITY_SUBTYPES
 
 MODEL_DIR = Path(__file__).resolve().parents[2] / "models"
 MODEL_DIR.mkdir(exist_ok=True)
+
+# 시설 요약에 해당 subtype 행이 없을 때 채우는 결측 거리 (PDP 곡선 상한과 동일 대역).
+# 0 이 아닌 실측 거리 0m 와 구분하기 위해 결측 판정은 반드시 `is None` 으로 한다.
+MISSING_DISTANCE_M = 5000
 
 
 def main():
@@ -51,10 +56,11 @@ def main():
         WHERE a.group_pnu = a.pnu AND a.lat IS NOT NULL
     """)
     apt_info = {}
+    current_year = date.today().year
     for row in cur.fetchall():
         pnu = row[0]
         try:
-            age = 2026 - int(str(row[3])[:4]) if row[3] else 20
+            age = current_year - int(str(row[3])[:4]) if row[3] else 20
         except (ValueError, TypeError):
             age = 20
         apt_info[pnu] = [age, row[1] or 100, row[2] or 15, row[4] or 60]
@@ -65,7 +71,8 @@ def main():
     for row in cur.fetchall():
         if row[0] not in facility_map:
             facility_map[row[0]] = {}
-        facility_map[row[0]][row[1]] = (row[2] or 5000, row[3] or 0)
+        distance = row[2] if row[2] is not None else MISSING_DISTANCE_M
+        facility_map[row[0]][row[1]] = (distance, row[3] or 0)
 
     conn.close()
 
@@ -86,8 +93,8 @@ def main():
 
         basic = apt_info[pnu]
         fac = facility_map[pnu]
-        fac_dist = [fac.get(s, (5000, 0))[0] for s in FACILITY_SUBTYPES]
-        fac_count = [fac.get(s, (5000, 0))[1] for s in FACILITY_SUBTYPES]
+        fac_dist = [fac.get(s, (MISSING_DISTANCE_M, 0))[0] for s in FACILITY_SUBTYPES]
+        fac_count = [fac.get(s, (MISSING_DISTANCE_M, 0))[1] for s in FACILITY_SUBTYPES]
 
         X_data.append(basic + fac_dist + fac_count)
         y_data.append(price)

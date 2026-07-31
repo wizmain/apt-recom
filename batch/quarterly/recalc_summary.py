@@ -360,7 +360,8 @@ def _load_kapt_fallback_stats(kapt_map, security_costs, hhld_map, apt_pnus, apt_
 
 def _calc_safety_v3(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
                      fire_data, hospital_data, crime_scores,
-                     kapt_map, security_costs, hhld_map, safety_index):
+                     kapt_map, security_costs, hhld_map, safety_index,
+                     metro_sido_codes):
     """v3 안전점수: 단지내부(35) + 응급접근성(30) + 지역안전지수(20) + 범죄보정(15).
 
     반환: [(pnu, safety_score, cctv_500m, cctv_1km, nearest_cctv_m, crime_safety_score,
@@ -442,7 +443,7 @@ def _calc_safety_v3(apt_pnus, apt_sgg_codes, apt_coords, summary_map,
         hosp_dist = float(hospital_nearest[i]) if hospital_nearest[i] < 100000 else 10000
         police_dist = summary_map.get(pnu, {}).get("police", None)
 
-        is_metro = sido in ("11", "28", "41")
+        is_metro = sido in metro_sido_codes
         if is_metro and police_dist is not None:
             # 수도권: 경찰서 포함
             fire_s = _distance_decay_score(fire_dist, 12, half_dist=3000)
@@ -601,6 +602,31 @@ def _build_facility_nearest(conn, apt_coords, apt_count, subtype):
     return np.full(apt_count, np.inf)
 
 
+# 지역 프로필 폴백 — common_code(region_profile) 미적재 환경(초기 구축 DB) 전용.
+# 웹 스코어링(web/backend/services/scoring.py `_DEFAULT_REGION_PROFILES`)의
+# metro 집합과 동일한 값. 정상 경로는 DB 단일 소스다.
+METRO_FALLBACK_SIDO_CODES = frozenset({"11", "28", "41"})
+
+
+def _load_metro_sido_codes(conn):
+    """common_code(region_profile)에서 metro 프로필 시도코드 집합 로드.
+
+    응급접근성 배점(수도권 경찰서 포함 여부)과 신뢰도 커버리지 판정에 쓰인다.
+    웹 스코어링(get_region_profile)과 판정 기준이 갈라지지 않도록 같은
+    common_code 그룹을 읽는다 — 시도코드 하드코딩 금지.
+    fallback 발동 조건: region_profile 그룹이 비어 있는 DB 에서만
+    METRO_FALLBACK_SIDO_CODES 를 사용한다.
+    """
+    rows = query_all(
+        conn,
+        "SELECT code FROM common_code WHERE group_id = %s AND name = %s",
+        ["region_profile", "metro"],
+    )
+    if rows:
+        return {r["code"] for r in rows}
+    return set(METRO_FALLBACK_SIDO_CODES)
+
+
 def _load_all_v3_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summary_map, logger):
     """v3 점수 계산에 필요한 데이터 로드 (CCTV/보안등/교통사고 BallTree 제거)."""
     logger.info("  v3 데이터 로드: 소방, 병원, 범죄, K-APT, 행안부 안전지수...")
@@ -624,6 +650,7 @@ def _load_all_v3_data(conn, apt_pnus, apt_sgg_codes, apt_coords, apt_count, summ
         "security_costs": security_costs,
         "hhld_map": hhld_map,
         "safety_index": safety_index,
+        "metro_sido_codes": _load_metro_sido_codes(conn),
     }
 
 
