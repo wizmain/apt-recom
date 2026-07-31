@@ -11,3 +11,7 @@ requests
 # instagram/cli.py 가 .env 에서 IG 토큰을 읽는다. 로컬에는 다른 경로로 설치돼
 # 있어 누락이 드러나지 않다가, 깨끗한 CI 환경 첫 실행에서 잡혔다 (2026-07-27).
 python-dotenv
+# scripts/tests/test_scoring_formula_consistency.py 가 scoring/apply_curves 를
+# import 하면서 DB 모듈(psycopg2)이 함께 로드된다 — 연결은 하지 않고 import 만
+# 필요. 배치 코드(batch/db.py)의 직접 의존이기도 하다 (2026-07-31).
+psycopg2-binary
