@@ -499,6 +499,23 @@ def elevator_to_score(elevator_count: int | None, hhld_cnt: int | None) -> float
 # ---------------------------------------------------------------------------
 
 
+def log_decay_score(distance_m: float, decay: float, max_distance_m: float) -> float:
+    """로그 감쇠 곡선 커널 (0~100). DB 파라미터 로딩과 분리된 순수 수식.
+
+    batch/ml/apply_curves.py `_log_decay_score` 와 동일해야 한다 — ML 곡선
+    적합이 이 수식을 전제로 decay 를 역산하기 때문. Railway 배포 경계
+    (web/backend ↔ batch 상호 import 금지)로 공유 모듈로 합칠 수 없어 양쪽에
+    복제되어 있고, scripts/tests/test_scoring_formula_consistency.py 가
+    두 구현의 일치를 CI 에서 검증한다.
+    """
+    if distance_m >= max_distance_m:
+        return 0.0
+    return 100.0 * max(
+        0.0,
+        1.0 - math.log(1 + distance_m / decay) / math.log(1 + max_distance_m / decay),
+    )
+
+
 def distance_to_score(
     distance_m: float | None,
     facility_subtype: str,
@@ -513,10 +530,7 @@ def distance_to_score(
         return 0.0
     decay_map = _load_facility_decay_by_profile()
     decay = decay_map.get(profile, _DEFAULT_FACILITY_DECAY).get(facility_subtype, 400)
-    score = 100.0 * max(
-        0.0, 1.0 - math.log(1 + distance_m / decay) / math.log(1 + max_d / decay)
-    )
-    return round(score, 2)
+    return round(log_decay_score(distance_m, decay, max_d), 2)
 
 
 def density_to_score(

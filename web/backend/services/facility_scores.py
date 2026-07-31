@@ -58,6 +58,13 @@ def build_facility_scores(
     if not all_subtypes:
         return {}
 
+    # 요청된 넛지들이 참조하는 score_* pseudo-subtype 축 — nudge_weight 가
+    # 단일 소스다. 각 로더(4b~4g)는 자신이 공급하는 축이 여기 포함될 때만
+    # 실행된다. 과거에는 로더별로 넛지 ID 집합({"cost","investment"} 등)을
+    # 하드코딩했는데, 신규 넛지 추가 시 집합 갱신이 누락되면 해당 축이
+    # 조용히 50점 중립(4e)으로 깔리는 문제가 있었다.
+    score_subtypes = {s for s in all_subtypes if s.startswith("score_")}
+
     # 3. Load facility summaries in bulk
     chunk_size = 500
     summary_rows = []
@@ -116,8 +123,7 @@ def build_facility_scores(
                 fscores.setdefault(subtype, INFRA_MISSING_NEUTRAL_SCORE)
 
     # 4b. Price scores
-    price_nudges = {"cost", "investment"}
-    if price_nudges & set(nudge_ids):
+    if {"score_price", "score_jeonse"} & score_subtypes:
         for i in range(0, len(pnu_list), chunk_size):
             chunk = pnu_list[i : i + chunk_size]
             ph = ",".join(["%s"] * len(chunk))
@@ -136,8 +142,7 @@ def build_facility_scores(
                 )
 
     # 4c. Safety scores
-    safety_nudges = {"cost", "newlywed", "senior", "safety"}
-    if safety_nudges & set(nudge_ids):
+    if "score_safety" in score_subtypes:
         for i in range(0, len(pnu_list), chunk_size):
             chunk = pnu_list[i : i + chunk_size]
             ph = ",".join(["%s"] * len(chunk))
@@ -157,8 +162,7 @@ def build_facility_scores(
                 pass
 
     # 4d. Crime scores (시군구별 범죄율 기반)
-    crime_nudges = {"safety"}
-    if crime_nudges & set(nudge_ids):
+    if "score_crime" in score_subtypes:
         try:
             # 시군구코드 → 범죄안전점수 로드
             sgg_codes = list(
@@ -189,8 +193,7 @@ def build_facility_scores(
             pass
 
     # 4f. Building register scores (건축물대장 승강기/주차 — Phase 2-1)
-    quality_nudges = {"senior", "cost", "newlywed"}
-    if quality_nudges & set(nudge_ids):
+    if {"score_elevator", "score_parking"} & score_subtypes:
         for i in range(0, len(pnu_list), chunk_size):
             chunk = pnu_list[i : i + chunk_size]
             ph = ",".join(["%s"] * len(chunk))
@@ -221,8 +224,7 @@ def build_facility_scores(
                 )
 
     # 4g. Air quality scores (에어코리아 PM2.5 백분위 — Phase 2-4)
-    nature_nudges = {"nature"}
-    if nature_nudges & set(nudge_ids):
+    if "score_air" in score_subtypes:
         for i in range(0, len(pnu_list), chunk_size):
             chunk = pnu_list[i : i + chunk_size]
             ph = ",".join(["%s"] * len(chunk))
@@ -247,7 +249,6 @@ def build_facility_scores(
     # apt_safety_score / sigungu_crime_detail)에 해당 아파트·시군구가 없으면
     # 데이터 미보유이므로 0점 페널티 대신 중립 점수를 적용한다 (4a 와 동일 정책).
     # 발동 조건: 위 각 로더가 값을 채우지 못한 pnu × score_* 조합.
-    score_subtypes = {s for s in all_subtypes if s.startswith("score_")}
     if score_subtypes:
         for pnu in pnu_list:
             fscores = apt_facility_scores.setdefault(pnu, {})

@@ -14,12 +14,18 @@ on:
       - "scripts/**"
       - "requirements.txt"
       - ".github/workflows/ci-scripts-tests.yml"
+      # 복제 수식 일치 테스트(test_scoring_formula_consistency.py)의 비교 대상 —
+      # 어느 한쪽만 수정된 PR 에서도 드리프트 검증이 돌아야 한다.
+      - "web/backend/services/scoring.py"
+      - "batch/ml/apply_curves.py"
   push:
     branches: [main]
     paths:
       - "scripts/**"
       - "requirements.txt"
       - ".github/workflows/ci-scripts-tests.yml"
+      - "web/backend/services/scoring.py"
+      - "batch/ml/apply_curves.py"
 
 jobs:
   unittest:
