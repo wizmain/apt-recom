@@ -70,6 +70,24 @@ def post_nudge_score(payload: dict) -> list[dict]:
     return rows
 
 
+def verify_min_households(
+    region_name: str, candidates: list[dict], min_households: int
+) -> None:
+    """API 가 세대수 하한을 실제로 적용했는지 확인 (value.select_candidates 와 같은 계약).
+
+    조용히 약한 필터로 돌아가지 않도록, 미달 단지가 섞이면 발행을 중단한다.
+    compare(2026-07-29)에 이어 budget_choice(2026-07-31)도 쓰면서 공용으로 이동.
+    """
+    undersized = [
+        c for c in candidates if (c.get("total_hhld_cnt") or 0) < min_households
+    ]
+    if undersized:
+        raise ValueError(
+            f"{region_name} nudge/score 응답에 min_hhld({min_households}) 미달 단지 "
+            f"{len(undersized)}건 포함 — API 필터 동작을 확인할 것."
+        )
+
+
 def get_region_name(sigungu_code: str) -> str:
     resp = requests.get(
         f"{PROD_API_BASE}/api/dashboard/regions", timeout=API_TIMEOUT_SECONDS
@@ -150,6 +168,7 @@ def fetch_recent_trades(
     conn,
     sigungu_code: str,
     *,
+    min_amount: int | None = None,
     max_amount: int | None = None,
     min_area: float | None = None,
     max_area: float | None = None,
@@ -164,6 +183,9 @@ def fetch_recent_trades(
         "make_date(t.deal_year, t.deal_month, t.deal_day) >= CURRENT_DATE - (%s || ' days')::interval",
     ]
     params: list = [sigungu_code, days]
+    if min_amount is not None:
+        conditions.append("t.deal_amount >= %s")
+        params.append(min_amount)
     if max_amount is not None:
         conditions.append("t.deal_amount <= %s")
         params.append(max_amount)

@@ -97,6 +97,8 @@ def _build_command(series: str, params: dict, slug: str) -> str:
         parts.append(f"--budget {params['budget']}")
         parts.append(f"--area-a {params['area_a']}")
         parts.append(f"--area-b {params['area_b']}")
+        parts.append(f"--min-hhld {params['min_hhld']}")
+        parts.append(f"--min-budget-ratio {params['min_budget_ratio']}")
     return " ".join(parts)
 
 
@@ -134,7 +136,11 @@ def resolve(cfg: dict, target: date) -> dict:
         slug = f"lifestyle-{profile}-{code}-{stamp}"
     elif series == "budget_choice":
         item = s["items"][occ % len(s["items"])]
-        params = dict(item)
+        params = {
+            **item,
+            "min_hhld": s["min_hhld"],
+            "min_budget_ratio": s["min_budget_ratio"],
+        }
         slug = f"budget-choice-{item['regions'].replace(',', '-vs-')}-{stamp}"
     else:
         raise ValueError(f"알 수 없는 series: {series}")

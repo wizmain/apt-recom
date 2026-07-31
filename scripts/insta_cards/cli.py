@@ -77,6 +77,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     # budget-choice
     parser.add_argument("--budget", type=int, default=None, help="예산 상한 (만원)")
+    parser.add_argument(
+        "--min-budget-ratio",
+        type=float,
+        default=None,
+        help="대표 거래 하한 = 예산 × 이 비율 (0~1). budget-choice 필수 — "
+        "없으면 cost 넛지가 예산 하단을 뽑아 '같은 예산' 훅이 성립하지 않는다",
+    )
     parser.add_argument("--area-a", type=float, default=None)
     parser.add_argument("--area-b", type=float, default=None)
     parser.add_argument("--area-tolerance", type=float, default=DEFAULT_AREA_TOLERANCE)
@@ -124,7 +131,12 @@ def _validate_series_args(parser, series: Series, args) -> None:
     if series in (Series.COMPARE, Series.BUDGET_CHOICE):
         require(["regions"])
     if series is Series.BUDGET_CHOICE:
-        require(["budget", "area-a", "area-b"])
+        # min-budget-ratio 도 필수 — "예산 이하"만으로는 예산의 1/3짜리 대표가 뽑혀
+        # "같은 예산" 훅이 성립하지 않는다(2026-07-31). 기본값을 두지 않는 이유는
+        # value·lifestyle 의 min-smallest-area 와 같다(정책 출처 rotation.yaml 단일화).
+        require(["budget", "area-a", "area-b", "min-budget-ratio"])
+        if not 0 < args.min_budget_ratio <= 1:
+            parser.error("--min-budget-ratio 는 0 초과 1 이하 비율이어야 합니다.")
     if series is Series.LIFESTYLE:
         # 면적 하한은 lifestyle 도 필수 — 세대수 하한만으로는 전 주택형이 소형인
         # 단지가 통과한다(2026-07-30 4일차: 294세대인데 전용 35~51㎡). value 와

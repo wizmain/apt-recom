@@ -1,8 +1,14 @@
 """budget_choice — 같은 예산으로 두 지역 대표 단지 비교 (spec §5-1).
 
 '같은 예산' 보장: 대표 거래는 로컬 DB 적격 집합(면적 밴드 + 계약일 90일 +
-예산 이하)에서 나온다. nudge/score 의 max_price 는 추정가라 후보 축소용으로만
-쓰고, 카드 표기 가격의 근거로 쓰지 않는다.
+예산의 min_budget_ratio~100% 구간)에서 나온다. nudge/score 의 max_price 는
+추정가라 후보 축소용으로만 쓰고, 카드 표기 가격의 근거로 쓰지 않는다.
+
+min_hhld·min_budget_ratio 는 둘 다 필수다(2026-07-31 5일차 검수):
+- 예산·면적 밴드는 단지 규모와 무관하다 — 노원 대표로 10세대 '씨엠'이 뽑혔다.
+- "예산 이하"만으로는 cost 넛지가 예산 하단을 구조적으로 뽑는다 — 6억 카드에
+  2.85억/1.96억 대표. 하한이 없으면 "같은 예산" 훅과 물건이 어긋난다.
+값의 출처는 rotation.yaml 의 series.budget_choice.* 다.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ from scripts.insta_cards.datasources import (
     open_local_db,
     post_nudge_score,
     stale_trade_warning,
+    verify_min_households,
 )
 from scripts.insta_cards.publication import (
     SCHEMA_VERSION,
@@ -104,6 +111,8 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
     if len(codes) != 2:
         raise ValueError("budget-choice 는 --regions 에 시군구 코드 2개가 필요합니다.")
     tol = args.area_tolerance
+    # 대표 거래 하한 — "같은 예산" 훅 보장. 상한과 같은 자리(적격 집합 SQL)에서 적용한다.
+    budget_floor = round(args.budget * args.min_budget_ratio)
     plans = [
         {"code": codes[0], "area": args.area_a, "override": args.pnu_a},
         {"code": codes[1], "area": args.area_b, "override": args.pnu_b},
@@ -119,13 +128,15 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
             plan["eligible"] = fetch_recent_trades(
                 conn,
                 plan["code"],
+                min_amount=budget_floor,
                 max_amount=args.budget,
                 min_area=plan["area"] - tol,
                 max_area=plan["area"] + tol,
             )
             if not plan["eligible"]:
                 raise ValueError(
-                    f"{plan['name']}: 예산 {format_eok(args.budget)} 이하 · "
+                    f"{plan['name']}: 예산 {format_eok(budget_floor)}~"
+                    f"{format_eok(args.budget)} 구간 · "
                     f"{plan['area']:.0f}±{tol:.0f}㎡ · 최근 90일 계약 거래가 없습니다."
                 )
     finally:
@@ -139,8 +150,10 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
                 "sigungu_code": plan["code"],
                 "min_area": plan["area"] - tol,
                 "max_area": plan["area"] + tol,
+                "min_hhld": args.min_hhld,
             }
         )
+        verify_min_households(plan["name"], scored, args.min_hhld)
         plan["trade"], plan["scored_row"] = select_representative(
             plan["eligible"], scored, plan["override"]
         )
@@ -184,9 +197,11 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         cover_image="01-cover.png",
         cover_alt=f"{budget_label} 예산 {plans[0]['name']} {plans[1]['name']} 아파트 비교 카드",
         conditions=(
-            Condition("예산", f"{budget_label} 이하"),
+            # 하한을 함께 공시해야 "같은 예산" 훅과 표기 가격이 일치한다(2026-07-31).
+            Condition("예산", f"{format_eok(budget_floor)}~{budget_label}"),
             Condition("면적 A", f"{args.area_a:.0f}±{tol:.0f}㎡"),
             Condition("면적 B", f"{args.area_b:.0f}±{tol:.0f}㎡"),
+            Condition("최소 세대수", f"{args.min_hhld}세대"),
             Condition("기준일", today),
         ),
         items=tuple(items),
@@ -202,7 +217,9 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         ),
         narrative=Narrative(why=copy.why, fit_for=copy.fit_for),
         methodology=(
-            "각 지역에서 목표 면적대의 최근 90일 계약 거래가 예산 이하인 단지만 후보로 구성",
+            f"각 지역에서 목표 면적대의 최근 90일 계약 거래가 예산의 "
+            f"{args.min_budget_ratio:.0%}~100% 구간인 단지만 후보로 구성",
+            f"{args.min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
             "후보 중 넛지 점수 1위를 대표로 선정 (--pnu 로 수동 지정 가능)",
         ),
         caveats=(
@@ -218,9 +235,11 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
                 sigungu_code=plan["code"],
                 region_label=plan["name"],
                 filters={
+                    "min_price": budget_floor,
                     "max_price": args.budget,
                     "min_area": round(plan["area"] - tol, 1),
                     "max_area": round(plan["area"] + tol, 1),
+                    "min_hhld": args.min_hhld,
                 },
             )
             for i, plan in enumerate(plans)
