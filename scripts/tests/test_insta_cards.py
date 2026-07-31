@@ -1268,8 +1268,12 @@ class TestBudgetChoiceSeries(unittest.TestCase):
         args.budget, args.regions = 70000, "11440,41135"
         args.area_a, args.area_b, args.area_tolerance = 59.0, 84.0, 5.0
         args.nudge, args.pnu_a, args.pnu_b = "cost", None, None
+        args.min_hhld, args.min_budget_ratio = 100, 0.8
+
+        seen_trade_kwargs = []
 
         def fake_trades(conn, code, **kw):
+            seen_trade_kwargs.append(kw)
             return self._eligible([1, 2] if code == "11440" else [5, 6])
 
         def fake_scored(payload):
@@ -1317,8 +1321,68 @@ class TestBudgetChoiceSeries(unittest.TestCase):
         self.assertEqual(pub.comparison.row_labels, budget_choice.ROW_LABELS)
         self.assertEqual(len(pub.map_ctas), 2)
         self.assertEqual(pub.map_ctas[0].filters["max_price"], 70000)
-        # 카드 표기 가격은 eligible 대표 거래에서 나온다 (예산 이하 보장)
+        # 카드 표기 가격은 eligible 대표 거래에서 나온다 (예산 구간 보장)
         self.assertIn("6억 8,000만원", pub.items[0].metrics[0].value)
+        # 적격 집합 SQL 에 예산 하한(예산×0.8)이 걸려야 한다 (2026-07-31)
+        self.assertTrue(
+            all(kw["min_amount"] == 56000 for kw in seen_trade_kwargs),
+            seen_trade_kwargs,
+        )
+        # 가드 공시 — 조건 칩(예산 구간·최소 세대수) + 방법론 + map_cta.filters
+        conditions = {c.label: c.value for c in pub.conditions}
+        self.assertEqual(conditions["예산"], "5억 6,000만원~7억")
+        self.assertEqual(conditions["최소 세대수"], "100세대")
+        methodology = " ".join(pub.methodology)
+        self.assertIn("80%~100% 구간", methodology)
+        self.assertIn("100세대 이상", methodology)
+        self.assertEqual(pub.map_ctas[0].filters["min_price"], 56000)
+        self.assertEqual(pub.map_ctas[0].filters["min_hhld"], 100)
+
+    def test_run_rejects_undersized_scored(self):
+        """API 가 min_hhld 를 무시하면 발행을 중단한다 (compare 와 같은 계약)."""
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.series import budget_choice
+
+        args = MagicMock()
+        args.budget, args.regions = 70000, "11440,41135"
+        args.area_a, args.area_b, args.area_tolerance = 59.0, 84.0, 5.0
+        args.nudge, args.pnu_a, args.pnu_b = "cost", None, None
+        args.min_hhld, args.min_budget_ratio = 100, 0.8
+
+        undersized = self._scored([1, 2])
+        undersized[0]["total_hhld_cnt"] = 10  # 5일차 노원 '씨엠' 케이스
+
+        with (
+            patch(
+                "scripts.insta_cards.series.budget_choice.fetch_recent_trades",
+                return_value=self._eligible([1, 2]),
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.post_nudge_score",
+                return_value=undersized,
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.get_region_name",
+                return_value="서울 마포구",
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.open_local_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "scripts.insta_cards.series.budget_choice.stale_trade_warning",
+                return_value=None,
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "min_hhld"):
+                budget_choice.run(
+                    args,
+                    slug="budget-choice-11440-vs-41135-20260713",
+                    status="draft",
+                    published_at=None,
+                    copy_overrides=None,
+                )
 
 
 class TestLifestyleSeries(unittest.TestCase):
@@ -1540,6 +1604,27 @@ class TestCli(unittest.TestCase):
                     "서울",
                     "--slug",
                     "value-seoul-20260713",
+                    "--dry-run",
+                ]
+            )
+
+    def test_budget_choice_requires_min_budget_ratio(self):
+        """예산 하한 비율 누락은 조용히 통과하지 않고 즉시 차단된다 (2026-07-31)."""
+        from scripts.insta_cards import cli
+
+        with self.assertRaises(SystemExit):
+            cli.main(
+                [
+                    "--series",
+                    "budget-choice",
+                    "--regions",
+                    "11350,41463",
+                    "--budget",
+                    "60000",
+                    "--area-a",
+                    "59",
+                    "--area-b",
+                    "59",
                     "--dry-run",
                 ]
             )

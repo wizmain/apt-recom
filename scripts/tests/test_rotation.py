@@ -40,6 +40,8 @@ def make_cfg():
                 "regions": ["11680", "11650"],
             },
             "budget_choice": {
+                "min_hhld": 100,
+                "min_budget_ratio": 0.8,
                 "items": [
                     {
                         "regions": "11350,41463",
@@ -47,7 +49,7 @@ def make_cfg():
                         "area_a": 59,
                         "area_b": 59,
                     },
-                ]
+                ],
             },
         },
     }
@@ -137,6 +139,16 @@ class TestResolve(unittest.TestCase):
         a = resolve(make_cfg(), date(2026, 7, 30))  # 목 lifestyle
         self.assertEqual(a["params"]["min_smallest_area"], 59)
         self.assertIn("--min-smallest-area 59", a["command"])
+
+    def test_budget_choice_carries_guards(self):
+        """세대수·예산 하한이 params·명령 양쪽에 실려야 한다 (5일차: 10세대·예산 1/3 대표)."""
+        from scripts.insta_cards.rotation import resolve
+
+        a = resolve(make_cfg(), date(2026, 7, 31))  # 금 budget_choice
+        self.assertEqual(a["params"]["min_hhld"], 100)
+        self.assertEqual(a["params"]["min_budget_ratio"], 0.8)
+        self.assertIn("--min-hhld 100", a["command"])
+        self.assertIn("--min-budget-ratio 0.8", a["command"])
 
     def test_value_carries_min_smallest_area(self):
         """면적 하한이 params·명령 양쪽에 실려야 한다 (소형단지 혼입 방지)."""

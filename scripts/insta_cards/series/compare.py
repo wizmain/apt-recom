@@ -26,6 +26,7 @@ from scripts.insta_cards.datasources import (
     post_nudge_score,
     query_all,
     stale_trade_warning,
+    verify_min_households,
 )
 from scripts.insta_cards.publication import (
     SCHEMA_VERSION,
@@ -81,23 +82,6 @@ def fetch_region_aggregate(conn, sigungu_code: str, days: int = AGGREGATE_DAYS) 
         "trade_count": (price_rows[0]["trade_count"] if price_rows else 0) or 0,
         "avg_age": age_rows[0]["avg_age"] if age_rows else None,
     }
-
-
-def verify_min_households(
-    region_name: str, candidates: list[dict], min_households: int
-) -> None:
-    """API 가 세대수 하한을 실제로 적용했는지 확인 (value.select_candidates 와 같은 계약).
-
-    조용히 약한 필터로 돌아가지 않도록, 미달 단지가 섞이면 발행을 중단한다.
-    """
-    undersized = [
-        c for c in candidates if (c.get("total_hhld_cnt") or 0) < min_households
-    ]
-    if undersized:
-        raise ValueError(
-            f"{region_name} nudge/score 응답에 min_hhld({min_households}) 미달 단지 "
-            f"{len(undersized)}건 포함 — API 필터 동작을 확인할 것."
-        )
 
 
 def _column_values(avg_score: float, aggregate: dict) -> tuple[str, ...]:
