@@ -255,9 +255,13 @@ def _load_max_distances() -> dict[str, float]:
     """글로벌 max_distance (facility_distance group) — 코드 기본값 + DB 오버라이드 merge.
 
     merge semantics: _DEFAULT_MAX_DISTANCE 위에 DB(facility_distance group) 값을
-    subtype 단위로 얹는다 — decay/density 로더와 동일 패턴(a96b199). DB 에 행이
-    있는 기존 15 subtype 은 DB 값이 우선(운영에서 common_code 로 튜닝 가능하게
-    유지)하고, Phase 2 이후 추가된 9 subtype(DB 미등록)은 코드 기본값을 쓴다.
+    subtype 단위로 얹는다 — decay/density 로더와 동일 패턴(a96b199).
+
+    override-only 정책 (2026-07-31): DB 에는 코드 기본값과 다른 값만 행으로
+    유지한다. 기본값과 동일한 행이 남아 있으면 코드 기본값을 수정해도 DB 가
+    이겨서 변경이 조용히 무시된다 — 기본값 중복 행은
+    scripts/cleanup_scoring_param_duplicates.py 로 정리한다. 운영 튜닝은
+    달라진 값을 INSERT 하는 것으로 여전히 가능하다.
 
     fallback 발동 조건: DB(facility_distance group)에도 _DEFAULT_MAX_DISTANCE 에도
     없는 subtype 만 호출측 `.get(subtype, 3000)` 상수 폴백을 탄다.
@@ -292,6 +296,11 @@ def _load_max_distances() -> dict[str, float]:
 # fallback 발동 조건: 프로필 group 에도 기본값 딕셔너리에도 없는 subtype 만
 # 호출측 `.get(subtype, 상수)` 기본값을 탄다 — 신규 subtype 은 반드시
 # _DEFAULT_* 딕셔너리에 등록할 것.
+#
+# override-only 정책 (2026-07-31): 프로필 group 의 DB 행은 "배율 적용 기본값과
+# 다른 값"만 유지한다 — 동일 값 중복 행은 코드 기본값 수정을 조용히 무시하게
+# 만드는 함정이라 scripts/cleanup_scoring_param_duplicates.py 로 정리했다
+# (정리 시점 105행 전부 기본값과 동일, 실오버라이드 0건 — 로컬·Railway 공통).
 
 
 def _load_max_distances_by_profile() -> dict[str, dict[str, float]]:
