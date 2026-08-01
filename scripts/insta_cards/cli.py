@@ -94,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile", type=str, default=None, choices=sorted(NUDGE_LABELS)
     )
     parser.add_argument("--max-price", type=int, default=None)
+    # lifestyle: 선택 필터 / value: 비교 면적 밴드(필수) — 이 밴드 거래만으로 ㎡당 가격 계산
     parser.add_argument("--min-area", type=float, default=None)
     parser.add_argument("--max-area", type=float, default=None)
     return parser
@@ -146,7 +147,11 @@ def _validate_series_args(parser, series: Series, args) -> None:
         # 면적 하한은 필수 — 누락 시 소형(오피스텔·도시형생활주택) 단지가 ㎡당 가격
         # 상위를 점령한다(2026-07-25). 기본값을 두지 않는 이유: 정책값 출처를
         # rotation.yaml 하나로 유지하고, 빠뜨렸을 때 조용히 통과시키지 않기 위함.
-        require(["min-smallest-area"])
+        # 비교 면적 밴드도 필수 — 없으면 대형 평형이 ㎡당 단가 하위를 점령한다
+        # (2026-08-01). 같은 이유로 기본값을 두지 않는다.
+        require(["min-smallest-area", "min-area", "max-area"])
+        if args.min_area >= args.max_area:
+            parser.error("--min-area 는 --max-area 보다 작아야 합니다.")
         if args.region is None:
             args.region = "서울"  # 기존 CLI 기본값 하위호환
     if args.nudge is None:

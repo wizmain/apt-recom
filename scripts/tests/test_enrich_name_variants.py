@@ -32,7 +32,11 @@ class TestNameVariants(unittest.TestCase):
 
     def test_원본이_항상_첫_번째다(self):
         """원본 완전일치가 가장 신뢰도 높은 매칭이므로 우선순위 1위여야 한다."""
-        for name in ["시영2차(우산빛여울채)", "가락마을9단지(신동아 파밀리에)", "평범한아파트"]:
+        for name in [
+            "시영2차(우산빛여울채)",
+            "가락마을9단지(신동아 파밀리에)",
+            "평범한아파트",
+        ]:
             self.assertEqual(_name_variants(name)[0], name)
 
     def test_짧은_괄호조각은_별칭_후보에서_제외된다(self):
@@ -83,7 +87,8 @@ class TestVariantsMatchCanonicalNames(unittest.TestCase):
         for trade_nm, canonical_nm in self.CASES:
             normalized = {_normalize_name(v) for v in _name_variants(trade_nm)}
             self.assertIn(
-                _normalize_name(canonical_nm), normalized,
+                _normalize_name(canonical_nm),
+                normalized,
                 f"{trade_nm} → {canonical_nm} 매칭 실패",
             )
 
@@ -103,11 +108,18 @@ class TestVariantsMatchCanonicalNames(unittest.TestCase):
         이 조합은 K-APT 이름 인덱스(정규화 완전일치)로는 이어지지 않고 Kakao 검색
         경로로 매칭된다. 인덱스 매칭까지 넓히려면 접미사 정규화가 별도로 필요하다.
         """
-        normalized = {_normalize_name(v) for v in _name_variants("산울마을2단지(세종자이더시티)")}
-        self.assertNotIn(_normalize_name("산울마을2단지(세종자이 더 시티 아파트)"), normalized)
+        normalized = {
+            _normalize_name(v) for v in _name_variants("산울마을2단지(세종자이더시티)")
+        }
+        self.assertNotIn(
+            _normalize_name("산울마을2단지(세종자이 더 시티 아파트)"), normalized
+        )
         # 다만 이름 유사도 가드는 통과하므로 Kakao 경로에서 거부되지는 않는다
         self.assertTrue(
-            _names_overlap("산울마을2단지(세종자이더시티)", "산울마을2단지(세종자이 더 시티 아파트)")
+            _names_overlap(
+                "산울마을2단지(세종자이더시티)",
+                "산울마을2단지(세종자이 더 시티 아파트)",
+            )
         )
 
 
