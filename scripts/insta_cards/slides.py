@@ -519,13 +519,18 @@ def build_slides(pub: Publication) -> list[tuple[str, Image.Image]]:
             ("08-cta.png", render_cta(pub)),
         ]
     if pub.series is Series.VALUE:
+        # 상위 3곳은 상세 슬라이드로 — 랭킹 슬라이드는 ㎡당 가격만 보여주므로
+        # 총액·전용면적이 실릴 자리가 없었다(2026-08-01 6일차). 다른 시리즈와 같은 구성.
         return [
             ("01-cover.png", render_cover(pub)),
             ("02-conditions.png", render_conditions(pub)),
             ("03-ranking.png", render_ranking(pub, pub.items, "숨은 가성비 TOP 5")),
-            ("04-why.png", render_why(pub)),
-            ("05-caveats.png", render_caveats(pub)),
-            ("06-cta.png", render_cta(pub)),
+            ("04-candidate-1.png", render_candidate(pub, pub.items[0], "1위")),
+            ("05-candidate-2.png", render_candidate(pub, pub.items[1], "2위")),
+            ("06-candidate-3.png", render_candidate(pub, pub.items[2], "3위")),
+            ("07-why.png", render_why(pub)),
+            ("08-caveats.png", render_caveats(pub)),
+            ("09-cta.png", render_cta(pub)),
         ]
     if pub.series is Series.TRADE_TOP:
         return [

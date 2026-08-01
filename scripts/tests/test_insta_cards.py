@@ -243,9 +243,13 @@ class TestSlides(unittest.TestCase):
                 "01-cover.png",
                 "02-conditions.png",
                 "03-ranking.png",
-                "04-why.png",
-                "05-caveats.png",
-                "06-cta.png",
+                # 상위 3곳 상세 — 총액·전용면적이 실릴 자리 (2026-08-01)
+                "04-candidate-1.png",
+                "05-candidate-2.png",
+                "06-candidate-3.png",
+                "07-why.png",
+                "08-caveats.png",
+                "09-cta.png",
             ],
         )
 
@@ -720,7 +724,7 @@ class TestOutput(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             final_dir = self._run(tmp)
             pngs = sorted(p.name for p in final_dir.glob("*.png"))
-            self.assertEqual(len(pngs), 6)
+            self.assertEqual(len(pngs), 9)
             self.assertEqual(pngs[0], "01-cover.png")
             data = json.loads((final_dir / "publication.json").read_text())
             self.assertEqual(data["slug"], "value-seoul-20260713")
