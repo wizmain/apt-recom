@@ -1,0 +1,19 @@
+# Cloudflare Pages 응답 헤더 규칙 — 관리자 콘솔(admin.apt-recom.kr).
+#
+# 이 배포는 내부 운영 도구이며 검색 결과에 노출될 이유가 없다. 그런데
+# public/_redirects 의 `/* /index.html 200` SPA fallback 이 존재하지 않는
+# 경로까지 전부 200 으로 받아주므로, 크롤러 입장에서는 무한한 색인 가능
+# URL 을 가진 사이트로 보인다.
+#
+# 운영 도메인의 robots.txt 에 `Disallow: /admin/` 이 있지만 그것은
+# apt-recom.kr 호스트의 경로 규칙이다. robots.txt 는 호스트 단위로 적용되므로
+# admin.apt-recom.kr 서브도메인에는 아무 효력이 없다.
+#
+# 대응: 모든 응답에 noindex 를 부착한다. meta 태그가 아니라 헤더로 거는 이유는
+# SPA fallback·정적 자산·비 HTML 응답까지 예외 없이 덮기 위해서다.
+#
+# 주의: 이것은 검색 노출 차단일 뿐 접근 통제가 아니다. 실제 데이터 보호는
+# 백엔드의 ADMIN_TOKEN Bearer 인증(web/backend/services/admin_auth.py)이
+# 담당하며, 이 페이지는 인증 없이도 SPA 셸까지는 도달 가능하다.
+/*
+  X-Robots-Tag: noindex, nofollow
