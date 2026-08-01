@@ -14,7 +14,6 @@ v2: ThreadPoolExecutor 병렬화 (Phase 1 API / Phase 2 DB 분리)
 import re
 import threading
 import time
-import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -27,6 +26,11 @@ from batch.config import (
     DATA_GO_KR_RATE,
 )
 from batch.db import query_all, query_one
+from batch.trade.registry import (
+    REQUEST_FAILED,
+    RegistryResponse,
+    parse_registry_response,
+)
 from batch.trade.collect_area_info import fetch_area_info, upsert_area_info, ensure_schema as ensure_area_schema
 
 BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
@@ -247,64 +251,48 @@ def _resolve_one(
 
 # ── 건축물대장 조회 ──
 
-def _fetch_building_info(bld_params: dict, limiter: RateLimiter | None = None) -> dict:
-    """건축물대장 API로 세대수/동수/최고층/준공일 조회."""
-    try:
-        params = {
-            "serviceKey": DATA_GO_KR_API_KEY,
-            "sigunguCd": bld_params["sigungu_cd"],
-            "bjdongCd": bld_params["bjdong_cd"],
-            "platGbCd": bld_params.get("plat_gb_cd", "0"),
-            "bun": bld_params["bun"],
-            "ji": bld_params["ji"],
-            "numOfRows": "50",
-            "pageNo": "1",
-        }
+def fetch_building_info_with_status(
+    bld_params: dict, limiter: RateLimiter | None = None
+) -> RegistryResponse:
+    """건축물대장 조회 — 정보와 함께 실패 사유를 구분해 반환한다.
 
+    "해당 지번에 건물 없음"(EMPTY)과 "쿼터 소진"(QUOTA)·"요청 실패"를 구분해야
+    재시도 대상을 놓치지 않는다. 뭉뚱그리면 쿼터 소진분이 영구 미처리로 남는다
+    (batch/trade/registry.py 주석 참조).
+    """
+    params = {
+        "serviceKey": DATA_GO_KR_API_KEY,
+        "sigunguCd": bld_params["sigungu_cd"],
+        "bjdongCd": bld_params["bjdong_cd"],
+        "platGbCd": bld_params.get("plat_gb_cd", "0"),
+        "bun": bld_params["bun"],
+        "ji": bld_params["ji"],
+        "numOfRows": "50",
+        "pageNo": "1",
+    }
+
+    try:
         if limiter:
             resp = _api_get_with_retry(BLD_TITLE_URL, limiter, params=params, timeout=10)
-            if not resp or not resp.ok:
-                return {}
+            if not resp:
+                return RegistryResponse({}, REQUEST_FAILED, "응답 없음(재시도 소진)")
         else:
             resp = requests.get(BLD_TITLE_URL, params=params, timeout=10)
-            resp.raise_for_status()
             time.sleep(DATA_GO_KR_RATE)
+        if not resp.ok:
+            return RegistryResponse({}, REQUEST_FAILED, f"HTTP {resp.status_code}")
+    except requests.RequestException as e:
+        return RegistryResponse({}, REQUEST_FAILED, f"{type(e).__name__}: {e}")
 
-        root = ET.fromstring(resp.text)
-        if root.findtext(".//resultCode") not in ("00", None):
-            return {}
+    return parse_registry_response(resp.text)
 
-        items = root.findall(".//item")
-        if not items:
-            return {}
 
-        total_hhld = 0
-        dong_set = set()
-        max_flr = 0
-        use_apr = None
+def _fetch_building_info(bld_params: dict, limiter: RateLimiter | None = None) -> dict:
+    """건축물대장 API로 세대수/동수/최고층/준공일 조회.
 
-        for item in items:
-            hhld_str = item.findtext("hhldCnt")
-            if hhld_str and hhld_str.isdigit():
-                total_hhld += int(hhld_str)
-            dong_nm = item.findtext("dongNm")
-            if dong_nm:
-                dong_set.add(dong_nm)
-            flr_str = item.findtext("grndFlrCnt")
-            if flr_str and flr_str.isdigit():
-                max_flr = max(max_flr, int(flr_str))
-            apr = item.findtext("useAprDay")
-            if apr and (not use_apr or apr < use_apr):
-                use_apr = apr
-
-        return {
-            "total_hhld_cnt": total_hhld if total_hhld > 0 else None,
-            "dong_count": len(dong_set) if dong_set else None,
-            "max_floor": max_flr if max_flr > 0 else None,
-            "use_apr_day": use_apr,
-        }
-    except Exception:
-        return {}
+    실패 사유가 필요하면 fetch_building_info_with_status 를 쓴다.
+    """
+    return fetch_building_info_with_status(bld_params, limiter).info
 
 
 # ── 하위 호환용: 기존 _resolve_pnu (다른 모듈에서 사용 시) ──

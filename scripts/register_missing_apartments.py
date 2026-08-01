@@ -23,7 +23,8 @@
   REPOINT       조합 PNU 가 기존 진본 → 검증 통과 시 매핑만 재지정
   REJECTED      후보는 찾았으나 물리 지표 위반 (사유 기록)
   SGG_MISMATCH  조합 PNU 시군구가 거래와 불일치 (동명 타지역)
-  NO_REGISTRY   건축물대장에 해당 지번 건물이 없음
+  NO_REGISTRY   건축물대장에 해당 지번 건물이 없음 (확정 — 재시도해도 같다)
+  REGISTRY_ERROR 건축물대장 요청 실패·파싱 오류 (재시도 대상)
   NO_PNU        주소검색으로 PNU 를 조합하지 못함
   NOT_FOUND     Kakao 아파트 POI 검색 실패
 
@@ -36,7 +37,9 @@
 
 쿼터·재실행
   건축물대장(data.go.kr)은 일일 한도가 있어 --max-calls (기본 800) 도달 시
-  중단한다. --apply 반영분은 대상 쿼리에서 자연히 빠지므로(유령 매핑 해소,
+  중단한다. 응답이 쿼터 초과를 알리면 남은 예산과 무관하게 즉시 멈춘다 —
+  계속 호출해도 빈 응답만 오고, 그것을 NO_REGISTRY 로 기록하면 "건물 없음"
+  으로 굳어 재시도 대상에서 빠지기 때문이다. --apply 반영분은 대상 쿼리에서 자연히 빠지므로(유령 매핑 해소,
   method 변경) 체크포인트 없이 재실행하면 남은 것부터 이어진다.
 
 후속
@@ -69,8 +72,11 @@ from batch.kakao_poi_coord_pipeline import (  # noqa: E402
     AUTO_APT_SOURCE,
     BAD_PLACE_WORDS,
 )
-from batch.trade.enrich_apartments import _fetch_building_info  # noqa: E402
+from batch.trade.enrich_apartments import (  # noqa: E402
+    fetch_building_info_with_status,
+)
 from batch.trade.mapping_checks import check_mapping, mismatch_confirmed  # noqa: E402
+from batch.trade.registry import EMPTY, OK, QUOTA  # noqa: E402
 from batch.trade.name_matching import (  # noqa: E402
     _brand_year_consistent,
     _name_variants,
@@ -246,10 +252,25 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
         result["status"] = "BUDGET_EXHAUSTED"
         return result
     budget["registry"] -= 1
-    info = _fetch_building_info(bld_params)
-    if not info:
+
+    reg = fetch_building_info_with_status(bld_params)
+    if reg.status == QUOTA:
+        # 일일 한도 소진. 더 호출해도 낭비이고, 이 건을 NO_REGISTRY 로 남기면
+        # "건물 없음"으로 굳어 재시도 대상에서 빠진다(리하우스 사례).
+        budget["registry"] = 0
+        budget["quota_hit"] = True
+        result["status"] = "BUDGET_EXHAUSTED"
+        result["detail"] = reg.detail
+        return result
+    if reg.status == EMPTY:
         result["status"] = "NO_REGISTRY"
         return result
+    if reg.status != OK:
+        # 요청 실패·파싱 오류 등 — 재시도하면 결과가 달라질 수 있다.
+        result["status"] = "REGISTRY_ERROR"
+        result["detail"] = f"{reg.status}: {reg.detail}"
+        return result
+    info = reg.info
     result["registry"] = info
 
     bld_nm = poi["place_name"]
@@ -406,9 +427,13 @@ def main() -> int:
             print(f"  진행 {i}/{len(targets)} (건축물대장 잔여 {budget['registry']})")
 
     counts = Counter(r["status"] for r in results)
+    if budget.get("quota_hit"):
+        print("\n[중단] 건축물대장 일일 쿼터 초과 응답 — 남은 건은 "
+              "BUDGET_EXHAUSTED 로 남겼다. 다음 날 재실행하면 이어진다.")
     print("\n=== 분류 ===")
     for s in ("REGISTER", "REPOINT", "REJECTED", "SGG_MISMATCH",
-              "NO_REGISTRY", "NO_PNU", "NOT_FOUND", "BUDGET_EXHAUSTED"):
+              "NO_REGISTRY", "REGISTRY_ERROR", "NO_PNU", "NOT_FOUND",
+              "BUDGET_EXHAUSTED"):
         if counts.get(s):
             print(f"  {s:16s} {counts[s]:6,d}")
 
