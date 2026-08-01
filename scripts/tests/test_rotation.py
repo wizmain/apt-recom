@@ -23,6 +23,8 @@ def make_cfg():
             "value": {
                 "nudge": "cost",
                 "min_smallest_area": 59,
+                "min_area": 60,
+                "max_area": 85,
                 "regions": [
                     {"keyword": "강남구", "slug": "gangnam"},
                     {"keyword": "서초구", "slug": "seocho"},
@@ -157,6 +159,15 @@ class TestResolve(unittest.TestCase):
         a = resolve(make_cfg(), date(2026, 7, 28))  # 화 value
         self.assertEqual(a["params"]["min_smallest_area"], 59)
         self.assertIn("--min-smallest-area 59", a["command"])
+
+    def test_value_carries_area_band(self):
+        """비교 면적 밴드가 params·명령 양쪽에 실려야 한다 (대형 평형 편중 방지)."""
+        from scripts.insta_cards.rotation import resolve
+
+        a = resolve(make_cfg(), date(2026, 7, 28))  # 화 value
+        self.assertEqual((a["params"]["min_area"], a["params"]["max_area"]), (60, 85))
+        self.assertIn("--min-area 60", a["command"])
+        self.assertIn("--max-area 85", a["command"])
 
     def test_before_anchor_raises(self):
         from scripts.insta_cards.rotation import resolve

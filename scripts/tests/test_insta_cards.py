@@ -243,9 +243,13 @@ class TestSlides(unittest.TestCase):
                 "01-cover.png",
                 "02-conditions.png",
                 "03-ranking.png",
-                "04-why.png",
-                "05-caveats.png",
-                "06-cta.png",
+                # 상위 3곳 상세 — 총액·전용면적이 실릴 자리 (2026-08-01)
+                "04-candidate-1.png",
+                "05-candidate-2.png",
+                "06-candidate-3.png",
+                "07-why.png",
+                "08-caveats.png",
+                "09-cta.png",
             ],
         )
 
@@ -720,7 +724,7 @@ class TestOutput(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             final_dir = self._run(tmp)
             pngs = sorted(p.name for p in final_dir.glob("*.png"))
-            self.assertEqual(len(pngs), 6)
+            self.assertEqual(len(pngs), 9)
             self.assertEqual(pngs[0], "01-cover.png")
             data = json.loads((final_dir / "publication.json").read_text())
             self.assertEqual(data["slug"], "value-seoul-20260713")
@@ -951,15 +955,25 @@ class TestValueSeries(unittest.TestCase):
             for i in range(n)
         ]
 
+    def _price_map(self, candidates, base=10_000_000.0, step=-100_000):
+        """밴드 집계 결과 형태 — price_per_m2 + 대표 거래(총액·면적)."""
+        return {
+            c["pnu"]: {
+                "price_per_m2": base + i * step,
+                "trade_count": 3,
+                "recent_amount": 80000 + i * 1000,
+                "recent_area": 74.9,
+            }
+            for i, c in enumerate(candidates)
+        }
+
     def test_select_candidates_sorts_by_price(self):
         from scripts.insta_cards.series import value
 
         candidates = self._candidates()
-        price_map = {
-            c["pnu"]: 10_000_000.0 - i * 100_000 for i, c in enumerate(candidates)
-        }
+        price_map = self._price_map(candidates)
         top5 = value.select_candidates(candidates, price_map, 100)
-        prices = [price_map[c["pnu"]] for c in top5]
+        prices = [c["price_per_m2"] for c in top5]
         self.assertEqual(prices, sorted(prices))
         self.assertEqual(len(top5), 5)
 
@@ -969,17 +983,38 @@ class TestValueSeries(unittest.TestCase):
         candidates = self._candidates()
         candidates[0]["total_hhld_cnt"] = 10
         with self.assertRaises(ValueError):
-            value.select_candidates(
-                candidates, {c["pnu"]: 1.0 for c in candidates}, 100
-            )
+            value.select_candidates(candidates, self._price_map(candidates), 100)
 
     def test_select_candidates_requires_five_with_price(self):
         from scripts.insta_cards.series import value
 
         candidates = self._candidates()
-        price_map = {candidates[0]["pnu"]: 1.0}  # 1건만 price 보유
+        # 밴드 내 거래가 부족한 후보는 price_map 에 없다 (HAVING COUNT >= 2)
+        price_map = {
+            candidates[0]["pnu"]: self._price_map(candidates)[candidates[0]["pnu"]]
+        }
         with self.assertRaises(ValueError):
             value.select_candidates(candidates, price_map, 100)
+
+    def test_select_candidates_rejects_above_district_average(self):
+        """구 평균보다 비싼 단지만 남으면 "가격은 낮은데" 훅이 거짓이 된다 (2026-08-01)."""
+        from scripts.insta_cards.series import value
+
+        candidates = self._candidates()
+        # 전부 구 평균(2,000만원/㎡ = 20_000_000) 초과
+        price_map = self._price_map(candidates, base=30_000_000.0, step=1000)
+        with self.assertRaisesRegex(ValueError, "구 평균"):
+            value.select_candidates(candidates, price_map, 100, 20_000_000.0)
+
+    def test_select_candidates_keeps_only_below_average(self):
+        """구 평균 초과 단지는 후보에서 빠진다 (조용한 축소가 아니라 명시 기준)."""
+        from scripts.insta_cards.series import value
+
+        candidates = self._candidates(n=10)
+        price_map = self._price_map(candidates, base=10_000_000.0, step=2_000_000)
+        top5 = value.select_candidates(candidates, price_map, 100, 20_000_000.0)
+        self.assertEqual(len(top5), 5)
+        self.assertTrue(all(c["price_per_m2"] <= 20_000_000.0 for c in top5))
 
     def test_run_builds_valid_publication(self):
         from unittest.mock import MagicMock, patch
@@ -988,20 +1023,31 @@ class TestValueSeries(unittest.TestCase):
         from scripts.insta_cards.series import value
 
         candidates = self._candidates()
-        price_map = {c["pnu"]: 9_000_000.0 + i for i, c in enumerate(candidates)}
+        price_map = self._price_map(candidates, base=9_000_000.0, step=1)
 
         args = MagicMock()
         args.region, args.nudge, args.min_hhld = "서울", "cost", 100
         args.min_smallest_area = 59
+        args.min_area, args.max_area = 60.0, 85.0
+
+        seen_payload = {}
+
+        def fake_scored(payload):
+            seen_payload.update(payload)
+            return candidates
 
         with (
             patch(
                 "scripts.insta_cards.series.value.post_nudge_score",
-                return_value=candidates,
+                side_effect=fake_scored,
             ),
             patch(
-                "scripts.insta_cards.series.value.fetch_price_per_m2_by_pnu",
+                "scripts.insta_cards.series.value.fetch_band_price_per_m2",
                 return_value=price_map,
+            ),
+            patch(
+                "scripts.insta_cards.series.value.fetch_district_band_avg",
+                return_value=30_000_000.0,  # 후보 전부가 구 평균 이하
             ),
             patch(
                 "scripts.insta_cards.series.value.open_local_db",
@@ -1026,11 +1072,27 @@ class TestValueSeries(unittest.TestCase):
         self.assertEqual(pub.map_ctas[0].keyword, "서울")  # G1: 키워드 지역 재현
         # 랜딩 선정 조건과 지도 필터가 같아야 모집단이 일치한다.
         self.assertEqual(
-            pub.map_ctas[0].filters, {"min_hhld": 100, "min_smallest_area": 59}
+            pub.map_ctas[0].filters,
+            {
+                "min_hhld": 100,
+                "min_smallest_area": 59,
+                "min_area": 60.0,
+                "max_area": 85.0,
+            },
         )
         self.assertIn(
             "최소 주택형", [c.label for c in pub.conditions]
         )  # 면적 하한 고지
+        # 밴드는 넛지 모집단에도 실려야 순위 계산과 후보군이 같은 기준이 된다 (2026-08-01)
+        self.assertEqual(
+            (seen_payload["min_area"], seen_payload["max_area"]), (60.0, 85.0)
+        )
+        # 비교 면적 칩 + ㎡당 가격만으로 오해하지 않도록 총액·면적 병기
+        self.assertIn("비교 면적", [c.label for c in pub.conditions])
+        labels = [m.label for m in pub.items[0].metrics]
+        self.assertIn("최근 실거래가", labels)
+        self.assertIn("전용면적", labels)
+        self.assertIn("60~85㎡ 거래만으로 계산", " ".join(pub.methodology))
 
 
 class TestCompareSeries(unittest.TestCase):
@@ -1584,6 +1646,10 @@ class TestCli(unittest.TestCase):
                         "서울",
                         "--min-smallest-area",
                         "59",
+                        "--min-area",
+                        "60",
+                        "--max-area",
+                        "85",
                         "--slug",
                         "value-seoul-20260713",
                         "--dry-run",
@@ -1604,6 +1670,25 @@ class TestCli(unittest.TestCase):
                     "서울",
                     "--slug",
                     "value-seoul-20260713",
+                    "--dry-run",
+                ]
+            )
+
+    def test_value_requires_area_band(self):
+        """비교 면적 밴드 누락은 조용히 통과하지 않는다 — 대형 편중 방지 (2026-08-01)."""
+        from scripts.insta_cards import cli
+
+        with self.assertRaises(SystemExit):
+            cli.main(
+                [
+                    "--series",
+                    "value",
+                    "--region",
+                    "서초구",
+                    "--min-smallest-area",
+                    "59",
+                    "--slug",
+                    "value-seocho-20260801",
                     "--dry-run",
                 ]
             )
@@ -1669,6 +1754,10 @@ class TestCli(unittest.TestCase):
                         "서울",
                         "--min-smallest-area",
                         "59",
+                        "--min-area",
+                        "60",
+                        "--max-area",
+                        "85",
                         "--slug",
                         "value-seoul-20260713",
                     ]

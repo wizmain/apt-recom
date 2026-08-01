@@ -83,6 +83,8 @@ def _build_command(series: str, params: dict, slug: str) -> str:
         parts.append(f'--region "{params["keyword"]}"')
         parts.append(f"--nudge {params['nudge']}")
         parts.append(f"--min-smallest-area {params['min_smallest_area']}")
+        parts.append(f"--min-area {params['min_area']}")
+        parts.append(f"--max-area {params['max_area']}")
     elif series == "compare":
         parts.append(f"--regions {params['regions']}")
         parts.append(f"--nudge {params['nudge']}")
@@ -118,6 +120,8 @@ def resolve(cfg: dict, target: date) -> dict:
             "keyword": region["keyword"],
             "nudge": s["nudge"],
             "min_smallest_area": s["min_smallest_area"],
+            "min_area": s["min_area"],
+            "max_area": s["max_area"],
         }
         slug = f"value-{region['slug']}-{stamp}"
     elif series == "compare":

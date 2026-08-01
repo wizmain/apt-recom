@@ -198,8 +198,13 @@ class TestMismatchConfirmed(unittest.TestCase):
     """판정 보정 — 지표 하나로 확정하지 않되, 면적은 예외로 둔다."""
 
     def _deal(self, **kw):
-        base = {"apt_nm": "A", "max_floor": None, "min_deal_year": None,
-                "median_build_year": None, "areas": None}
+        base = {
+            "apt_nm": "A",
+            "max_floor": None,
+            "min_deal_year": None,
+            "median_build_year": None,
+            "areas": None,
+        }
         base.update(kw)
         return base
 
@@ -217,8 +222,9 @@ class TestMismatchConfirmed(unittest.TestCase):
         self.assertTrue(timeline_violation("20200101", 2010, None))
 
     def test_타임라인_단독으로는_확정하지_않는다(self):
-        signals = check_mapping(self._deal(min_deal_year=2010),
-                                self._apt(use_apr_day="20200101"))
+        signals = check_mapping(
+            self._deal(min_deal_year=2010), self._apt(use_apr_day="20200101")
+        )
         self.assertEqual(codes(signals), {"timeline"})
         self.assertFalse(mismatch_confirmed(signals))
 
@@ -230,20 +236,23 @@ class TestMismatchConfirmed(unittest.TestCase):
     def test_두_지표가_함께_어긋나면_확정한다(self):
         signals = check_mapping(
             self._deal(max_floor=30, min_deal_year=2010),
-            self._apt(max_floor=20, use_apr_day="20200101"))
+            self._apt(max_floor=20, use_apr_day="20200101"),
+        )
         self.assertEqual(codes(signals), {"floor", "timeline"})
         self.assertTrue(mismatch_confirmed(signals))
 
     def test_주택형이_거의_안_맞으면_단독으로도_확정한다(self):
         """부영애시앙1차 기준 — 면적 일치 16%."""
         signals = check_mapping(
-            self._deal(areas=[(84.28, 58), (84.84, 11)]), self._apt(areas=[84.8198]))
+            self._deal(areas=[(84.28, 58), (84.84, 11)]), self._apt(areas=[84.8198])
+        )
         self.assertEqual(codes(signals), {"area"})
         self.assertTrue(mismatch_confirmed(signals))
 
     def test_면적이_애매하게_맞으면_단독으로는_확정하지_않는다(self):
         """40% — 임계(50%) 아래라 신호는 나오지만 strong(25% 이하)은 아니다."""
         signals = check_mapping(
-            self._deal(areas=[(59.9, 6), (84.82, 4)]), self._apt(areas=[84.8198]))
+            self._deal(areas=[(59.9, 6), (84.82, 4)]), self._apt(areas=[84.8198])
+        )
         self.assertEqual(codes(signals), {"area"})
         self.assertFalse(mismatch_confirmed(signals))
