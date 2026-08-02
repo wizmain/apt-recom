@@ -27,3 +27,5 @@
 | [009](009-viewport-based-loading.md) | 뷰포트 기반 마커 로딩 | Accepted | 2026-03-21 |
 | [010](010-railway-cloudflare-deploy.md) | Railway + Cloudflare Pages 배포 | Accepted | 2026-03-21 |
 | [011](011-group-pnu-dedup.md) | 동일 단지 중복 PNU 통합 (group_pnu) | Accepted | 2026-03-29 |
+| [012](012-display-name-override.md) | ADR-012: 사용자 친화 단지명 컬럼(display_name) 도입 | Accepted | 2026-04-28 |
+| [013](013-region-code-canonicalization.md) | 행정구역 코드 표준화 — 내부는 구코드, 경계에서 변환 | Accepted | 2026-08-02 |
