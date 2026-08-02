@@ -308,6 +308,20 @@ def apply_results(conn, results: list[dict]) -> dict:
     stats = Counter()
 
     for r in results:
+        if r["status"] not in ("REGISTER", "REPOINT"):
+            continue
+
+        # 전제조건을 INSERT 앞에서 확인한다. 뒤에 두면 매핑이 이미 바뀐 건에도
+        # 아파트를 등록해, 거래가 붙지 않는 중복 레코드가 남는다 — 3차 실행에서
+        # 대가하이츠·엘리하임 2건이 그렇게 생겼다. 같은 단지가 라운드마다 다른
+        # PNU 로 조합될 수 있어(Kakao 응답 차이) 중복이 실제로 발생한다.
+        cur.execute("SELECT pnu FROM trade_apt_mapping WHERE apt_seq = %s",
+                    [r["apt_seq"]])
+        row = cur.fetchone()
+        if not row or row["pnu"] != r["current_pnu"]:
+            stats["skipped"] += 1
+            continue
+
         if r["status"] == "REGISTER":
             n = r["new"]
             write.execute(
@@ -323,8 +337,6 @@ def apply_results(conn, results: list[dict]) -> dict:
                  n["max_floor"]],
             )
             stats["registered"] += write.rowcount
-        if r["status"] not in ("REGISTER", "REPOINT"):
-            continue
 
         write.execute(
             "UPDATE trade_apt_mapping SET pnu = %s, match_method = %s "
@@ -371,7 +383,8 @@ def main() -> int:
         print(f"[{args.target}] APPLY (검토본) — REGISTER/REPOINT {len(results)}건")
         stats = apply_results(conn, results)
         print(f"\n반영 — 신규 등록 {stats['registered']}건 / 매핑 재지정 "
-              f"{stats['remapped']}건 / 유령 삭제 {stats['ghosts_deleted']}건")
+              f"{stats['remapped']}건 / 유령 삭제 {stats['ghosts_deleted']}건"
+              f" / 건너뜀 {stats['skipped']}건")
         print("후속: 신규 PNU 는 시설요약·점수 미보유 — quarterly recalc 대상 포함 필요")
         conn.close()
         return 0
@@ -454,7 +467,8 @@ def main() -> int:
     if args.apply:
         stats = apply_results(conn, results)
         print(f"\n반영 — 신규 등록 {stats['registered']}건 / 매핑 재지정 "
-              f"{stats['remapped']}건 / 유령 삭제 {stats['ghosts_deleted']}건")
+              f"{stats['remapped']}건 / 유령 삭제 {stats['ghosts_deleted']}건"
+              f" / 건너뜀 {stats['skipped']}건")
         print("후속: 신규 PNU 는 시설요약·점수 미보유 — quarterly recalc 대상 포함 필요")
         print("가격점수는 12h 거래 배치(recalc_price)가 재계산")
     else:
