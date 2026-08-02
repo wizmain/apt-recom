@@ -88,3 +88,47 @@ def is_known_sigungu(code: str, registry: set, aliases: dict) -> bool:
     if code in registry:
         return True
     return code in aliases.get("sigungu", {})
+
+
+# 미등록 코드 유입을 감시할 지점. 정상 상태에서는 두 컬럼 모두 레지스트리
+# 코드만 담는다 — 수집은 레지스트리를 순회하고, Kakao 유입은 경계에서
+# 정규화되기 때문이다. 여기서 미지의 코드가 나타나면 뚫린 경로가 있거나
+# 새 행정구역 개편이 시작된 것이다.
+_WATCH_SQL = """
+SELECT DISTINCT LEFT(pnu, 5) AS code, 'apartments.pnu' AS source
+FROM apartments WHERE pnu NOT LIKE 'TRADE%%' AND LENGTH(pnu) = 19
+UNION
+SELECT DISTINCT sgg_cd, 'trade_apt_mapping.sgg_cd'
+FROM trade_apt_mapping WHERE sgg_cd IS NOT NULL
+"""
+
+
+def audit_unknown_codes(conn, logger) -> list[dict]:
+    """레지스트리에도 별칭에도 없는 시군구 코드를 찾는다. 데이터는 바꾸지 않는다.
+
+    2026-08 개편(광주·전남 → 12xxx)은 SGG_MISMATCH 808건이 쌓인 뒤에야
+    발견됐다. 이 감사가 배치마다 돌면 다음 개편은 첫 유입 시점에 드러난다.
+    비용은 DISTINCT 두 번 — 수만 행 테이블이라 무시할 수준이다.
+    """
+    cur = conn.cursor()
+    cur.execute("SELECT code FROM common_code WHERE group_id = 'sigungu'")
+    registry = {r[0] for r in cur.fetchall()}
+    aliases = load_aliases(conn)
+
+    cur.execute(_WATCH_SQL)
+    unknown = [
+        {"code": code, "source": source}
+        for code, source in cur.fetchall()
+        if not is_known_sigungu(code, registry, aliases)
+    ]
+
+    if unknown:
+        logger.warning(
+            f"미등록 시군구 코드 {len(unknown)}건 유입 — 행정구역 개편 가능성. "
+            f"scripts/seed_sigungu_aliases.py 로 별칭을 갱신할 것"
+        )
+        for u in unknown[:10]:
+            logger.warning(f"  {u['code']} ({u['source']})")
+    else:
+        logger.info("지역코드 감사 — 미등록 코드 없음")
+    return unknown
