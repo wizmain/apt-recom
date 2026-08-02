@@ -1,0 +1,326 @@
+{
+  "schema_version": 1,
+  "slug": "lifestyle-newlywed-11170-20260802",
+  "status": "published",
+  "series": "lifestyle",
+  "title": "용산구(서울) 신혼육아 추천 단지",
+  "eyebrow": "라이프스타일 추천 · 신혼육아",
+  "hook": "용산구(서울)에서 신혼육아 조건으로 고른 단지",
+  "summary": "용산구(서울)에서 신혼육아 넛지 점수가 높고 최근 거래가 있는 단지입니다.",
+  "generated_at": "2026-08-02T10:34:04",
+  "published_at": "2026-08-02",
+  "data_as_of": "2026-08-02",
+  "period_label": "계약일 기준 최근 90일 실거래 + 넛지 점수",
+  "cover_image": "01-cover.png",
+  "cover_alt": "용산구(서울) 신혼육아 아파트 추천 카드",
+  "conditions": [
+    {
+      "label": "라이프스타일",
+      "value": "신혼육아"
+    },
+    {
+      "label": "지역",
+      "value": "용산구(서울)"
+    },
+    {
+      "label": "접근성",
+      "value": "지하철·버스 접근성 반영"
+    },
+    {
+      "label": "후보 하한",
+      "value": "100세대 · 전용 59㎡ 이상"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-08-02"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "리첸시아용산",
+      "region": "용산구(서울)",
+      "pnu": "1117011200001330003",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "18억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "122.8㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2010년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "430m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울용산초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "71점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "39만원 (연 467만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "마트",
+        "병원",
+        "주차 점수"
+      ]
+    },
+    {
+      "rank": 2,
+      "name": "용산kcc스위첸",
+      "region": "용산구(서울)",
+      "pnu": "1117011900002860000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "20억 7,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "60.0㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2018년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "159m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울금양초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "65점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "25만원 (연 303만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "마트",
+        "학교"
+      ]
+    },
+    {
+      "rank": 3,
+      "name": "용산 KCC 웰츠타워",
+      "region": "용산구(서울)",
+      "pnu": "1117012200000110010",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "18억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "84.7㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2015년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "372m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울용산초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "72점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "28만원 (연 331만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "마트",
+        "병원",
+        "주차 점수"
+      ]
+    },
+    {
+      "rank": 4,
+      "name": "효창파크푸르지오",
+      "region": "용산구(서울)",
+      "pnu": "1117011900002740000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "14억 3,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "59.4㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2010년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "292m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울금양초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "70점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "24만원 (연 292만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "마트",
+        "유치원"
+      ]
+    },
+    {
+      "rank": 5,
+      "name": "도원삼성래미안",
+      "region": "용산구(서울)",
+      "pnu": "1117012000000230000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "16억 5,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "59.9㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2001년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "543m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울금양초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "64점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "15만원 (연 184만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "마트",
+        "유치원"
+      ]
+    }
+  ],
+  "secondary_items": null,
+  "comparison": null,
+  "narrative": {
+    "why": [
+      "마트·병원·주차 점수 접근성이 신혼육아 점수에 크게 기여했습니다."
+    ],
+    "fit_for": null
+  },
+  "methodology": [
+    "신혼육아 넛지 상위 50 후보와 최근 90일 계약 거래 보유 단지의 교집합",
+    "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+    "모든 주택형이 전용 59㎡ 이상인 단지만 후보",
+    "표시 가격은 각 단지의 최근 계약 거래 기준"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "통근시간이 아닌 지하철·버스 접근성 점수 기준입니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [
+    {
+      "id": "map-main",
+      "label": "신혼육아 조건 그대로 용산구(서울) 지도에서 보기",
+      "nudges": [
+        "newlywed"
+      ],
+      "sigungu_code": "11170",
+      "region_label": "용산구(서울)",
+      "filters": {
+        "min_hhld": 100,
+        "min_smallest_area": 59.0
+      },
+      "keyword": null
+    }
+  ],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-ranking.jpg",
+    "04-candidate-1.jpg",
+    "05-candidate-2.jpg",
+    "06-candidate-3.jpg",
+    "07-caveats.jpg",
+    "08-cta.jpg"
+  ],
+  "asset_generation": "62c82c913ffb"
+}
