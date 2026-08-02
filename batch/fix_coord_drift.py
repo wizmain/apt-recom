@@ -40,6 +40,7 @@ import requests
 from dotenv import load_dotenv
 
 from batch.config import KAKAO_API_KEY, KAKAO_RATE
+from batch.region_codes import load_aliases, normalize_sigungu
 from batch.fix_apartment_info import _distance_m
 from batch.logger import setup_logger
 
@@ -158,7 +159,8 @@ def _select_targets(conn, limit: int | None, from_csv: Path | None,
 
 
 def _build_corrections(targets: list[dict], threshold_m: float,
-                       require_jibun_mismatch: bool, logger) -> list[dict]:
+                       require_jibun_mismatch: bool, logger,
+                       aliases: dict | None = None) -> list[dict]:
     """카카오 address API로 재검증 → 적용 후보 반환.
 
     require_jibun_mismatch=True 면 추가로 DB 좌표를 역지오코딩하여 그 지번이
@@ -178,8 +180,12 @@ def _build_corrections(targets: list[dict], threshold_m: float,
             rejected_no_geo += 1
             continue
 
-        # 안전장치 1: b_code 시군구 prefix가 DB sigungu_code 와 일치
-        b_sgg = (geo["b_code"] or "")[:5]
+        # 안전장치 1: b_code 시군구 prefix가 DB sigungu_code 와 일치.
+        # b_code 는 행정구역 개편 후 신코드일 수 있어(광주 29170 → 12300)
+        # 표준 코드로 정규화한 뒤 비교한다 — 정규화 없이는 개편 지역 전체가
+        # sgg-mismatch 로 오거부된다 (ADR-013).
+        b_code = geo["b_code"] or ""
+        b_sgg = normalize_sigungu(b_code[:5], aliases or {}, bjdong=b_code[5:10])
         if not b_sgg or b_sgg != apt["sigungu_code"]:
             rejected_sgg_mismatch += 1
             logger.info(f"  [reject sgg-mismatch] pnu={apt['pnu']} bld='{apt['bld_nm']}' "
@@ -307,7 +313,8 @@ def main():
                 f"threshold={args.threshold_m}m, TRADE_* 제외)")
 
     corrections = _build_corrections(targets, args.threshold_m,
-                                     args.require_jibun_mismatch, logger)
+                                     args.require_jibun_mismatch, logger,
+                                     aliases=load_aliases(src_conn))
     _print_summary(corrections)
 
     # 적용

@@ -26,8 +26,10 @@ from batch.config import (
     DATA_GO_KR_RATE,
 )
 from batch.db import query_all, query_one
+from batch.region_codes import load_aliases, normalize_pnu
 from batch.trade.registry import (
     REQUEST_FAILED,
+    pnu_to_bld_params,
     RegistryResponse,
     parse_registry_response,
 )
@@ -114,6 +116,7 @@ def _resolve_one(
     kakao_limiter: RateLimiter,
     data_go_limiter: RateLimiter,
     known_pnu: str | None = None,
+    aliases: dict | None = None,
 ) -> dict:
     """단일 apt_seq에 대해 Kakao + 건축물대장 API 호출. DB 접근 없음.
 
@@ -222,21 +225,17 @@ def _resolve_one(
     sub_no = addr.get("sub_address_no", "0") or "0"
     mountain = addr.get("mountain_yn", "N")
 
-    bld_params = {
-        "sigungu_cd": b_code[:5],
-        "bjdong_cd": b_code[5:10],
-        "plat_gb_cd": "1" if mountain == "Y" else "0",
-        "bun": str(main_no).zfill(4),
-        "ji": str(sub_no).zfill(4),
-    }
-
-    real_pnu = (
-        bld_params["sigungu_cd"]
-        + bld_params["bjdong_cd"]
-        + bld_params["plat_gb_cd"]
-        + bld_params["bun"]
-        + bld_params["ji"]
+    raw_pnu = (
+        b_code[:10]
+        + ("1" if mountain == "Y" else "0")
+        + str(main_no).zfill(4)
+        + str(sub_no).zfill(4)
     )
+    # Kakao b_code 는 행정구역 개편 후 신코드를 쓴다(광주 29170 → 12300).
+    # 신코드 PNU 가 저장되면 같은 단지가 두 정체성으로 갈라지고, 건축물대장은
+    # 구코드에만 응답한다. 경계에서 표준 코드로 정규화한다 (ADR-013).
+    real_pnu = normalize_pnu(raw_pnu, aliases or {})
+    bld_params = pnu_to_bld_params(real_pnu)
 
     result["pnu"] = real_pnu
     result["bjd_code"] = bld_params["sigungu_cd"] + bld_params["bjdong_cd"]
@@ -586,6 +585,9 @@ def enrich_new_apartments(conn, logger):
 
     # [L2] K-APT 연동된 진본 아파트의 주소 인덱스 — 같은 주소의 진본이 이미
     #      있으면 TRADE_ fallback 생성 대신 진본 PNU에 매핑
+    # 행정구역 코드 별칭 — Kakao b_code 정규화용 (ADR-013)
+    aliases = load_aliases(conn)
+
     kapt_addr_rows = query_all(conn,
         "SELECT a.pnu, a.plat_plc, a.new_plat_plc, a.sigungu_code "
         "FROM apartments a JOIN apt_kapt_info k ON a.pnu = k.pnu "
@@ -666,6 +668,7 @@ def enrich_new_apartments(conn, logger):
                 _resolve_one, row, headers, sgg_map,
                 existing_pnus, kakao_limiter, data_go_limiter,
                 known_pnu=pnu_known_map.get(row["apt_seq"]),
+                aliases=aliases,
             ): row
             for row in unmapped
         }

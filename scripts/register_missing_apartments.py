@@ -68,6 +68,7 @@ sys.path.insert(0, str(REPO_ROOT))
 load_dotenv(REPO_ROOT / ".env")
 
 from batch.config import KAKAO_API_KEY, KAKAO_RATE  # noqa: E402
+from batch.region_codes import load_aliases, normalize_pnu  # noqa: E402
 from batch.kakao_poi_coord_pipeline import (  # noqa: E402
     AUTO_APT_SOURCE,
     BAD_PLACE_WORDS,
@@ -76,7 +77,12 @@ from batch.trade.enrich_apartments import (  # noqa: E402
     fetch_building_info_with_status,
 )
 from batch.trade.mapping_checks import check_mapping, mismatch_confirmed  # noqa: E402
-from batch.trade.registry import EMPTY, OK, QUOTA  # noqa: E402
+from batch.trade.registry import (  # noqa: E402
+    EMPTY,
+    OK,
+    QUOTA,
+    pnu_to_bld_params,
+)
 from batch.trade.name_matching import (  # noqa: E402
     _brand_year_consistent,
     _name_variants,
@@ -179,8 +185,14 @@ def _find_poi(headers: dict, region: str, apt_nm: str) -> dict | None:
     return None
 
 
-def _compose_pnu(headers: dict, address: str) -> tuple[str, dict] | None:
-    """주소검색으로 19자리 PNU 와 건축물대장 파라미터를 조합한다."""
+def _compose_pnu(headers: dict, address: str,
+                 aliases: dict | None = None) -> tuple[str, dict] | None:
+    """주소검색으로 19자리 PNU 와 건축물대장 파라미터를 조합한다.
+
+    b_code 는 행정구역 개편 후 신코드일 수 있어 표준 코드로 정규화한다
+    (ADR-013). 정규화 덕에 신코드 지역이 SGG_MISMATCH 로 빠지지 않고
+    기존 경로에서 바로 처리된다 — 거래 기반 재조합은 그 뒤의 fallback 이다.
+    """
     data = _kakao_get(KAKAO_ADDRESS_URL, headers, {"query": address, "size": 1})
     docs = (data or {}).get("documents", [])
     addr = docs[0].get("address") if docs else None
@@ -192,11 +204,8 @@ def _compose_pnu(headers: dict, address: str) -> tuple[str, dict] | None:
     bun = str(addr.get("main_address_no") or "0").zfill(4)
     ji = str(addr.get("sub_address_no") or "0").zfill(4)
     gb = "1" if addr.get("mountain_yn") == "Y" else "0"
-    bld_params = {
-        "sigungu_cd": b_code[:5], "bjdong_cd": b_code[5:10],
-        "plat_gb_cd": gb, "bun": bun, "ji": ji,
-    }
-    return b_code[:10] + gb + bun + ji, bld_params
+    pnu = normalize_pnu(b_code[:10] + gb + bun + ji, aliases or {})
+    return pnu, pnu_to_bld_params(pnu)
 
 
 def _compose_pnu_from_trade(cur, apt_seq: str, sgg_cd: str) -> tuple[str, dict, str] | None:
@@ -256,7 +265,8 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
         return result
     result["poi"] = poi
 
-    composed = _compose_pnu(headers, poi["jibun_address"] or poi["road_address"])
+    composed = _compose_pnu(headers, poi["jibun_address"] or poi["road_address"],
+                            aliases=budget.get("aliases"))
     if composed and composed[0][:5] == sgg:
         pnu, bld_params = composed
     else:
@@ -507,7 +517,9 @@ def main() -> int:
     cur.execute(DEAL_STATS_SQL, {"seqs": seqs})
     stats_by_seq = {r["apt_seq"]: dict(r) for r in cur.fetchall()}
 
-    budget = {"registry": args.max_calls}
+    budget = {"registry": args.max_calls,
+              # 행정구역 코드 별칭 (ADR-013) — _compose_pnu 의 b_code 정규화용
+              "aliases": load_aliases(conn)}
     results = []
     for i, row in enumerate(targets, 1):
         results.append(classify(row, stats_by_seq.get(row["apt_seq"], {}),

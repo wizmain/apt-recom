@@ -140,3 +140,11 @@ class TestBuildingName(unittest.TestCase):
     def test_이름이_없으면_None_이다(self):
         self.assertIsNone(
             parse_registry_response(_envelope("<items><item/></items>")).info["bld_nm"])
+
+
+class TestPnuToBldParams(unittest.TestCase):
+    def test_표준_pnu_를_조회_파라미터로_분해한다(self):
+        from batch.trade.registry import pnu_to_bld_params
+        p = pnu_to_bld_params("2917011500009850001")
+        self.assertEqual(p, {"sigungu_cd": "29170", "bjdong_cd": "11500",
+                             "plat_gb_cd": "0", "bun": "0985", "ji": "0001"})

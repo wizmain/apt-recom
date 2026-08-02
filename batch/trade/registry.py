@@ -87,6 +87,22 @@ def summarize_items(items: list) -> dict:
     }
 
 
+def pnu_to_bld_params(pnu: str) -> dict:
+    """19자리 PNU 를 건축물대장 조회 파라미터로 분해한다.
+
+    조회 전 PNU 를 표준 코드로 정규화(batch.region_codes.normalize_pnu)해야
+    한다 — 건축물대장은 구코드에만 응답한다(2026-08 실측: 광주 북구 12300
+    조회 시 응답 없음, 29170 은 정상).
+    """
+    return {
+        "sigungu_cd": pnu[:5],
+        "bjdong_cd": pnu[5:10],
+        "plat_gb_cd": pnu[10],
+        "bun": pnu[11:15],
+        "ji": pnu[15:19],
+    }
+
+
 def parse_registry_response(xml_text: str) -> RegistryResponse:
     """건축물대장 XML 응답을 (정보, 상태)로 해석한다."""
     try:
