@@ -144,6 +144,15 @@ FROM (
 GROUP BY 1,2,3,4,5,6 ORDER BY n DESC LIMIT 1
 """
 
+# 전월세 전용 단지 회수용 — rent_history 는 지번 코드 컬럼(umd_cd/bonbun)이
+# 없어 텍스트 지번(umd_nm, jibun) 최빈값만 쓸 수 있다.
+RENT_JIBUN_SQL = """
+SELECT umd_nm, jibun, COUNT(*) n
+FROM rent_history
+WHERE apt_seq = %s AND umd_nm IS NOT NULL AND jibun IS NOT NULL AND jibun <> ''
+GROUP BY 1, 2 ORDER BY n DESC LIMIT 1
+"""
+
 
 def _connect(target: str):
     key = "DATABASE_URL" if target == "local" else "RAILWAY_DATABASE_URL"
@@ -236,6 +245,15 @@ def _compose_pnu_from_trade(cur, apt_seq: str, sgg_cd: str) -> tuple[str, dict, 
     return pnu, bld_params, jibun
 
 
+def _jibun_from_rent(cur, apt_seq: str) -> str | None:
+    """전월세 원본의 텍스트 지번을 최빈값으로 돌려준다 ("오치동 985-1")."""
+    cur.execute(RENT_JIBUN_SQL, [apt_seq])
+    row = cur.fetchone()
+    if not row:
+        return None
+    return f"{row['umd_nm']} {row['jibun']}".strip()
+
+
 def _as_deal(stat: dict, apt_nm: str) -> dict:
     return {
         "apt_nm": apt_nm,
@@ -274,7 +292,23 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
         # 어긋난다. 이때 거래 원본으로 다시 조합한다 — 국토부 코드끼리라 체계가
         # 일치하고, 좌표도 그 지번을 지오코딩해 얻으므로 POI 오매칭에 휘둘리지
         # 않는다. 조합에 실패하면 원래 판정(SGG_MISMATCH / NO_PNU)을 남긴다.
+        region = sgg_map.get(sgg, "")
+        sido = sgg_extra.get(sgg, "")
+        source = "trade_jibun"
         from_trade = _compose_pnu_from_trade(cur, apt_seq, sgg)
+        if not from_trade:
+            # 전월세 전용 단지는 trade_history 에 지번 코드가 없다. rent 의
+            # 텍스트 지번을 시도·시군구 앞에 붙여 주소검색으로 조합한다 —
+            # 지역이 고정되므로 POI 동명 오매칭과 무관하고, 조합 결과가
+            # 매핑 시군구와 일치할 때만 채택한다.
+            jibun_text = _jibun_from_rent(cur, apt_seq)
+            if jibun_text:
+                rent_composed = _compose_pnu(
+                    headers, f"{sido} {region} {jibun_text}".strip(),
+                    aliases=budget.get("aliases"))
+                if rent_composed and rent_composed[0][:5] == sgg:
+                    from_trade = (rent_composed[0], rent_composed[1], jibun_text)
+                    source = "rent_jibun"
         if not from_trade:
             result["status"] = "SGG_MISMATCH" if composed else "NO_PNU"
             if composed:
@@ -282,8 +316,6 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
             return result
 
         pnu, bld_params, jibun = from_trade
-        region = sgg_map.get(sgg, "")
-        sido = sgg_extra.get(sgg, "")
         geo = _kakao_get(KAKAO_ADDRESS_URL, headers,
                          {"query": f"{sido} {region} {jibun}".strip(), "size": 1})
         docs = (geo or {}).get("documents", [])
@@ -297,7 +329,7 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
             "lat": float(docs[0]["y"]), "lng": float(docs[0]["x"]),
             "jibun_address": docs[0].get("address_name") or jibun,
             "road_address": (docs[0].get("road_address") or {}).get("address_name") or "",
-            "source": "trade_jibun",
+            "source": source,
         }
         result["poi"] = poi
         result["recovered_from_trade"] = True
@@ -451,6 +483,8 @@ def main() -> int:
                     help="건축물대장 API 호출 상한 (일일 쿼터 방어)")
     ap.add_argument("--no-target-report", default="",
                     help="rematch 리포트 JSON — NO_TARGET 건을 대상에 추가")
+    ap.add_argument("--seqs-file", default="",
+                    help="apt_seq 목록 JSON — 대상을 이 목록으로 제한 (부분 재실행용)")
     ap.add_argument("--out", default="", help="결과 JSON 저장 경로")
     ap.add_argument("--from-report", default="",
                     help="리포트 JSON 의 REGISTER/REPOINT 를 재분석 없이 반영 (--apply 필요)")
@@ -507,6 +541,10 @@ def main() -> int:
                     "sgg_cd": r["apt_seq"].split("_", 1)[0],
                     "current_pnu": r["current_pnu"], "current_nm": r.get("current_nm"),
                 })
+
+    if args.seqs_file:
+        allow = set(json.loads(Path(args.seqs_file).read_text()))
+        targets = [t for t in targets if t["apt_seq"] in allow]
 
     if args.limit > 0:
         targets = targets[:args.limit]
