@@ -1,6 +1,250 @@
 [
   {
     "schema_version": 1,
+    "slug": "trade-top-20260803",
+    "status": "published",
+    "series": "trade_top",
+    "title": "최근 7일 최고가 TOP 5",
+    "eyebrow": "적재 기준 · 최근 7일",
+    "hook": "최근 7일 새로 포착된 최고가는 112억 5,000만원",
+    "summary": "새로 포착된 거래 중 최고가와, 신규 거래가 크게 늘어난 동네를 모았습니다.",
+    "generated_at": "2026-08-03T08:48:51",
+    "published_at": "2026-08-03",
+    "data_as_of": "2026-08-03",
+    "period_label": "적재 기준 최근 7일",
+    "cover_image": "/content/instagram/trade-top-20260803/cover.png",
+    "cover_alt": "최근 7일 아파트 최고가 TOP 5 카드",
+    "conditions": [
+      {
+        "label": "기간",
+        "value": "적재 기준 최근 7일"
+      },
+      {
+        "label": "집계 단위",
+        "value": "단지별 최고가 1건"
+      },
+      {
+        "label": "최소 세대수",
+        "value": "100세대"
+      },
+      {
+        "label": "기준일",
+        "value": "2026-08-03"
+      }
+    ],
+    "items": [
+      {
+        "rank": 1,
+        "name": "압구정 신현대",
+        "region": "강남구(서울)",
+        "pnu": "1168011000004260000",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "112억 5,000만원",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "183㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 2,
+        "name": "압구정현대아파트",
+        "region": "강남구(서울)",
+        "pnu": "1168011000003690001",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "66억",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "131㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 3,
+        "name": "타워팰리스1차",
+        "region": "강남구(서울)",
+        "pnu": "1168011800004670000",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "61억 5,000만원",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "175㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 4,
+        "name": "시티파크2단지",
+        "region": "용산구(서울)",
+        "pnu": "1117012800000630387",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "56억",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "184㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 5,
+        "name": "신동아",
+        "region": "용산구(서울)",
+        "pnu": "1117013300002410021",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "48억 5,000만원",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "167㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      }
+    ],
+    "secondary_items": [
+      {
+        "rank": 1,
+        "name": "분당구(성남)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "115건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+53건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 2,
+        "name": "강동구(서울)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "60건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+34건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 3,
+        "name": "서북구(천안)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "96건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+28건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 4,
+        "name": "북구(울산)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "83건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+24건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 5,
+        "name": "구미시(경북)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "103건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+22건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      }
+    ],
+    "comparison": null,
+    "narrative": {
+      "why": [],
+      "fit_for": null
+    },
+    "methodology": [
+      "최고가: 최근 기간 새로 적재된 거래 중 단지별 최고가 1건만 집계",
+      "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+      "급증: 직전 7일 대비 신규 적재 건수 증가분 (현재 20건 이상 지역만)"
+    ],
+    "caveats": [
+      "투자 자문이 아닙니다.",
+      "데이터 적재일 기준이라 실제 계약 시점은 이보다 앞섭니다.",
+      "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+    ],
+    "map_ctas": []
+  },
+  {
+    "schema_version": 1,
     "slug": "lifestyle-newlywed-11170-20260802",
     "status": "published",
     "series": "lifestyle",

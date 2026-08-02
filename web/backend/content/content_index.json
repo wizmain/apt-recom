@@ -1,5 +1,16 @@
 [
   {
+    "slug": "trade-top-20260803",
+    "series": "trade_top",
+    "title": "최근 7일 최고가 TOP 5",
+    "eyebrow": "적재 기준 · 최근 7일",
+    "summary": "새로 포착된 거래 중 최고가와, 신규 거래가 크게 늘어난 동네를 모았습니다.",
+    "cover_image": "/content/instagram/trade-top-20260803/cover.png",
+    "cover_alt": "최근 7일 아파트 최고가 TOP 5 카드",
+    "data_as_of": "2026-08-03",
+    "published_at": "2026-08-03"
+  },
+  {
     "slug": "lifestyle-newlywed-11170-20260802",
     "series": "lifestyle",
     "title": "용산구(서울) 신혼육아 추천 단지",
