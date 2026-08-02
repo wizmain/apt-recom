@@ -125,6 +125,20 @@ FROM raw GROUP BY apt_seq
 """
 
 
+# 거래 원본의 PNU 구성요소. Kakao 주소검색이 신규 행정구역 코드를 돌려주는
+# 지역(광주 29xxx → 전남광주통합특별시 12xxx 등)에서는 이 값으로 조합해야
+# 한다 — 건축물대장 API 는 구 코드에만 응답하고, DB 전체도 구 코드 체계다.
+# 최빈값을 쓴다. 같은 apt_seq 에 오기입 지번이 섞여 있을 수 있다.
+TRADE_PNU_PARTS_SQL = """
+SELECT umd_cd, land_cd, bonbun, bubun, umd_nm, jibun, COUNT(*) n
+FROM (
+    SELECT umd_cd, land_cd, bonbun, bubun, umd_nm, jibun
+      FROM trade_history WHERE apt_seq = %s AND umd_cd IS NOT NULL AND bonbun IS NOT NULL
+) t
+GROUP BY 1,2,3,4,5,6 ORDER BY n DESC LIMIT 1
+"""
+
+
 def _connect(target: str):
     key = "DATABASE_URL" if target == "local" else "RAILWAY_DATABASE_URL"
     url = os.environ.get(key)
@@ -185,6 +199,34 @@ def _compose_pnu(headers: dict, address: str) -> tuple[str, dict] | None:
     return b_code[:10] + gb + bun + ji, bld_params
 
 
+def _compose_pnu_from_trade(cur, apt_seq: str, sgg_cd: str) -> tuple[str, dict, str] | None:
+    """거래 원본으로 PNU 를 조합한다. (pnu, bld_params, 지번주소) 반환.
+
+    거래 land_cd 는 1=대지 규약이고 이 프로젝트의 PNU 11번째 자리는 건축물대장
+    platGbCd 규약(0=대지, 1=산)을 쓴다. 실측으로 확인했다 — 대구 서구 중리동 72
+    는 plat_gb_cd=0 에서만 응답한다(180세대, 6동, 5층).
+    """
+    cur.execute(TRADE_PNU_PARTS_SQL, [apt_seq])
+    row = cur.fetchone()
+    if not row:
+        return None
+
+    umd = str(row["umd_cd"]).zfill(5)
+    bun = str(row["bonbun"]).zfill(4)
+    ji = str(row["bubun"] or "0").zfill(4)
+    gb = "1" if str(row["land_cd"]) == "2" else "0"
+    pnu = f"{sgg_cd}{umd}{gb}{bun}{ji}"
+    if len(pnu) != 19:
+        return None
+
+    bld_params = {
+        "sigungu_cd": sgg_cd, "bjdong_cd": umd,
+        "plat_gb_cd": gb, "bun": bun, "ji": ji,
+    }
+    jibun = f"{row['umd_nm'] or ''} {row['jibun'] or ''}".strip()
+    return pnu, bld_params, jibun
+
+
 def _as_deal(stat: dict, apt_nm: str) -> dict:
     return {
         "apt_nm": apt_nm,
@@ -198,7 +240,7 @@ def _as_deal(stat: dict, apt_nm: str) -> dict:
 
 
 def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
-             existing: dict, budget: dict) -> dict:
+             sgg_extra: dict, existing: dict, budget: dict, cur=None) -> dict:
     """대상 1건을 판정한다. budget["registry"] 는 남은 건축물대장 호출 수."""
     apt_seq, apt_nm = row["apt_seq"], row["apt_nm"]
     sgg = str(row["sgg_cd"])[:5]
@@ -215,15 +257,42 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
     result["poi"] = poi
 
     composed = _compose_pnu(headers, poi["jibun_address"] or poi["road_address"])
-    if not composed:
-        result["status"] = "NO_PNU"
-        return result
-    pnu, bld_params = composed
-    result["pnu"] = pnu
+    if composed and composed[0][:5] == sgg:
+        pnu, bld_params = composed
+    else:
+        # Kakao 가 신규 행정구역 코드를 돌려주면(광주 29xxx → 12300 등) 시군구가
+        # 어긋난다. 이때 거래 원본으로 다시 조합한다 — 국토부 코드끼리라 체계가
+        # 일치하고, 좌표도 그 지번을 지오코딩해 얻으므로 POI 오매칭에 휘둘리지
+        # 않는다. 조합에 실패하면 원래 판정(SGG_MISMATCH / NO_PNU)을 남긴다.
+        from_trade = _compose_pnu_from_trade(cur, apt_seq, sgg)
+        if not from_trade:
+            result["status"] = "SGG_MISMATCH" if composed else "NO_PNU"
+            if composed:
+                result["pnu"] = composed[0]
+            return result
 
-    if pnu[:5] != sgg:
-        result["status"] = "SGG_MISMATCH"
-        return result
+        pnu, bld_params, jibun = from_trade
+        region = sgg_map.get(sgg, "")
+        sido = sgg_extra.get(sgg, "")
+        geo = _kakao_get(KAKAO_ADDRESS_URL, headers,
+                         {"query": f"{sido} {region} {jibun}".strip(), "size": 1})
+        docs = (geo or {}).get("documents", [])
+        if not docs:
+            result["status"] = "SGG_MISMATCH" if composed else "NO_PNU"
+            if composed:
+                result["pnu"] = composed[0]
+            return result
+        poi = {
+            **poi,
+            "lat": float(docs[0]["y"]), "lng": float(docs[0]["x"]),
+            "jibun_address": docs[0].get("address_name") or jibun,
+            "road_address": (docs[0].get("road_address") or {}).get("address_name") or "",
+            "source": "trade_jibun",
+        }
+        result["poi"] = poi
+        result["recovered_from_trade"] = True
+
+    result["pnu"] = pnu
 
     deal = _as_deal(stat, apt_nm)
 
@@ -273,7 +342,10 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
     info = reg.info
     result["registry"] = info
 
-    bld_nm = poi["place_name"]
+    # 이름은 건축물대장을 우선한다. 거래 기반 회수 경로에서는 POI 가 엉뚱한
+    # 지역 것이라 place_name 을 그대로 쓰면 다른 단지 이름이 박힌다 —
+    # 대연SKVIEWHills 가 "한양2차아파트"(인천 POI)로 등록될 뻔했다.
+    bld_nm = (info.get("bld_nm") or "").strip() or poi["place_name"]
     use_apr = info.get("use_apr_day")
     if not _brand_year_consistent(apt_nm, use_apr):
         result["status"] = "REJECTED"
@@ -396,8 +468,12 @@ def main() -> int:
     conn = _connect(args.target)
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cur.execute("SELECT code, name FROM common_code WHERE group_id = 'sigungu'")
-    sgg_map = {r["code"]: r["name"] for r in cur.fetchall()}
+    cur.execute("SELECT code, name, extra FROM common_code WHERE group_id = 'sigungu'")
+    _sgg_rows = cur.fetchall()
+    sgg_map = {r["code"]: r["name"] for r in _sgg_rows}
+    # extra 에 시도명이 들어 있다(예: 29170 → name "북구", extra "광주").
+    # 거래 지번을 지오코딩할 때 시도명이 없으면 동명 구로 오조회된다.
+    sgg_extra = {r["code"]: (r["extra"] or "") for r in _sgg_rows}
 
     # 진본 인덱스 — REPOINT 판정과 중복 등록 방지에 쓴다
     cur.execute("""
@@ -435,7 +511,7 @@ def main() -> int:
     results = []
     for i, row in enumerate(targets, 1):
         results.append(classify(row, stats_by_seq.get(row["apt_seq"], {}),
-                                headers, sgg_map, existing, budget))
+                                headers, sgg_map, sgg_extra, existing, budget, cur))
         if i % 100 == 0:
             print(f"  진행 {i}/{len(targets)} (건축물대장 잔여 {budget['registry']})")
 
