@@ -116,3 +116,42 @@ class TestAudit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDealStatsSql(unittest.TestCase):
+    """집계 SQL 빌더 — 플래너 함정 두 개가 재발하지 않게 고정한다."""
+
+    def test_is_null_or_패턴이_없다(self):
+        """이 패턴이 전체 실행을 4시간 넘게 만들었다 (2026-08)."""
+        from batch.trade.deal_stats import build_deal_stats_sql
+        for sql in (build_deal_stats_sql(),
+                    build_deal_stats_sql(by_seqs=True),
+                    build_deal_stats_sql(by_pnus=True)):
+            self.assertNotIn("IS NULL OR", sql)
+
+    def test_상관_서브쿼리가_없다(self):
+        """CTE 를 행마다 재스캔하는 (SELECT ARRAY_AGG ... WHERE x.y = m.y) 금지."""
+        from batch.trade.deal_stats import build_deal_stats_sql
+        sql = build_deal_stats_sql()
+        self.assertNotIn("(SELECT ARRAY_AGG", sql)
+        self.assertIn("LEFT JOIN area_agg", sql)
+        self.assertIn("LEFT JOIN apt_area_agg", sql)
+
+    def test_필터_모드는_raw_를_target_으로_묶는다(self):
+        """소량 감사(배치 신규 매핑)가 전량 집계를 유발하면 안 된다."""
+        from batch.trade.deal_stats import build_deal_stats_sql
+        sql = build_deal_stats_sql(by_pnus=True)
+        self.assertIn("JOIN target g ON g.apt_seq = t.apt_seq", sql)
+        self.assertIn("JOIN target g ON g.apt_seq = r.apt_seq", sql)
+        self.assertIn("m2.pnu = ANY(%(pnus)s)", sql)
+
+    def test_전체_모드는_필터가_없다(self):
+        from batch.trade.deal_stats import build_deal_stats_sql
+        sql = build_deal_stats_sql()
+        self.assertNotIn("target", sql)
+        self.assertNotIn("%(", sql)
+
+    def test_두_필터_동시_지정도_된다(self):
+        from batch.trade.deal_stats import build_deal_stats_sql
+        sql = build_deal_stats_sql(by_seqs=True, by_pnus=True)
+        self.assertIn("m2.apt_seq = ANY(%(seqs)s) AND m2.pnu = ANY(%(pnus)s)", sql)
