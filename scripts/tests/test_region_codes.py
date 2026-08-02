@@ -102,3 +102,69 @@ class TestLoadAliases(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAuditUnknownCodes(unittest.TestCase):
+    """미등록 코드 감사 — 판정만 하고 데이터를 바꾸지 않는다."""
+
+    class _Cur:
+        def __init__(self, outer):
+            self.outer = outer
+
+        def execute(self, sql, params=None):
+            self.outer.executed.append(sql)
+            s = " ".join(sql.split())
+            if "group_id = 'sigungu'" in s:
+                # audit 의 레지스트리 조회
+                self._rows = [("29170",), ("11110",)]
+            elif "group_id IN" in s:
+                # load_aliases — 그룹명은 파라미터로 넘어와 SQL 텍스트에 없다
+                self._rows = [("sigungu_alias", "12300", "29170")]
+            else:  # watch SQL
+                self._rows = self.outer.watch_rows
+
+        def fetchall(self):
+            return self._rows
+
+    class _Conn:
+        def __init__(self, watch_rows):
+            self.watch_rows = watch_rows
+            self.executed: list[str] = []
+
+        def cursor(self):
+            return TestAuditUnknownCodes._Cur(self)
+
+    class _Logger:
+        def __init__(self):
+            self.warnings, self.infos = [], []
+
+        def warning(self, m):
+            self.warnings.append(m)
+
+        def info(self, m):
+            self.infos.append(m)
+
+    def test_전부_아는_코드면_경보하지_않는다(self):
+        """레지스트리 코드와 별칭(신코드)은 정상이다."""
+        from batch.region_codes import audit_unknown_codes
+        log = self._Logger()
+        conn = self._Conn([("29170", "apartments.pnu"), ("12300", "trade_apt_mapping.sgg_cd")])
+        self.assertEqual(audit_unknown_codes(conn, log), [])
+        self.assertEqual(log.warnings, [])
+
+    def test_미지의_코드는_출처와_함께_경보한다(self):
+        """다음 행정구역 개편의 첫 유입을 잡는 것이 목적이다."""
+        from batch.region_codes import audit_unknown_codes
+        log = self._Logger()
+        conn = self._Conn([("13100", "apartments.pnu")])
+        unknown = audit_unknown_codes(conn, log)
+        self.assertEqual(unknown, [{"code": "13100", "source": "apartments.pnu"}])
+        self.assertTrue(log.warnings)
+
+    def test_데이터를_바꾸지_않는다(self):
+        from batch.region_codes import audit_unknown_codes
+        conn = self._Conn([("13100", "apartments.pnu")])
+        audit_unknown_codes(conn, self._Logger())
+        joined = " ".join(conn.executed).upper()
+        for verb in ("UPDATE ", "DELETE ", "INSERT "):
+            self.assertNotIn(verb, joined)

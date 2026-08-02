@@ -80,6 +80,24 @@ def run_trade(args, logger, result):
                 logger.warning(f"신규 매핑 감사 실패: {e}")
                 result.record("신규 매핑 감사", "warning", error=str(e))
 
+        # 4.3. 지역코드 감사 — 미등록 시군구 코드 유입 감지 (ADR-013 Phase 3).
+        # 2026-08 개편(광주·전남 → 12xxx)은 SGG_MISMATCH 808건이 쌓인 뒤에야
+        # 발견됐다. DISTINCT 두 번이라 비용이 무시할 수준이어서 매 배치 돈다.
+        try:
+            from batch.region_codes import audit_unknown_codes
+
+            t0 = time.time()
+            unknown = audit_unknown_codes(conn, logger)
+            result.record(
+                "지역코드 감사",
+                "warning" if unknown else "success",
+                rows=len(unknown),
+                duration=time.time() - t0,
+            )
+        except Exception as e:
+            logger.warning(f"지역코드 감사 실패: {e}")
+            result.record("지역코드 감사", "warning", error=str(e))
+
         # 4.5. 대시보드 집계 갱신 — 별도 커넥션에서 수행하여 선행 단계와 격리.
         #      선행 단계(load_trades/recalc_price/enrich)가 내부 commit 하지만 안전망으로 commit 재호출.
         #      집계 갱신 실패는 배치 전체 critical 오탐을 피하기 위해 warning record로 분리.
