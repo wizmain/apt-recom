@@ -156,6 +156,16 @@ def probe(conn, headers: dict) -> dict:
     cur.execute("SELECT code, name FROM common_code WHERE group_id = 'emd'")
     emd_names = {r["code"]: r["name"] for r in cur.fetchall()}
 
+    # 알려진 시도 표기 — 여기 없는 region_1depth_name 만 신명칭 후보로 남긴다
+    cur.execute("SELECT code, name, extra FROM common_code WHERE group_id IN ('sido', 'sido_alias')")
+    known_sido: set[str] = set()
+    for r in cur.fetchall():
+        known_sido.add(r["code"])
+        if r["name"]:
+            known_sido.add(r["name"])
+        if r["extra"] and r["extra"] != "매칭 전용 canonical 토큰":
+            known_sido.add(r["extra"])
+
     results = {"unchanged": 0, "no_sample": [], "unverified": [],
                "renamed": {}, "reassigned": {}, "sido": {}}
 
@@ -186,8 +196,10 @@ def probe(conn, headers: dict) -> dict:
             else:
                 reassigned[new_code] = s["pnu"][:10]
             sido_new = (addr.get("region_1depth_name") or "").strip()
-            if sido_new and row["extra"] and not sido_new.startswith(row["extra"]):
-                results["sido"][sido_new] = row["extra"]
+            if sido_new and sido_new not in known_sido:
+                # sido/sido_alias 어디에도 없는 표기 — 새 개편의 시도명 후보.
+                # extra 비교는 도시명 혼용("청주")으로 오류 쌍을 만들어 폐기했다.
+                results["sido"][sido_new] = "미등록 표기"
 
         verified = sum(exact_new.values()) + len(reassigned)
         if verified == 0:
@@ -289,9 +301,9 @@ def main() -> int:
         for k, v in sorted(results["reassigned"].items()):
             print(f"    {k} → {v}")
     if results["sido"]:
-        print("\n  [시도명] 신명칭 → 표준")
-        for k, v in sorted(results["sido"].items()):
-            print(f"    {k} → {v}")
+        print("\n  [시도명 후보] 미등록 표기 — seed_sido_registry.py 목록에 추가 검토")
+        for k in sorted(results["sido"]):
+            print(f"    {k}")
     if results["unverified"]:
         print(f"\n  [검증 실패] {results['unverified'][:10]}{'...' if len(results['unverified'])>10 else ''}")
 

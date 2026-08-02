@@ -207,3 +207,44 @@ class TestReassignedBjdong(unittest.TestCase):
     def test_normalize_sigungu_는_십자리_값에서_시군구를_뽑는다(self):
         self.assertEqual(
             normalize_sigungu("28125", self.ALIASES, bjdong="13200"), "28110")
+
+
+class TestCanonicalAddr(unittest.TestCase):
+    """주소 매칭 키의 시도 토큰 접기 — 표시용이 아니라 매칭 전용."""
+
+    ALIASES = {"sigungu": {}, "sido": {
+        "광주": "전남광주", "광주광역시": "전남광주",
+        "전남": "전남광주", "전라남도": "전남광주",
+        "전남광주통합특별시": "전남광주",
+        "서울": "서울", "서울특별시": "서울",
+        "강원특별자치도": "강원", "강원도": "강원", "강원": "강원",
+    }}
+
+    def test_구표기와_신표기가_같은_키로_접힌다(self):
+        """DB "광주 …" vs Kakao "전남광주통합특별시 …" — [L2] 매칭의 전제."""
+        from batch.region_codes import canonical_addr
+        a = canonical_addr("광주 북구 오치동 985-1", self.ALIASES)
+        b = canonical_addr("전남광주통합특별시 북구 오치동 985-1", self.ALIASES)
+        self.assertEqual(a, b)
+        self.assertEqual(a, "전남광주 북구 오치동 985-1")
+
+    def test_전남_표기도_같은_토큰으로_접힌다(self):
+        """통합시라 광주·전남 양쪽 표기가 한 토큰이어야 신표기와 매치된다."""
+        from batch.region_codes import canonical_addr
+        self.assertEqual(
+            canonical_addr("전남 신안군 지도읍 읍내리 1702", self.ALIASES),
+            canonical_addr("전남광주통합특별시 신안군 지도읍 읍내리 1702", self.ALIASES))
+
+    def test_정식명과_축약이_같은_키다(self):
+        from batch.region_codes import canonical_addr
+        self.assertEqual(
+            canonical_addr("서울특별시 종로구 청운동 1", self.ALIASES),
+            canonical_addr("서울 종로구 청운동 1", self.ALIASES))
+
+    def test_모르는_시도_표기는_원문_유지다(self):
+        from batch.region_codes import canonical_addr
+        self.assertEqual(canonical_addr("미지의시 어딘가 1", self.ALIASES), "미지의시 어딘가 1")
+
+    def test_빈_입력은_그대로다(self):
+        from batch.region_codes import canonical_addr
+        self.assertEqual(canonical_addr("", self.ALIASES), "")

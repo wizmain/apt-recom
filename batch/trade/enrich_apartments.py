@@ -26,7 +26,7 @@ from batch.config import (
     DATA_GO_KR_RATE,
 )
 from batch.db import query_all, query_one
-from batch.region_codes import load_aliases, normalize_pnu
+from batch.region_codes import canonical_addr, load_aliases, normalize_pnu
 from batch.trade.registry import (
     REQUEST_FAILED,
     pnu_to_bld_params,
@@ -596,7 +596,10 @@ def enrich_new_apartments(conn, logger):
     def _addr_key(sgg_cd: str, addr: str) -> str:
         if not addr:
             return ""
-        return f"{sgg_cd}|{re.sub(r'[\\s,]+', ' ', addr).strip().lower()}"
+        # 시도 표기를 canonical 토큰으로 접는다 — DB 의 "광주 …"와 Kakao 의
+        # "전남광주통합특별시 …"가 같은 키가 되어야 [L2] 주소 매칭이 성립한다.
+        folded = canonical_addr(addr, aliases)
+        return f"{sgg_cd}|{re.sub(r'[\\s,]+', ' ', folded).strip().lower()}"
 
     kapt_addr_index: dict[str, str] = {}
     for ar in kapt_addr_rows:
