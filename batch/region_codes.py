@@ -36,6 +36,7 @@ from __future__ import annotations
 
 SIGUNGU_ALIAS_GROUP = "sigungu_alias"
 SIDO_ALIAS_GROUP = "sido_alias"
+SIDO_GROUP = "sido"
 
 
 def load_aliases(conn) -> dict:
@@ -87,10 +88,30 @@ def normalize_pnu(pnu: str, aliases: dict) -> str:
 
 
 def normalize_sido_name(name: str, aliases: dict) -> str:
-    """신 시도명을 표준 표기로 바꾼다. 매칭 키 용도 — 저장된 주소 원문은 건드리지 않는다."""
+    """시도 표기를 매칭용 canonical 토큰으로 접는다. 표시용이 아니다.
+
+    개편 통합시는 여러 시도의 표기가 한 토큰으로 접힌다 — "광주"·"전남"·
+    "전남광주통합특별시"가 모두 "전남광주"가 되어야 구표기 DB 주소와
+    신표기 Kakao 주소가 매치된다. 저장된 주소 원문은 건드리지 않는다.
+    """
     if not name:
         return name
     return aliases.get("sido", {}).get(name, name)
+
+
+def canonical_addr(addr: str, aliases: dict) -> str:
+    """주소 문자열의 선두 시도 표기를 canonical 토큰으로 접은 매칭용 문자열.
+
+    DB 에는 "광주 북구 …"·"전남 신안군 …"·"전남광주통합특별시 북구 …"가
+    혼재한다(2026-08 실측: 1,150 / 840 / 35건). 시도 토큰만 다르고 이하가
+    같은 주소를 같은 키로 만들기 위해 쓴다. 시군구·지번이 뒤에서 구별되므로
+    시도 토큰을 접어도 오매칭이 생기지 않는다.
+    """
+    if not addr:
+        return addr
+    head, _, rest = addr.strip().partition(" ")
+    folded = aliases.get("sido", {}).get(head)
+    return f"{folded} {rest}" if folded and rest else (folded or addr)
 
 
 def is_known_sigungu(code: str, registry: set, aliases: dict) -> bool:
