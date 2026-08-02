@@ -33,53 +33,9 @@ from __future__ import annotations
 import argparse
 
 from batch.db import get_connection, query_all
+from batch.trade.deal_stats import build_deal_stats_sql
 from batch.logger import setup_logger
 from batch.trade.mapping_checks import check_mapping, mismatch_confirmed
-
-# 실적 집계 — 매매와 전월세를 함께 본다. 임대 단지는 실적이 전월세에만 있어
-# 매매만 보면 층·면적 검증이 빈 채로 통과한다.
-# apt_seq 필터를 CTE 안으로 밀어넣는다. 바깥에서 자르면 대상 수와 무관하게
-# 두 이력 테이블을 전량 집계한다.
-_AUDIT_SQL = """
-WITH target AS (
-  SELECT m.apt_seq FROM trade_apt_mapping m
-   WHERE (%(seqs)s::text[] IS NULL OR m.apt_seq = ANY(%(seqs)s::text[]))
-     AND (%(pnus)s::text[] IS NULL OR m.pnu = ANY(%(pnus)s::text[]))
-),
-raw AS (
-    SELECT t.apt_seq, 't' src, t.floor, t.deal_year, t.build_year, t.exclu_use_ar area
-      FROM trade_history t JOIN target g ON g.apt_seq = t.apt_seq
-    UNION ALL
-    SELECT r.apt_seq, 'r', r.floor, r.deal_year, NULL, r.exclu_use_ar
-      FROM rent_history r JOIN target g ON g.apt_seq = r.apt_seq
-),
--- 면적은 건수로 가중한다. 종류만 세면 소수의 예외 거래가 과대평가된다
--- (mapping_checks.area_match_ratio 주석 참조).
-area_cnt AS (
-  SELECT apt_seq, ROUND(area::numeric, 2) area, COUNT(*) cnt
-  FROM raw WHERE area > 0 GROUP BY 1, 2
-),
-deal AS (
-  SELECT apt_seq,
-         COUNT(*) FILTER (WHERE src = 't') trades,
-         COUNT(*) FILTER (WHERE src = 'r') rents,
-         MAX(floor) max_floor,
-         MIN(deal_year) min_deal_year,
-         PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY build_year) median_build_year
-  FROM raw GROUP BY apt_seq
-)
-SELECT m.apt_seq, m.apt_nm, m.pnu, m.match_method,
-       d.trades, d.rents, d.max_floor, d.min_deal_year, d.median_build_year,
-       (SELECT ARRAY_AGG(ARRAY[ac.area::float8, ac.cnt::float8])
-          FROM area_cnt ac WHERE ac.apt_seq = m.apt_seq) AS areas,
-       a.bld_nm, a.max_floor AS apt_max_floor, a.use_apr_day,
-       (SELECT ARRAY_AGG(exclusive_area) FROM apt_area_type t WHERE t.pnu = a.pnu) AS apt_areas
-FROM trade_apt_mapping m
-JOIN deal d ON d.apt_seq = m.apt_seq
-JOIN apartments a ON a.pnu = m.pnu
-ORDER BY (d.trades + d.rents) DESC
-"""
-
 
 def _as_deal(row: dict) -> dict:
     return {
@@ -106,10 +62,16 @@ def audit(conn, logger, apt_seqs: list[str] | None = None,
 
     apt_seqs / pnus 를 모두 생략하면 전체를 감사한다(느리다 — 모듈 주석 참조).
     """
-    rows = query_all(conn, _AUDIT_SQL, {
-        "seqs": list(apt_seqs) if apt_seqs else None,
-        "pnus": list(pnus) if pnus else None,
-    })
+    params = {}
+    if apt_seqs:
+        params["seqs"] = list(apt_seqs)
+    if pnus:
+        params["pnus"] = list(pnus)
+    rows = query_all(
+        conn,
+        build_deal_stats_sql(by_seqs="seqs" in params, by_pnus="pnus" in params),
+        params or None,
+    )
 
     violations = []
     for r in rows:

@@ -54,55 +54,12 @@ sys.path.insert(0, str(REPO_ROOT))
 load_dotenv(REPO_ROOT / ".env")
 
 from batch.config import KAKAO_API_KEY, KAKAO_RATE  # noqa: E402
+from batch.trade.deal_stats import build_deal_stats_sql  # noqa: E402
 from batch.trade.mapping_checks import check_mapping, mismatch_confirmed  # noqa: E402
 from batch.trade.name_matching import _name_variants, _normalize_name  # noqa: E402
 
 KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 MATCH_METHOD = "rematch_verified"
-
-# 실적 집계 — 매매와 전월세를 함께 본다. 임대 단지는 실적이 전월세에만 있어
-# 매매만 보면 층·면적 검증이 빈 채로 통과한다.
-# apt_seq 필터를 집계 안으로 밀어넣는다. 바깥에서 자르면 --limit 과 무관하게
-# trade_history 317만 + rent_history 659만 행을 매번 전량 집계하게 된다.
-# 두 테이블 모두 apt_seq 인덱스가 있어(idx_trade_seq/idx_rent_seq) 부분 실행이 가볍다.
-DEAL_STATS_SQL = """
-WITH target AS (
-  SELECT m.apt_seq FROM trade_apt_mapping m
-   WHERE %(seqs)s::text[] IS NULL OR m.apt_seq = ANY(%(seqs)s::text[])
-),
-raw AS (
-    SELECT t.apt_seq, 't' src, t.floor, t.deal_year, t.build_year, t.exclu_use_ar area
-      FROM trade_history t JOIN target g ON g.apt_seq = t.apt_seq
-    UNION ALL
-    SELECT r.apt_seq, 'r', r.floor, r.deal_year, NULL, r.exclu_use_ar
-      FROM rent_history r JOIN target g ON g.apt_seq = r.apt_seq
-),
--- 면적은 건수로 가중해야 한다. 종류만 세면 소수의 예외 거래가 과대평가된다
--- (mapping_checks.area_match_ratio 주석 참조).
-area_cnt AS (
-  SELECT apt_seq, ROUND(area::numeric, 2) area, COUNT(*) cnt
-  FROM raw WHERE area > 0 GROUP BY 1, 2
-),
-deal AS (
-  SELECT apt_seq,
-         COUNT(*) FILTER (WHERE src = 't') trades,
-         COUNT(*) FILTER (WHERE src = 'r') rents,
-         MAX(floor) max_floor,
-         MIN(deal_year) min_deal_year,
-         PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY build_year) median_build_year
-  FROM raw GROUP BY apt_seq
-)
-SELECT m.apt_seq, m.apt_nm, m.sgg_cd, m.pnu, m.match_method,
-       d.trades, d.rents, d.max_floor, d.min_deal_year, d.median_build_year,
-       (SELECT ARRAY_AGG(ARRAY[ac.area::float8, ac.cnt::float8])
-          FROM area_cnt ac WHERE ac.apt_seq = m.apt_seq) AS areas,
-       a.bld_nm, a.max_floor AS apt_max_floor, a.use_apr_day,
-       (SELECT ARRAY_AGG(exclusive_area) FROM apt_area_type t WHERE t.pnu = a.pnu) AS apt_areas
-FROM trade_apt_mapping m
-JOIN deal d ON d.apt_seq = m.apt_seq
-JOIN apartments a ON a.pnu = m.pnu
-ORDER BY (d.trades + d.rents) DESC
-"""
 
 # --limit 표본용. 실적 순 정렬은 전량 집계를 요구하므로, 표본은 apt_seq 순으로
 # 뽑는다. 실적 상위만 보면 진본이 등록돼 있을 확률이 높은 구간에 치우쳐
@@ -308,7 +265,8 @@ def run(target: str, apply: bool, limit: int, out: str) -> int:
     else:
         print("전체 매핑 집계 중...")
 
-    cur.execute(DEAL_STATS_SQL, {"seqs": seqs})
+    cur.execute(build_deal_stats_sql(by_seqs=seqs is not None),
+                {"seqs": seqs} if seqs is not None else None)
     rows = [dict(r) for r in cur.fetchall()]
     print(f"[{target}] {'APPLY' if apply else 'REPORT'} — 실적 있는 매핑 {len(rows):,}건 검사\n")
 
