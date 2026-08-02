@@ -105,3 +105,38 @@ class TestSummarize(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBuildingName(unittest.TestCase):
+    """건물명 — 거래 기반 회수 경로에서 POI 이름을 신뢰할 수 없어 여기서 얻는다."""
+
+    def test_세대수가_많은_동의_이름을_고른다(self):
+        """표제부에는 관리동·상가동이 섞여 있다."""
+        body = """<items>
+          <item><bldNm>관리동</bldNm><hhldCnt>0</hhldCnt></item>
+          <item><bldNm>대연 SK VIEW Hills</bldNm><hhldCnt>180</hhldCnt></item>
+        </items>"""
+        self.assertEqual(
+            parse_registry_response(_envelope(body)).info["bld_nm"],
+            "대연 SK VIEW Hills")
+
+    def test_공백만_든_이름은_무시한다(self):
+        body = """<items>
+          <item><bldNm> </bldNm><hhldCnt>10</hhldCnt></item>
+          <item><bldNm>수성아파트</bldNm><hhldCnt>60</hhldCnt></item>
+        </items>"""
+        self.assertEqual(
+            parse_registry_response(_envelope(body)).info["bld_nm"], "수성아파트")
+
+    def test_같은_이름의_여러_동은_합산된다(self):
+        body = """<items>
+          <item><bldNm>월드파크</bldNm><hhldCnt>30</hhldCnt></item>
+          <item><bldNm>월드파크</bldNm><hhldCnt>66</hhldCnt></item>
+          <item><bldNm>상가</bldNm><hhldCnt>80</hhldCnt></item>
+        </items>"""
+        self.assertEqual(
+            parse_registry_response(_envelope(body)).info["bld_nm"], "월드파크")
+
+    def test_이름이_없으면_None_이다(self):
+        self.assertIsNone(
+            parse_registry_response(_envelope("<items><item/></items>")).info["bld_nm"])

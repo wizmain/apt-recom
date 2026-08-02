@@ -54,6 +54,9 @@ def summarize_items(items: list) -> dict:
     dong_set: set[str] = set()
     max_flr = 0
     use_apr = None
+    # 건물명은 세대수가 가장 많은 동의 것을 쓴다. 표제부에는 관리동·상가동이
+    # 섞여 있고 공백만 든 항목도 있다.
+    name_weight: dict[str, int] = {}
 
     for item in items:
         hhld = item.findtext("hhldCnt")
@@ -68,8 +71,15 @@ def summarize_items(items: list) -> dict:
         apr = item.findtext("useAprDay")
         if apr and (not use_apr or apr < use_apr):
             use_apr = apr
+        bld = (item.findtext("bldNm") or "").strip()
+        if bld:
+            n = int(hhld) if hhld and hhld.isdigit() else 0
+            name_weight[bld] = name_weight.get(bld, 0) + n + 1
+
+    bld_nm = max(name_weight.items(), key=lambda kv: kv[1])[0] if name_weight else None
 
     return {
+        "bld_nm": bld_nm,
         "total_hhld_cnt": total_hhld if total_hhld > 0 else None,
         "dong_count": len(dong_set) if dong_set else None,
         "max_floor": max_flr if max_flr > 0 else None,
