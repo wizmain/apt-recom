@@ -20,9 +20,12 @@
     code  = 신 시도명 (예: 전남광주통합특별시)
     name  = 표준 시도명 (common_code sigungu 의 extra 와 같은 표기)
 
-  인천 중구+동구 → 제물포구+영종구 같은 재편은 5자리만으로 역방향이
-  정해지지 않는다. 법정동 코드는 개편 전후 보존되므로(실측 — 오치동 11500),
-  그런 경우 10자리(신시군구+법정동) 항목으로 등록해 법정동 단위로 푼다.
+  재편 유형은 별칭 항목의 자릿수로 구분한다 (2026-08 실측).
+    5자리 → 5자리   개명. 법정동 보존 (광주·전남 — 오치동 11500 동일)
+    10자리 → 10자리  법정동 재부여형 재편. 인천 중구+동구 → 제물포구+영종구,
+                    서구 → 서구+검단구에서 법정동 코드까지 재배열됐다
+                    (중구 답동 2811012500 → 2812513200). 이때 5자리 치환은
+                    엉뚱한 동의 PNU 를 만들므로 앞 10자리를 통째로 바꾼다.
 
 이 모듈은 DB 드라이버를 import 하지 않는다. 순수 변환 함수는 별칭 dict 를
 인자로 받아 scripts/tests 의 CI(psycopg2 미설치)에서 검증할 수 있고,
@@ -53,6 +56,7 @@ def normalize_sigungu(code: str, aliases: dict, bjdong: str | None = None) -> st
     """신 시군구 코드를 표준(구)코드로 바꾼다. 별칭이 없으면 그대로 반환한다.
 
     재편 지역은 10자리(신시군구+법정동) 항목이 5자리보다 우선한다.
+    10자리 항목의 값이 10자리(법정동 재부여형)면 그 앞 5자리가 표준 시군구다.
     """
     if not code:
         return code
@@ -60,20 +64,26 @@ def normalize_sigungu(code: str, aliases: dict, bjdong: str | None = None) -> st
     if bjdong and len(bjdong) == 5:
         hit = sgg.get(code + bjdong)
         if hit:
-            return hit
+            return hit[:5]
     return sgg.get(code, code)
 
 
 def normalize_pnu(pnu: str, aliases: dict) -> str:
     """신코드로 조합된 19자리 PNU 를 표준 코드 기반으로 바꾼다.
 
-    법정동 이하(6~19자리)는 개편 전후 보존되므로 앞 5자리만 치환한다.
+    10자리(법정동 재부여형) 별칭이 있으면 앞 10자리를 통째로 바꾸고,
+    없으면 5자리 별칭으로 시군구만 치환한다(법정동 보존형).
     별칭이 없으면 원본을 반환한다 — 이미 표준이거나 미지의 코드다.
     """
     if not pnu or len(pnu) != 19:
         return pnu
-    canonical = normalize_sigungu(pnu[:5], aliases, bjdong=pnu[5:10])
-    return canonical + pnu[5:] if canonical != pnu[:5] else pnu
+    sgg = aliases.get("sigungu", {})
+    hit = sgg.get(pnu[:10])
+    if hit:
+        prefix = hit if len(hit) == 10 else hit + pnu[5:10]
+        return prefix + pnu[10:]
+    canonical = sgg.get(pnu[:5])
+    return canonical + pnu[5:] if canonical else pnu
 
 
 def normalize_sido_name(name: str, aliases: dict) -> str:

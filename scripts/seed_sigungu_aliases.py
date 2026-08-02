@@ -8,10 +8,16 @@
   같은 필지가 확인됐을 때만 (구코드 → b_code 앞 5자리) 를 대응으로 인정한다.
   앞 5자리가 같으면 개편이 없는 지역이므로 별칭을 만들지 않는다.
 
-  시군구당 표본 여러 곳(기본 3)을 조사해 법정동별로 신코드가 갈리는 재편
-  (인천 중구+동구 → 제물포구+영종구 유형)을 감지한다. 표본들이 서로 다른
-  신코드를 가리키면 5자리 별칭 대신 10자리(신시군구+법정동) 항목으로 남긴다
-  — 이 경우 표본에 없는 법정동은 커버되지 않으므로 리포트에 명시한다.
+  시군구당 표본 여러 곳(기본 3)을 조사한다. 판정 규칙:
+    - 표본 전부가 필지 완전일치(법정동 보존)이고 신코드가 하나로 모이며
+      검증 표본이 MIN_VERIFIED 이상이면 → 5자리 개명 별칭
+    - 법정동이 바뀌었는데 본번·부번과 동명(emd 레지스트리 대조)이 일치하면
+      법정동 재부여형 재편(인천 유형) → 10자리→10자리 별칭. 이 유형에서
+      5자리 치환은 엉뚱한 동의 PNU 를 만들므로 절대 5자리 별칭을 만들지
+      않는다. 표본에 없는 법정동은 커버되지 않는다(미커버 유입은 정규화
+      되지 않고 SGG 가드 → 거래 기반 재조합 경로로 안전하게 빠진다).
+    - 부번 포함 지번이 검색되지 않으면 본번만으로 재시도한다(신안 유형).
+      이때는 부번 대조가 불가능하므로 동명 일치를 필수로 요구한다.
 
   시도명 별칭은 응답의 region_1depth_name 이 우리 표기(common_code.extra)와
   다를 때 수집한다 (예: 전남광주통합특별시 → 광주).
@@ -30,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -88,14 +95,56 @@ def _geocode(headers: dict, addr: str) -> dict | None:
     return docs[0].get("address") if docs else None
 
 
-def _same_parcel(pnu: str, addr: dict) -> bool:
-    """응답 필지가 표본 PNU 와 같은 땅인지 — 법정동·본번·부번 대조."""
+_JIBUN_TAIL = re.compile(r"(\d+)-\d+$")
+
+
+def _geocode_with_fallback(headers: dict, addr: str) -> tuple[dict | None, bool]:
+    """(응답, 부번대조가능). 부번 포함 지번이 안 잡히면 본번만으로 재시도한다.
+
+    신안 지도읍 읍내리 168-50 은 검색 불가, 168 은 성공(2026-08 실측).
+    본번 검색이면 응답 부번을 원 지번과 대조할 수 없어 False 를 함께 준다.
+    """
+    got = _geocode(headers, addr)
+    if got:
+        return got, True
+    stripped = _JIBUN_TAIL.sub(r"\1", addr)
+    if stripped != addr:
+        return _geocode(headers, stripped), False
+    return None, True
+
+
+# 개명(5자리) 판정에 필요한 최소 검증 표본. 1건으로 판정하면 인천 서구처럼
+# 재부여형 재편의 보존 동 하나가 우연히 통과해 오판한다(2026-08 실제 사례).
+MIN_VERIFIED = 2
+
+
+def _judge_sample(pnu: str, addr: dict, emd_names: dict,
+                  ji_checked: bool) -> tuple[str, str] | None:
+    """표본 하나를 판정한다. (신코드, 유형) 반환 — 유형은 exact | reassigned.
+
+    exact      법정동 보존 + 본번·부번 일치
+    reassigned 법정동 재부여 — 본번(·부번) 일치 + 동명이 emd 레지스트리와 일치
+    """
     b_code = addr.get("b_code") or ""
-    if len(b_code) < 10 or b_code[5:10] != pnu[5:10]:
-        return False
+    if len(b_code) < 10:
+        return None
     bun = str(addr.get("main_address_no") or "0").zfill(4)
     ji = str(addr.get("sub_address_no") or "0").zfill(4)
-    return bun == pnu[11:15] and ji == pnu[15:19]
+    if bun != pnu[11:15]:
+        return None
+    if ji_checked and ji != pnu[15:19]:
+        return None
+
+    if b_code[5:10] == pnu[5:10]:
+        if ji_checked:
+            return b_code[:5], "exact"
+        # 부번 미대조면 완전일치로 보지 않고 동명까지 요구한다
+    old_name = emd_names.get(pnu[:10], "")
+    new_name = (addr.get("region_3depth_name") or "").strip()
+    if old_name and new_name and old_name == new_name:
+        kind = "exact" if b_code[5:10] == pnu[5:10] else "reassigned"
+        return (b_code[:5] if kind == "exact" else b_code[:10]), kind
+    return None
 
 
 def probe(conn, headers: dict) -> dict:
@@ -103,8 +152,12 @@ def probe(conn, headers: dict) -> dict:
     cur.execute("SELECT code, name, extra FROM common_code WHERE group_id='sigungu' ORDER BY code")
     registry = [dict(r) for r in cur.fetchall()]
 
+    # emd 레지스트리 — 재부여 판정의 동명 대조 재료
+    cur.execute("SELECT code, name FROM common_code WHERE group_id = 'emd'")
+    emd_names = {r["code"]: r["name"] for r in cur.fetchall()}
+
     results = {"unchanged": 0, "no_sample": [], "unverified": [],
-               "renamed": {}, "split": {}, "sido": {}}
+               "renamed": {}, "reassigned": {}, "sido": {}}
 
     for i, row in enumerate(registry, 1):
         old = row["code"]
@@ -114,35 +167,58 @@ def probe(conn, headers: dict) -> dict:
             results["no_sample"].append(old)
             continue
 
-        seen_new: dict[str, list[str]] = defaultdict(list)  # 신코드 → [법정동...]
-        verified = 0
+        exact_new: dict[str, int] = defaultdict(int)      # 신5자리 → 표본 수
+        reassigned: dict[str, str] = {}                    # 신10자리 → 구10자리
+        reassigned_backup: dict[str, str] = {}             # exact 의 10자리 대응
         for s in samples:
-            addr = _geocode(headers, s["plat_plc"])
-            if not addr or not _same_parcel(s["pnu"], addr):
+            addr, ji_checked = _geocode_with_fallback(headers, s["plat_plc"])
+            if not addr:
                 continue
-            verified += 1
-            new = (addr.get("b_code") or "")[:5]
-            seen_new[new].append(s["pnu"][5:10])
+            judged = _judge_sample(s["pnu"], addr, emd_names, ji_checked)
+            if not judged:
+                continue
+            new_code, kind = judged
+            if kind == "exact":
+                exact_new[new_code] += 1
+                # 재부여형으로 판명될 경우를 대비해 10자리 대응도 함께 기록.
+                # 보존 동은 신법정동 == 구법정동이다.
+                reassigned_backup[new_code + s["pnu"][5:10]] = s["pnu"][:10]
+            else:
+                reassigned[new_code] = s["pnu"][:10]
             sido_new = (addr.get("region_1depth_name") or "").strip()
             if sido_new and row["extra"] and not sido_new.startswith(row["extra"]):
                 results["sido"][sido_new] = row["extra"]
 
+        verified = sum(exact_new.values()) + len(reassigned)
         if verified == 0:
             results["unverified"].append(old)
-        elif set(seen_new) == {old}:
+        elif reassigned:
+            # 법정동 재부여형 — 검증된 표본 전부(보존 동 포함)를 10자리로 남기고
+            # 5자리 별칭은 절대 만들지 않는다. 서구 백석동처럼 보존 동이 섞여도
+            # 10자리 항목이면 안전하다.
+            results["reassigned"].update(reassigned)
+            results["reassigned"].update(reassigned_backup)
+        elif set(exact_new) == {old}:
             results["unchanged"] += 1
-        elif len(seen_new) == 1:
-            new = next(iter(seen_new))
-            results["renamed"][old] = new
+        elif len(exact_new) == 1 and verified >= MIN_VERIFIED:
+            results["renamed"][old] = next(iter(exact_new))
         else:
-            # 법정동별로 신코드가 갈리는 재편 — 10자리 항목으로 남긴다
-            for new, bjds in seen_new.items():
-                if new == old:
-                    continue
-                for bjd in bjds:
-                    results["split"][new + bjd] = old
+            # 신코드가 갈리거나 표본이 부족 — 판정 보류
+            results["unverified"].append(old)
         if i % 50 == 0:
             print(f"  진행 {i}/{len(registry)}")
+
+    # 병합 교차검증 — 서로 다른 구코드가 같은 신코드로 합쳐지는 재편에서는
+    # 구코드별 독립 판정이 한쪽을 "개명"으로 오판한다. 인천 동구(법정동 보존)가
+    # 28125 로 개명 판정되지만, 28125 는 구 중구 유래의 재부여 법정동도 담는다.
+    # 5자리 별칭이 있으면 미커버 법정동이 "동구+엉뚱한 법정동"으로 오변환되므로,
+    # 재부여 매핑에 등장하는 신코드의 개명 판정은 10자리로 강등한다.
+    reassigned_sggs = {k[:5] for k in results["reassigned"]}
+    for old_code, new_code in list(results["renamed"].items()):
+        if new_code in reassigned_sggs:
+            del results["renamed"][old_code]
+            results["demoted_to_reassigned"] = results.get("demoted_to_reassigned", [])
+            results["demoted_to_reassigned"].append(f"{old_code}→{new_code}")
 
     return results
 
@@ -150,9 +226,9 @@ def probe(conn, headers: dict) -> dict:
 def apply_aliases(conn, results: dict) -> tuple[int, int]:
     cur = conn.cursor()
     n_sgg = 0
-    # 5자리 개명: 신코드 → 구코드. 10자리 분기: 신시군구+법정동 → 구코드
+    # 5자리 개명: 신코드 → 구코드. 10자리 재부여: 신10자리 → 구10자리
     entries = {new: old for old, new in results["renamed"].items()}
-    entries.update(results["split"])
+    entries.update(results.get("reassigned", {}))
     for new, old in entries.items():
         cur.execute(
             """INSERT INTO common_code (group_id, code, name, extra, sort_order)
@@ -200,7 +276,7 @@ def main() -> int:
     print("\n=== 결과 ===")
     print(f"  변화 없음        : {results['unchanged']}")
     print(f"  개명(5자리 별칭)  : {len(results['renamed'])}")
-    print(f"  재편(10자리 별칭) : {len(results['split'])}")
+    print(f"  재부여(10자리)    : {len(results['reassigned'])}")
     print(f"  시도명 별칭       : {len(results['sido'])}")
     print(f"  표본 없음         : {len(results['no_sample'])}  검증 실패: {len(results['unverified'])}")
 
@@ -208,9 +284,9 @@ def main() -> int:
         print("\n  [개명] 구코드 → 신코드")
         for old, new in sorted(results["renamed"].items()):
             print(f"    {old} → {new}")
-    if results["split"]:
-        print("\n  [재편] 신시군구+법정동 → 구코드 (표본에 없는 법정동은 미커버)")
-        for k, v in sorted(results["split"].items()):
+    if results["reassigned"]:
+        print("\n  [재부여] 신10자리 → 구10자리 (표본에 없는 법정동은 미커버)")
+        for k, v in sorted(results["reassigned"].items()):
             print(f"    {k} → {v}")
     if results["sido"]:
         print("\n  [시도명] 신명칭 → 표준")

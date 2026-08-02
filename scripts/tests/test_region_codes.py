@@ -168,3 +168,42 @@ class TestAuditUnknownCodes(unittest.TestCase):
         joined = " ".join(conn.executed).upper()
         for verb in ("UPDATE ", "DELETE ", "INSERT "):
             self.assertNotIn(verb, joined)
+
+
+class TestReassignedBjdong(unittest.TestCase):
+    """법정동 재부여형 재편 (인천, 2026-08 실측) — 10자리 → 10자리 별칭."""
+
+    ALIASES = {
+        "sigungu": {
+            "2812513200": "2811012500",  # 제물포구 신법정동 → 중구 답동
+            "2812510300": "2814010300",  # 제물포구 송현동 → 동구 (법정동 보존 동)
+            "12300": "29170",            # 5자리 개명형 공존
+        },
+        "sido": {},
+    }
+
+    def test_재부여형은_앞_10자리를_통째로_바꾼다(self):
+        """인천 중구 답동 로얄 실측 — 5자리 치환이면 엉뚱한 동이 된다."""
+        self.assertEqual(
+            normalize_pnu("2812513200000080001", self.ALIASES),
+            "2811012500000080001")
+
+    def test_같은_신시군구라도_법정동별로_다른_구코드로_간다(self):
+        self.assertEqual(
+            normalize_pnu("2812510300001540000", self.ALIASES),
+            "2814010300001540000")
+
+    def test_십자리_매핑이_없는_법정동은_바꾸지_않는다(self):
+        """근거 없는 5자리 치환은 오변환 — 원본 유지가 안전하다."""
+        self.assertEqual(
+            normalize_pnu("2812599900000010000", self.ALIASES),
+            "2812599900000010000")
+
+    def test_개명형과_공존한다(self):
+        self.assertEqual(
+            normalize_pnu("1230011500009850001", self.ALIASES),
+            "2917011500009850001")
+
+    def test_normalize_sigungu_는_십자리_값에서_시군구를_뽑는다(self):
+        self.assertEqual(
+            normalize_sigungu("28125", self.ALIASES, bjdong="13200"), "28110")
