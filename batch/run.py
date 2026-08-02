@@ -57,6 +57,29 @@ def run_trade(args, logger, result):
             "신규 아파트 보충", "success", rows=enriched, duration=time.time() - t0
         )
 
+        # 4.2. 신규 매핑 정합성 감사 — 판정만 하고 고치지 않는다.
+        # 이름 매칭으로 만든 매핑은 apartments.bld_nm 이 K-APT 적재로 바뀌면
+        # 조용히 어긋난다. 2026-08 에 5,460건이 쌓인 뒤에야 발견해 대량 교정했다.
+        # 이번 배치가 만든 것만 검사해 같은 일이 다시 쌓이지 않게 한다.
+        # 자동 교정은 하지 않는다 — 판정에 오탐이 있어 배치가 무단으로 매핑을
+        # 바꾸면 정상 거래가 엉뚱한 곳으로 갈 수 있다. 교정은 사람이
+        # scripts/rematch_bad_mappings.py 로 검토해 수행한다.
+        if new_pnus:
+            try:
+                from batch.trade.audit_mappings import audit
+
+                t0 = time.time()
+                violations = audit(conn, logger, pnus=new_pnus)
+                result.record(
+                    "신규 매핑 감사",
+                    "warning" if violations else "success",
+                    rows=len(violations),
+                    duration=time.time() - t0,
+                )
+            except Exception as e:
+                logger.warning(f"신규 매핑 감사 실패: {e}")
+                result.record("신규 매핑 감사", "warning", error=str(e))
+
         # 4.5. 대시보드 집계 갱신 — 별도 커넥션에서 수행하여 선행 단계와 격리.
         #      선행 단계(load_trades/recalc_price/enrich)가 내부 commit 하지만 안전망으로 commit 재호출.
         #      집계 갱신 실패는 배치 전체 critical 오탐을 피하기 위해 warning record로 분리.
