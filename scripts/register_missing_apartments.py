@@ -388,6 +388,13 @@ def classify(row: dict, stat: dict, headers: dict, sgg_map: dict,
     # 지역 것이라 place_name 을 그대로 쓰면 다른 단지 이름이 박힌다 —
     # 대연SKVIEWHills 가 "한양2차아파트"(인천 POI)로 등록될 뻔했다.
     bld_nm = (info.get("bld_nm") or "").strip() or poi["place_name"]
+    # 등록명 가드 — 같은 필지의 기관·부속 건물(재단법인포항테크노파크 사례)이
+    # 아파트로 등록되면 안 된다. REPOINT 쪽 가드와 같은 기준을 쓴다.
+    if any(w in bld_nm for w in BAD_PLACE_WORDS):
+        result["status"] = "REJECTED"
+        result["target_nm"] = bld_nm
+        result["failures"] = ["부적절 대상명"]
+        return result
     use_apr = info.get("use_apr_day")
     if not _brand_year_consistent(apt_nm, use_apr):
         result["status"] = "REJECTED"

@@ -23,7 +23,7 @@ from batch.fill_addresses import _address_to_bld_params
 from batch.logger import setup_logger
 from batch.trade.enrich_apartments import _name_similarity_ratio, _NAME_SIM_THRESHOLD
 
-BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
+BLD_TITLE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 CHECKPOINT_GROUP = "batch_checkpoint"
 
 # Phase 2 검증 상수

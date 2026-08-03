@@ -37,7 +37,7 @@ from batch.config import DATA_GO_KR_RATE
 from batch.db import get_connection
 from batch.logger import setup_logger
 
-TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
+TITLE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 CHECKPOINT_GROUP = "building_register_checkpoint"
 RESIDENTIAL_PURPS_KEYWORDS = ("아파트", "공동주택")
 PARKING_FIELDS = ("indrAutoUtcnt", "oudrAutoUtcnt", "indrMechUtcnt", "oudrMechUtcnt")

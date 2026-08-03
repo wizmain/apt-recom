@@ -53,6 +53,7 @@ BAD_PLACE_WORDS = (
     "배드민턴장",
     "노인정",
     "충전소",
+    "재단법인",
 )
 
 VERIFIED_SOURCES = (

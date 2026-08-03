@@ -35,7 +35,7 @@ from batch.trade.registry import (
 )
 from batch.trade.collect_area_info import fetch_area_info, upsert_area_info, ensure_schema as ensure_area_schema
 
-BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
+BLD_TITLE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
 KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 KAKAO_ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json"

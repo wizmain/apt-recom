@@ -38,7 +38,7 @@ from batch.config import DATA_GO_KR_API_KEY, DATA_GO_KR_RATE
 from batch.db import get_connection
 from batch.logger import setup_logger
 
-HOSP_API_URL = "http://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList"
+HOSP_API_URL = "https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList"
 MAX_ROWS_PER_PAGE = 1000  # PoC 실측(2026-07-06): 상가 API 와 달리 1000 그대로 수락됨
 SUCCESS_RESULT_CODE = "00"
 MAX_RETRIES = 2  # transient 오류 백오프 재시도 (collect_store_facilities 관례)

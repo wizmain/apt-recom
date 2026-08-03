@@ -30,7 +30,7 @@ from batch.config import DATA_GO_KR_RATE
 from batch.api_keys import KeysExhausted, data_go_rotator  # noqa: F401
 
 BLD_EXPOS_URL = (
-    "http://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
+    "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 )
 
 _rotator = data_go_rotator
