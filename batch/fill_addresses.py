@@ -18,7 +18,7 @@ from batch.config import KAKAO_API_KEY, DATA_GO_KR_API_KEY, KAKAO_RATE, DATA_GO_
 from batch.db import get_connection, get_dict_cursor
 from batch.logger import setup_logger
 
-BLD_TITLE_URL = "http://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
+BLD_TITLE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
 
 def phase1_kakao_reverse_geocode(dry_run: bool = False, batch_size: int = 100):

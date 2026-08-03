@@ -26,7 +26,7 @@ from batch.logger import setup_logger
 
 # ── API 설정 ──
 
-MGMT_API_BASE = "http://apis.data.go.kr/1613000/AptRepairsCostServiceV2"
+MGMT_API_BASE = "https://apis.data.go.kr/1613000/AptRepairsCostServiceV2"
 MGMT_API_TIMEOUT = 10
 
 # ── 엑셀 설정 ──

@@ -170,7 +170,7 @@ def collect_all_facilities(logger, dry_run=False, region="metro"):
     logger.info("병원 수집 중...")
     try:
         items = _collect_via_api(
-            "http://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList",
+            "https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList",
             "병원", {"sidoCd": ""}
         )
         items = _filter_region(items, ("addr",), region)
@@ -189,7 +189,7 @@ def collect_all_facilities(logger, dry_run=False, region="metro"):
     logger.info("CCTV 수집 중...")
     try:
         items = _collect_via_json_api(
-            "http://apis.data.go.kr/1741000/cctv_info/info", "CCTV", per_page=100
+            "https://apis.data.go.kr/1741000/cctv_info/info", "CCTV", per_page=100
         )
         items = _filter_region(items, ("LCTN_LOTNO_ADDR", "LCTN_ROAD_NM_ADDR"), region)
         idx = 1
@@ -208,7 +208,7 @@ def collect_all_facilities(logger, dry_run=False, region="metro"):
     logger.info("편의점 수집 중...")
     try:
         items = _collect_via_api(
-            "http://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong",
+            "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong",
             "편의점", {"indsMclsCd": "Q12"}
         )
         items = _filter_region(items, ("roadNmAddr", "jibunAddr"), region)
@@ -228,7 +228,7 @@ def collect_all_facilities(logger, dry_run=False, region="metro"):
     logger.info("약국 수집 중...")
     try:
         items = _collect_via_api(
-            "http://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong",
+            "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong",
             "약국", {"indsMclsCd": "Q01"}
         )
         items = _filter_region(items, ("roadNmAddr", "jibunAddr"), region)
@@ -266,7 +266,7 @@ def collect_all_facilities(logger, dry_run=False, region="metro"):
     logger.info("동물병원 수집 중...")
     try:
         items = _collect_via_api(
-            "http://apis.data.go.kr/1543061/animalHospService/getAnimalHospList",
+            "https://apis.data.go.kr/1543061/animalHospService/getAnimalHospList",
             "동물병원"
         )
         items = _filter_region(items, ("roadNmAddr", "jibunAddr"), region)

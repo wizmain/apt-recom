@@ -36,7 +36,7 @@ from batch.config import DATA_GO_KR_API_SECONDARY_KEY, DATA_GO_KR_RATE
 from batch.db import get_connection
 from batch.logger import setup_logger
 
-STORE_API_URL = "http://apis.data.go.kr/B553077/api/open/sdsc2/storeListInUpjong"
+STORE_API_URL = "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInUpjong"
 MAX_ROWS_PER_PAGE = 1000  # PoC 실측(2026-07-06): API 상한, 초과 요청해도 캡됨
 NODATA_RESULT_CODE = "03"
 SUCCESS_RESULT_CODE = "00"
