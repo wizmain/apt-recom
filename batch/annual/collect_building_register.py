@@ -56,6 +56,9 @@ def _params_from_pnu(pnu: str, api_key: str) -> dict:
         "ji": pnu[15:19],
         "numOfRows": "100",
         "pageNo": "1",
+        # HTTPS 게이트웨이는 기본 응답이 JSON 으로 바뀌었다(2026-08 실측).
+        # 파서가 XML 이므로 형식을 명시한다 — 기본값에 의존하지 않는다.
+        "_type": "xml",
     }
 
 

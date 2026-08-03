@@ -167,6 +167,7 @@ def phase2_building_registry(dry_run: bool = False, max_calls: int = 1000, batch
                 "ji": ji.zfill(4),
                 "numOfRows": "10",
                 "pageNo": "1",
+                "_type": "xml",  # HTTPS 게이트웨이 기본값이 JSON — XML 파서라 명시
             }
             resp = requests.get(BLD_TITLE_URL, params=params, timeout=10)
             resp.raise_for_status()
@@ -547,6 +548,7 @@ def phase4_fill_building_info(dry_run: bool = False, max_calls: int = 10000, bat
                 "ji": bld_params["ji"],
                 "numOfRows": "50",
                 "pageNo": "1",
+                "_type": "xml",  # HTTPS 게이트웨이 기본값이 JSON — XML 파서라 명시
             }
             resp = requests.get(BLD_TITLE_URL, params=params, timeout=10)
             resp.raise_for_status()

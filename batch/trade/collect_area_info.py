@@ -127,6 +127,7 @@ def _fetch_all_items(
         "bun": str(bun).zfill(4),
         "ji": str(ji).zfill(4),
         "numOfRows": str(ROWS_PER_PAGE),
+        "_type": "xml",  # HTTPS 게이트웨이 기본값이 JSON — XML 파서라 명시
     }
     all_items: list[dict] = []
     try:
