@@ -155,8 +155,11 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         )
 
     winner = max(regions, key=lambda r: r["avg_score"])
+    # 점수 차를 문구 생성기에 넘긴다 — 근소한 차이는 승자 대신 동률로 표기한다
+    # (copywriting.COMPARE_TIE_THRESHOLD, 2026-08-05).
+    score_gap = abs(regions[0]["avg_score"] - regions[1]["avg_score"])
     copy = build_compare_copy(
-        regions[0]["name"], regions[1]["name"], nudge_label, winner["name"]
+        regions[0]["name"], regions[1]["name"], nudge_label, winner["name"], score_gap
     )
     if copy_overrides:
         copy = apply_overrides(copy, copy_overrides)
