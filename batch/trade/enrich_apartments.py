@@ -268,6 +268,7 @@ def fetch_building_info_with_status(
         "ji": bld_params["ji"],
         "numOfRows": "50",
         "pageNo": "1",
+        "_type": "xml",  # HTTPS 게이트웨이 기본값이 JSON — XML 파서라 명시
     }
 
     try:

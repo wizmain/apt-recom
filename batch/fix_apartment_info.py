@@ -67,6 +67,7 @@ def _fetch_hhld_from_bld_api(bld_params: dict) -> dict:
             "ji": bld_params["ji"],
             "numOfRows": "100",
             "pageNo": "1",
+            "_type": "xml",  # HTTPS 게이트웨이 기본값이 JSON — XML 파서라 명시
         }, timeout=10)
         resp.raise_for_status()
         time.sleep(DATA_GO_KR_RATE)
