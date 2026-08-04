@@ -554,6 +554,44 @@ class TestCopywriting(unittest.TestCase):
         self.assertIn("59", bundle.hook)
         self.assertIn("84", bundle.hook)
 
+    def test_compare_copy_declares_winner_above_threshold(self):
+        """실질 차이(>1.0점)면 승자를 선언한다."""
+        from scripts.insta_cards import copywriting, textrules
+
+        bundle = copywriting.build_compare_copy(
+            "노원구(서울)", "광진구(서울)", "신혼육아", "광진구(서울)", 4.7
+        )
+        self.assertIn("광진구(서울) 가 더 높았습니다", bundle.why[0])
+        self.assertNotIn("동률", " ".join(bundle.why))
+        for text in (bundle.hook, *bundle.why):
+            self.assertEqual(textrules.find_forbidden_terms(text), [])
+
+    def test_compare_copy_calls_tie_within_threshold(self):
+        """근소한 차이(≤1.0점)는 승자 대신 동률로 표기한다 (2026-08-05 규칙 승격).
+
+        3일차 0.1점 차를 문구 오버라이드로 막았고 10일차 0.7점 차에 재발했다.
+        """
+        from scripts.insta_cards import copywriting, textrules
+
+        bundle = copywriting.build_compare_copy(
+            "강남구(서울)", "서초구(서울)", "신혼육아", "강남구(서울)", 0.7
+        )
+        joined = " ".join(bundle.why)
+        self.assertIn("사실상 동률", joined)
+        self.assertIn("0.7점 차", joined)
+        self.assertNotIn("더 높았습니다", joined)
+        for text in (bundle.hook, *bundle.why):
+            self.assertEqual(textrules.find_forbidden_terms(text), [])
+
+    def test_compare_copy_tie_at_exact_threshold(self):
+        """임계값 경계(1.0점)는 동률 쪽에 포함된다."""
+        from scripts.insta_cards import copywriting
+
+        bundle = copywriting.build_compare_copy(
+            "A구", "B구", "신혼육아", "A구", copywriting.COMPARE_TIE_THRESHOLD
+        )
+        self.assertIn("사실상 동률", " ".join(bundle.why))
+
     def test_contributor_labels_maps_subtypes(self):
         from scripts.insta_cards import copywriting
 

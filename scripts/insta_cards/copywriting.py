@@ -166,14 +166,33 @@ def build_value_copy(region_label: str) -> CopyBundle:
     return CopyBundle(hook=hook, why=why, fit_for=None)
 
 
+# 상위10 평균 점수 차가 이 값 이하면 승자를 선언하지 않는다(동률 표기).
+# 감이 아니라 실측 분포의 단절점이다 — compare 큐 8개 쌍의 차이가
+# 0.0 / 0.6 / 0.7 / 0.9 || 2.4 / 2.9 / 4.7 / 5.5 로 뚜렷하게 갈렸다(2026-08-05).
+# 배경: 3일차(0.1점 차)에 승자 표현이 오해를 낳아 문구 오버라이드로 막았고,
+# 10일차(0.7점 차)에 재발해 런북 예고대로 생성기 규칙으로 승격했다.
+COMPARE_TIE_THRESHOLD = 1.0
+
+
 def build_compare_copy(
-    label_a: str, label_b: str, nudge_label: str, winner_label: str
+    label_a: str,
+    label_b: str,
+    nudge_label: str,
+    winner_label: str,
+    score_gap: float,
 ) -> CopyBundle:
     hook = f"{label_a} vs {label_b}, {nudge_label} 점수가 높은 곳은?"
-    why = (
-        f"{nudge_label} 상위 10개 단지 평균 점수는 {winner_label} 가 더 높았습니다.",
-        "중위 실거래가·거래량·평균 연식은 비교표에서 확인하세요.",
-    )
+    if score_gap <= COMPARE_TIE_THRESHOLD:
+        why = (
+            f"{nudge_label} 상위 10개 단지 평균은 {score_gap:.1f}점 차 — "
+            "두 지역은 사실상 동률입니다.",
+            "차이는 점수가 아니라 가격·거래량·연식에서 납니다. 비교표에서 확인하세요.",
+        )
+    else:
+        why = (
+            f"{nudge_label} 상위 10개 단지 평균 점수는 {winner_label} 가 더 높았습니다.",
+            "중위 실거래가·거래량·평균 연식은 비교표에서 확인하세요.",
+        )
     return CopyBundle(hook=hook, why=why, fit_for=None)
 
 
