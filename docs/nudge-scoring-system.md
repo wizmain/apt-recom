@@ -202,7 +202,8 @@ facility_score = distance_score * 0.7 + 60.0 * 0.3
 
 | 축 | 소스 | 정규화 |
 |----|------|--------|
-| score_price | apt_price_score.price_score | 시군구 평균 대비 `clip(0,100,(2-ratio)×50)` — 배치에서 계산, 싼 단지가 고점 |
+| score_price | apt_price_score.price_score | 시군구 평균 대비 `clip(0,100,(2-ratio)×50)` — 배치에서 계산, 싼 단지가 고점 (cost 넛지 전용 — 가성비 축) |
+| score_undervalue | apt_price_score.undervalue_score | hedonic 잔차 전국 백분위 (batch/ml/build_undervalue, trade 체인 12h). ln(㎡당가) ~ 시설·품질·통제 + 시군구 고정효과 OLS 의 잔차가 음수(특성 대비 싸다)일수록 고점. investment 넛지 전용 — score_price 의 "저렴함=고점"이 저평가와 저급 단지를 구분 못 하는 문제를 대체. **한계**: 잔차에 미관측 요인(재건축 기대 선반영, 미관측 결함)이 섞이므로 상대 지표로만 사용 |
 | score_jeonse | apt_price_score.jeonse_ratio | `jeonse_ratio_to_score()`: 40% 이하 0점 ~ 90% 이상 100점 선형 |
 | score_safety | apt_safety_score.safety_score (v3) | 원값 (0~100). v3 = 단지내부(35)+응급접근성(30)+지역안전(20)+범죄(15) |
 | score_crime | sigungu_crime_detail.crime_safety_score | 전국 268개 시군구 백분위 (구 sigungu_crime_score 77행 테이블은 커버리지 부족으로 폐기) |
@@ -366,7 +367,8 @@ new = 기존 × (1 - ml_ratio) + ML × ml_ratio    # 기본 ml_ratio = 0.4
 | `batch/ml/train_scoring.py` | XGBoost 학습, Feature Importance·PDP 곡선 추출 |
 | `batch/ml/apply_curves.py` | PDP 곡선 → decay 적합 → common_code 반영 |
 | `batch/ml/update_weights.py` | ML 가중치 블렌딩 → nudge_weight 반영 |
-| `batch/ml/hedonic_validation.py` | 시군구 고정효과 OLS 검증 리포트 |
+| `batch/ml/hedonic_validation.py` | 시군구 고정효과 OLS 검증 리포트 (+ 데이터셋 로더를 build_undervalue 와 공유) |
+| `batch/ml/build_undervalue.py` | 저평가 점수(hedonic 잔차 백분위) 계산 → apt_price_score.undervalue_score (trade 체인) |
 | `scripts/weight_update_lib.py` | 가중치 재배분/재설정 공용 라이브러리 |
 | `scripts/cleanup_scoring_param_duplicates.py` | common_code 기본값 중복 행 정리 (override-only 정책) |
 | `scripts/tests/test_scoring_formula_consistency.py` | 웹·배치 복제 수식 일치 CI 검증 |
@@ -386,7 +388,7 @@ new = 기존 × (1 - ml_ratio) + ML × ml_ratio    # 기본 ml_ratio = 0.4
   (subway 특례: 비수도권 인프라 부재 시 중립 50)
 
 [보조 축]
-  score_price / score_jeonse / score_safety / score_crime /
+  score_price / score_undervalue / score_jeonse / score_safety / score_crime /
   score_elevator / score_parking / score_air  (결측 시 중립 50)
 
 [넛지 점수]

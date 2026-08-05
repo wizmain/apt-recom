@@ -19,6 +19,7 @@ def run_trade(args, logger, result):
     from batch.trade.load_trades import load_trades
     from batch.trade.recalc_price import recalc_price
     from batch.trade.enrich_apartments import enrich_new_apartments
+    from batch.ml.build_undervalue import build_undervalue
 
     conn = get_connection()
     try:
@@ -48,6 +49,13 @@ def run_trade(args, logger, result):
         updated = recalc_price(conn, logger)
         result.record(
             "가격 점수 재계산", "success", rows=updated, duration=time.time() - t0
+        )
+
+        # 3.5. 저평가 점수 재계산 (hedonic 잔차) — 가격 라벨이 갱신된 직후가 정합적
+        t0 = time.time()
+        undervalued = build_undervalue(conn, logger)
+        result.record(
+            "저평가 점수 재계산", "success", rows=undervalued, duration=time.time() - t0
         )
 
         # 4. 신규 아파트 등록 + 건물정보 보충
