@@ -90,7 +90,13 @@ def run_publish(
         return
 
     result = client.publish_carousel(slug, manifest, caption)
-    print(f"발행 완료: {result['permalink']} (media_id {result['media_id']})")
+    if result.get("permalink"):
+        print(f"발행 완료: {result['permalink']} (media_id {result['media_id']})")
+    else:
+        # 게시는 성공했고 permalink 조회만 실패한 상태 — 로그는 published 로 남는다.
+        print(f"발행 완료: media_id {result['media_id']}")
+        print(f"  permalink 조회 실패: {result.get('permalink_error')}")
+        print(f"  링크는 나중에 `--check {slug}` 로 확인할 수 있습니다.")
 
 
 def run_check(client, slug: str) -> None:
