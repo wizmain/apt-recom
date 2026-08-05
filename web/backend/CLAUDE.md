@@ -18,7 +18,8 @@
 새 라우터 추가 시: `main.py`에 `app.include_router(xxx.router, prefix="/api")` 등록.
 
 ## 서비스 (web/backend/services/)
-- `scoring.py` — NUDGE_WEIGHTS, distance_to_score(), calculate_nudge_score()
+- `scoring.py` — 넛지 스코어링 엔진: distance_to_score(), facility_score(), calculate_nudge_score(). 가중치·거리 파라미터는 상수가 아니라 common_code 에서 로드 + 모듈 캐시 (수정 시 invalidate_cache())
+- `facility_scores.py` — 점수 조립 공용 모듈 (build_facility_scores — nudge/detail/MCP 삼자 공용)
 - `chat_engine.py` — ChatEngine 클래스 (LLM 오케스트레이션)
 - `tools.py` — LLM tool 정의 (search_apartments, get_apartment_detail, search_commute, compare_apartments, get_market_trend, get_school_info)
 - `rag.py` — ChromaDB 기반 RAG 검색

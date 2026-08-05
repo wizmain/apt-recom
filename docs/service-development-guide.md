@@ -159,7 +159,7 @@ CCTV 안전 점수 (apt_safety_score)
 5대범죄 발생건수 (시군구별)
     ÷ 유동인구 보정 인구 (서울: 생활인구 보정계수 적용)
     ↓
-범죄 안전 점수 (sigungu_crime_score)
+범죄 안전 점수 (sigungu_crime_detail.crime_safety_score — 전국 268개 시군구 백분위)
   * 유동인구 보정: 중구 4.2배, 종로 3.8배, 강남 2.2배 등
 
 범죄 유형 분석 (sigungu_crime_detail)
@@ -274,8 +274,8 @@ Vworld 도로명 좌표 (초기)
 | apt_price_score | 15,859 | 가격 점수 |
 | apt_safety_score | 9,947 | CCTV 안전 점수 |
 | apt_area_info | 16,599 | 면적 정보 |
-| sigungu_crime_score | 77 | 시군구별 범죄 안전 점수 |
-| sigungu_crime_detail | 77 | 시군구별 범죄 유형 상세 |
+| sigungu_crime_score | 77 | (레거시) 구 범죄점수 — crime_detail 로 일원화, 조회 미사용 |
+| sigungu_crime_detail | 268 | 시군구별 범죄 유형 상세 + 범죄안전점수 (조회 단일 소스) |
 | chat_feedback | - | 챗봇 피드백 |
 | population_by_district | 2,068 | 시군구별 인구 |
 

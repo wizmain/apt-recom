@@ -267,8 +267,8 @@ erDiagram
 | **거래** | trade_history | 2,611,674 | 매매 이력 |
 | | rent_history | 5,706,069 | 전월세 이력 |
 | | trade_apt_mapping | 28,936 | 거래↔아파트 매핑 |
-| **지역 통계** | sigungu_crime_detail | 134 | 시군구별 범죄통계 |
-| | sigungu_crime_score | 77 | 범죄 안전점수 |
+| **지역 통계** | sigungu_crime_detail | 268 | 시군구별 범죄통계 + 범죄안전점수 (조회 단일 소스) |
+| | sigungu_crime_score | 77 | (레거시) 구 범죄점수 — crime_detail 로 일원화, 조회 미사용 |
 | | sigungu_safety_index | 133 | 행안부 지역안전지수 |
 | | population_by_district | 2,068 | 인구통계 |
 | | traffic_accident_hotspot | 5,294 | 교통사고 다발지역 |
