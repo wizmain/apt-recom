@@ -2,7 +2,9 @@
 
 발행 시퀀스 (spec §5): 원격 manifest 검증 → 자산 검증 → 자식 컨테이너
 각각 FINISHED 폴링 → 부모 캐러셀 → FINISHED → published_pending 선기록
-→ media_publish → permalink → published 기록. 실패는 전부 예외 중단.
+→ media_publish → published 기록 → permalink 조회. 실패는 전부 예외 중단이되,
+**permalink 조회만 예외다** — 게시가 이미 끝난 뒤의 부가 정보라, 여기서 실패해도
+published 기록을 남기고 사유만 permalink_error 로 적는다(2026-08-05).
 """
 
 from __future__ import annotations
@@ -203,17 +205,39 @@ class InstagramClient:
             f"/{self.user_id}/media_publish", creation_id=carousel["id"]
         )
         media_id = published["id"]
-        permalink = self._get(f"/{media_id}", fields="permalink").get("permalink", "")
-        append_log(
-            {
-                "slug": slug,
-                "status": "published",
-                "media_id": media_id,
-                "permalink": permalink,
-                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            }
-        )
-        return {"media_id": media_id, "permalink": permalink}
+        # 게시 성공 사실의 기록이 부가 정보(permalink) 조회 실패로 유실되면 안 된다.
+        # 실측(2026-08-03·04·05 3일 연속): media_publish 직후 permalink 조회가
+        # rate limit 403 으로 막혀 로그가 published_pending 에 멈췄고, 매번 원격을
+        # 확인해 수기 보정해야 했다. permalink 는 없어도 게시는 성공이므로 분리한다.
+        permalink, permalink_error = self._try_fetch_permalink(media_id)
+        entry = {
+            "slug": slug,
+            "status": "published",
+            "media_id": media_id,
+            "permalink": permalink,
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        if permalink_error:
+            entry["permalink_error"] = permalink_error
+        append_log(entry)
+        return {
+            "media_id": media_id,
+            "permalink": permalink,
+            "permalink_error": permalink_error,
+        }
+
+    def _try_fetch_permalink(self, media_id: str) -> tuple[str, str | None]:
+        """permalink 조회 — 실패해도 예외를 올리지 않는다 (게시는 이미 성공).
+
+        반환: (permalink, error_message). 실패 시 permalink 는 빈 문자열이고
+        error_message 로 사유를 남긴다. 나중에 `--check` 로 확인·보정할 수 있다.
+        """
+        try:
+            return self._get(f"/{media_id}", fields="permalink").get(
+                "permalink", ""
+            ), None
+        except InstagramApiError as e:
+            return "", str(e)
 
     def recent_permalinks(self, limit: int = 25) -> list[dict]:
         data = self._get("/me/media", fields="permalink,caption", limit=str(limit))

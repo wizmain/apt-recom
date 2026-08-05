@@ -2352,6 +2352,75 @@ class TestInstagramApi(unittest.TestCase):
             statuses = [json.loads(line)["status"] for line in log_lines]
             self.assertEqual(statuses, ["published_pending", "published"])
 
+    def test_permalink_failure_still_records_published(self):
+        """permalink 조회가 403 이어도 게시 성공은 published 로 기록된다 (2026-08-05).
+
+        실측 3일 연속(8/3·8/4·8/5): media_publish 성공 직후 permalink 조회가
+        rate limit 403 으로 막혀 로그가 published_pending 에 멈췄고, 매번 원격을
+        확인해 수기 보정해야 했다.
+        """
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        published_done = {"v": False}
+
+        def fake_post(url, data=None, timeout=None):
+            if "media_publish" in url:
+                published_done["v"] = True
+                return MagicMock(status_code=200, json=lambda: {"id": "MEDIA1"})
+            return MagicMock(status_code=200, json=lambda: {"id": "C1"})
+
+        def fake_get(url, params=None, timeout=None):
+            if (params or {}).get("fields") == "status_code":
+                return MagicMock(
+                    status_code=200, json=lambda: {"status_code": "FINISHED"}
+                )
+            if (params or {}).get("fields") == "permalink":
+                # 게시 직후 permalink 조회만 실패
+                return MagicMock(
+                    status_code=403,
+                    text='{"error":{"message":"Application request limit reached"}}',
+                )
+            return MagicMock(
+                status_code=200,
+                headers={"Content-Type": "image/jpeg"},
+                json=lambda: {},
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"),
+                patch.object(api.requests, "post", side_effect=fake_post),
+                patch.object(api.requests, "get", side_effect=fake_get),
+                patch.object(api.time, "sleep"),
+            ):
+                result = client.publish_carousel(
+                    "value-seoul-20260718",
+                    self._manifest(),
+                    "캡션 apt-recom.kr/content/value-seoul-20260718",
+                )
+            self.assertTrue(published_done["v"])
+            self.assertEqual(result["media_id"], "MEDIA1")
+            self.assertEqual(result["permalink"], "")
+            self.assertIn("403", result["permalink_error"])
+
+            entries = [
+                json.loads(line)
+                for line in (Path(tmp) / "log.jsonl").read_text().strip().split("\n")
+            ]
+            self.assertEqual(
+                [e["status"] for e in entries], ["published_pending", "published"]
+            )
+            last = entries[-1]
+            self.assertEqual(last["media_id"], "MEDIA1")
+            self.assertEqual(last["permalink"], "")
+            self.assertIn("403", last["permalink_error"])
+
     def test_child_error_stops_before_parent(self):
         from unittest.mock import MagicMock, patch
 
