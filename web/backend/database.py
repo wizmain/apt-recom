@@ -289,7 +289,11 @@ def create_tables(conn) -> None:
             price_per_m2 DOUBLE PRECISION,
             sgg_avg_price_per_m2 DOUBLE PRECISION,
             price_score DOUBLE PRECISION,
-            jeonse_ratio DOUBLE PRECISION
+            jeonse_ratio DOUBLE PRECISION,
+            -- 저평가 점수 (hedonic 잔차 전국 백분위, 0~100 높을수록 저평가).
+            -- 보충: batch/ml/build_undervalue (trade 체인). 최근 2년 거래 없는
+            -- 아파트는 NULL 유지 — 조립(facility_scores 4e)이 중립 50 처리.
+            undervalue_score DOUBLE PRECISION
         );
 
         CREATE TABLE IF NOT EXISTS apt_safety_score (

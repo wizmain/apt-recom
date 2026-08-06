@@ -128,7 +128,11 @@ def self_test() -> None:
 
 
 def load_dataset(conn, logger):
-    """라벨/피처/통제/시군구 로드. 반환: (y, X, feature_names, sgg_codes)."""
+    """라벨/피처/통제/시군구 로드. 반환: (y, X, feature_names, sgg_codes, pnus).
+
+    pnus 는 행 순서와 정합하는 아파트 식별자 — build_undervalue 가 잔차를
+    아파트별 점수로 되돌려 쓸 때 필요하다.
+    """
     cur = conn.cursor()
 
     cur.execute(
@@ -200,7 +204,7 @@ def load_dataset(conn, logger):
     feature_names += ["bldg_parking_ratio", "bldg_elevator_ratio", "air_pm25"]
     feature_names += ["age", "hhld", "floor", "area"]
 
-    rows_y, rows_x, sggs = [], [], []
+    rows_y, rows_x, sggs, pnus = [], [], [], []
     for pnu, price in price_map.items():
         if pnu not in controls:
             continue
@@ -220,6 +224,7 @@ def load_dataset(conn, logger):
         rows_y.append(math.log(price))
         rows_x.append(xrow)
         sggs.append(sgg[:5])
+        pnus.append(pnu)
 
     x_arr = np.array(rows_x, dtype=float)  # None → np.nan
     for col_name in ("bldg_parking_ratio", "bldg_elevator_ratio", "air_pm25"):
@@ -228,7 +233,7 @@ def load_dataset(conn, logger):
         median = float(np.nanmedian(col)) if not np.all(np.isnan(col)) else 0.0
         col[np.isnan(col)] = median
 
-    return np.array(rows_y), x_arr, feature_names, np.array(sggs)
+    return np.array(rows_y), x_arr, feature_names, np.array(sggs), pnus
 
 
 def demean_by_group(y: np.ndarray, x: np.ndarray, groups: np.ndarray):
@@ -254,7 +259,7 @@ def main() -> None:
     logger = setup_logger("hedonic_validation")
     conn = get_connection()
     try:
-        y, x, names, sggs = load_dataset(conn, logger)
+        y, x, names, sggs, _pnus = load_dataset(conn, logger)
     finally:
         conn.close()
 

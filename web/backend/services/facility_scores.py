@@ -123,12 +123,13 @@ def build_facility_scores(
                 fscores.setdefault(subtype, INFRA_MISSING_NEUTRAL_SCORE)
 
     # 4b. Price scores
-    if {"score_price", "score_jeonse"} & score_subtypes:
+    if {"score_price", "score_jeonse", "score_undervalue"} & score_subtypes:
         for i in range(0, len(pnu_list), chunk_size):
             chunk = pnu_list[i : i + chunk_size]
             ph = ",".join(["%s"] * len(chunk))
             rows = conn.execute(
-                f"SELECT pnu, price_score, jeonse_ratio FROM apt_price_score WHERE pnu IN ({ph})",
+                f"SELECT pnu, price_score, jeonse_ratio, undervalue_score "
+                f"FROM apt_price_score WHERE pnu IN ({ph})",
                 chunk,
             ).fetchall()
             for row in rows:
@@ -140,6 +141,12 @@ def build_facility_scores(
                 apt_facility_scores[pnu]["score_jeonse"] = jeonse_ratio_to_score(
                     row["jeonse_ratio"]
                 )
+                # 저평가(hedonic 잔차 백분위) — 낮은 값도 정당한 점수이므로
+                # or-폴백 대신 None 명시 체크. 결측은 4e 가 중립 50 처리.
+                if row["undervalue_score"] is not None:
+                    apt_facility_scores[pnu]["score_undervalue"] = row[
+                        "undervalue_score"
+                    ]
 
     # 4c. Safety scores
     if "score_safety" in score_subtypes:

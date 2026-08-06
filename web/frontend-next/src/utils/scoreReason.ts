@@ -3,6 +3,7 @@ import type { TopContributor } from '@/types/apartment';
 /** common_code('facility_label')에 없는 합성 subtype 라벨 */
 const SYNTHETIC_LABELS: Record<string, string> = {
   score_price: '가격 경쟁력',
+  score_undervalue: '저평가',
   score_jeonse: '전세가율',
   score_safety: '안전점수',
   score_crime: '치안',
