@@ -554,6 +554,134 @@ class TestCopywriting(unittest.TestCase):
         self.assertIn("59", bundle.hook)
         self.assertIn("84", bundle.hook)
 
+    def test_budget_choice_fit_does_not_claim_wider_when_areas_match(self):
+        """면적이 사실상 같으면 "더 넓은 면적" 이라고 말하지 않는다 (2026-08-07).
+
+        같은 목표 면적을 쓰는 구조라 대표 면적 차는 최대 0.6㎡ 였는데, 이전 문구는
+        "B 는 같은 예산으로 더 넓은 면적" 을 상수로 박아 늘 거짓이었다.
+        """
+        from scripts.insta_cards import copywriting
+
+        bundle = copywriting.build_budget_choice_copy(
+            "광진구(서울)",
+            "동안구(안양)",
+            64700,
+            75700,
+            84.8,
+            84.8,
+            ["가격 점수", "마트"],
+            ["가격 점수", "마트"],
+        )
+        joined = f"{bundle.fit_for.a} {bundle.fit_for.b}"
+        self.assertNotIn("더 넓은 면적", joined)
+        # 저렴한 쪽(A)이 가격 이점으로, 비싼 쪽(B)이 접근성으로 서술된다
+        self.assertIn("더 낮은 가격", bundle.fit_for.a)
+        self.assertIn("가격이 높아도", bundle.fit_for.b)
+
+    def test_budget_choice_fit_skips_score_labels_for_access_wording(self):
+        """점수형 기여 항목은 "접근" 표현에 쓰지 않는다 (2026-08-07).
+
+        cost 넛지는 1위 기여자가 "가격 점수" 라, 그대로 쓰면
+        "가격이 높아도 가격 점수 접근을 우선한다면" 이라는 모순 문장이 된다.
+        """
+        from scripts.insta_cards import copywriting
+
+        bundle = copywriting.build_budget_choice_copy(
+            "A구",
+            "B구",
+            60000,
+            70000,
+            84.0,
+            84.0,
+            ["가격 점수"],
+            ["가격 점수", "마트"],
+        )
+        self.assertIn("마트 접근", bundle.fit_for.b)
+        self.assertNotIn("가격 점수 접근", bundle.fit_for.b)
+
+    def test_budget_choice_fit_without_facility_avoids_access_wording(self):
+        """시설 기여 항목이 하나도 없으면 "접근" 대신 점수 표현으로 바꾼다."""
+        from scripts.insta_cards import copywriting
+
+        bundle = copywriting.build_budget_choice_copy(
+            "A구",
+            "B구",
+            60000,
+            70000,
+            84.0,
+            84.0,
+            ["가격 점수"],
+            ["가격 점수", "안전 점수"],
+        )
+        self.assertNotIn("접근", bundle.fit_for.b)
+        self.assertIn("생활 점수", bundle.fit_for.b)
+
+    def test_budget_choice_fit_cheaper_side_follows_price(self):
+        """저렴한 쪽 판별은 가격 실측값을 따른다 — B 가 쌀 수도 있다."""
+        from scripts.insta_cards import copywriting
+
+        bundle = copywriting.build_budget_choice_copy(
+            "A구",
+            "B구",
+            90000,
+            70000,
+            84.0,
+            84.5,
+            ["마트"],
+            ["지하철"],
+        )
+        self.assertIn("더 낮은 가격", bundle.fit_for.b)
+        self.assertIn("가격이 높아도", bundle.fit_for.a)
+
+    def test_budget_choice_fit_marks_the_actually_wider_side(self):
+        """면적 차가 크면 실제로 넓은 쪽에 "더 넓은 면적" 을 붙인다.
+
+        이전 구현은 B 를 무조건 넓다고 가정해, A 가 넓으면 방향이 뒤집혔다.
+        """
+        from scripts.insta_cards import copywriting
+
+        wider_a = copywriting.build_budget_choice_copy(
+            "A구",
+            "B구",
+            60000,
+            60000,
+            83.0,
+            62.7,
+            ["마트"],
+            ["지하철"],
+        )
+        self.assertIn("더 넓은 면적", wider_a.fit_for.a)
+        self.assertNotIn("더 넓은 면적", wider_a.fit_for.b)
+
+        wider_b = copywriting.build_budget_choice_copy(
+            "A구",
+            "B구",
+            60000,
+            60000,
+            62.7,
+            83.0,
+            ["마트"],
+            ["지하철"],
+        )
+        self.assertIn("더 넓은 면적", wider_b.fit_for.b)
+        self.assertNotIn("더 넓은 면적", wider_b.fit_for.a)
+
+    def test_budget_choice_fit_tie_at_exact_threshold(self):
+        """임계값 경계(3.0㎡)는 동일 면적대 쪽에 포함된다."""
+        from scripts.insta_cards import copywriting
+
+        bundle = copywriting.build_budget_choice_copy(
+            "A구",
+            "B구",
+            60000,
+            70000,
+            84.0,
+            84.0 + copywriting.BUDGET_CHOICE_AREA_TIE_THRESHOLD,
+            ["마트"],
+            ["지하철"],
+        )
+        self.assertNotIn("더 넓은 면적", f"{bundle.fit_for.a} {bundle.fit_for.b}")
+
     def test_compare_copy_declares_winner_above_threshold(self):
         """실질 차이(>1.0점)면 승자를 선언한다."""
         from scripts.insta_cards import copywriting, textrules
