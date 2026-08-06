@@ -1,0 +1,326 @@
+{
+  "schema_version": 1,
+  "slug": "lifestyle-senior-11470-20260806",
+  "status": "published",
+  "series": "lifestyle",
+  "title": "양천구(서울) 시니어 추천 단지",
+  "eyebrow": "라이프스타일 추천 · 시니어",
+  "hook": "양천구(서울)에서 시니어 조건으로 고른 단지",
+  "summary": "양천구(서울)에서 시니어 넛지 점수가 높고 최근 거래가 있는 단지입니다.",
+  "generated_at": "2026-08-06T09:16:00",
+  "published_at": "2026-08-06",
+  "data_as_of": "2026-08-06",
+  "period_label": "계약일 기준 최근 90일 실거래 + 넛지 점수",
+  "cover_image": "01-cover.png",
+  "cover_alt": "양천구(서울) 시니어 아파트 추천 카드",
+  "conditions": [
+    {
+      "label": "라이프스타일",
+      "value": "시니어"
+    },
+    {
+      "label": "지역",
+      "value": "양천구(서울)"
+    },
+    {
+      "label": "접근성",
+      "value": "지하철·버스 접근성 반영"
+    },
+    {
+      "label": "후보 하한",
+      "value": "100세대 · 전용 59㎡ 이상"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-08-06"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "삼성쉐르빌1 아파트",
+      "region": "양천구(서울)",
+      "pnu": "1147010100003180010",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "28억 1,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "221.4㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2003년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "458m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울목동초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "79점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "81만원 (연 978만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "편의점",
+        "약국"
+      ]
+    },
+    {
+      "rank": 2,
+      "name": "신정대성유니드아파트2차",
+      "region": "양천구(서울)",
+      "pnu": "1147010100011980003",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "7억 1,500만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "60.0㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2004년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "358m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울남명초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "72점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "20만원 (연 240만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "약국",
+        "편의점"
+      ]
+    },
+    {
+      "rank": 3,
+      "name": "목동금호어울림",
+      "region": "양천구(서울)",
+      "pnu": "1147010200009510000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "10억 6,100만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "84.9㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2004년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "902m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울정목초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "78점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "29만원 (연 349만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "엘리베이터 점수",
+        "편의점"
+      ]
+    },
+    {
+      "rank": 4,
+      "name": "목동부영그린타운2차",
+      "region": "양천구(서울)",
+      "pnu": "1147010200009080028",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "18억 7,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "123.1㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2000년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "885m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울경인초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "75점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "45만원 (연 544만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "약국",
+        "엘리베이터 점수"
+      ]
+    },
+    {
+      "rank": 5,
+      "name": "신정푸른마을3단지",
+      "region": "양천구(서울)",
+      "pnu": "1147010100012830000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "6억 4,200만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "60.0㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2001년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "1,715m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울지향초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "75점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "26만원 (연 313만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "병원",
+        "편의점",
+        "약국"
+      ]
+    }
+  ],
+  "secondary_items": null,
+  "comparison": null,
+  "narrative": {
+    "why": [
+      "병원·편의점·약국 접근성이 시니어 점수에 크게 기여했습니다."
+    ],
+    "fit_for": null
+  },
+  "methodology": [
+    "시니어 넛지 상위 50 후보와 최근 90일 계약 거래 보유 단지의 교집합",
+    "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+    "모든 주택형이 전용 59㎡ 이상인 단지만 후보",
+    "표시 가격은 각 단지의 최근 계약 거래 기준"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "통근시간이 아닌 지하철·버스 접근성 점수 기준입니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [
+    {
+      "id": "map-main",
+      "label": "시니어 조건 그대로 양천구(서울) 지도에서 보기",
+      "nudges": [
+        "senior"
+      ],
+      "sigungu_code": "11470",
+      "region_label": "양천구(서울)",
+      "filters": {
+        "min_hhld": 100,
+        "min_smallest_area": 59.0
+      },
+      "keyword": null
+    }
+  ],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-ranking.jpg",
+    "04-candidate-1.jpg",
+    "05-candidate-2.jpg",
+    "06-candidate-3.jpg",
+    "07-caveats.jpg",
+    "08-cta.jpg"
+  ],
+  "asset_generation": "3f48ed85ad95"
+}
