@@ -2421,6 +2421,152 @@ class TestInstagramApi(unittest.TestCase):
             self.assertEqual(last["permalink"], "")
             self.assertIn("403", last["permalink_error"])
 
+    def _publish_403_env(self, media_list_response):
+        """media_publish 만 403 인 환경 — media_list_response 로 원격 확인 결과를 지정."""
+        from unittest.mock import MagicMock
+
+        def fake_post(url, data=None, timeout=None):
+            if "media_publish" in url:
+                return MagicMock(
+                    status_code=403,
+                    text='{"error":{"message":"Application request limit reached"}}',
+                )
+            return MagicMock(status_code=200, json=lambda: {"id": "C1"})
+
+        def fake_get(url, params=None, timeout=None):
+            fields = (params or {}).get("fields")
+            if fields == "status_code":
+                return MagicMock(
+                    status_code=200, json=lambda: {"status_code": "FINISHED"}
+                )
+            if fields == "id,permalink,caption":
+                return media_list_response
+            return MagicMock(
+                status_code=200,
+                headers={"Content-Type": "image/jpeg"},
+                json=lambda: {},
+            )
+
+        return fake_post, fake_get
+
+    def test_publish_403_but_actually_posted_records_published(self):
+        """media_publish 가 403 이어도 실제 게시됐으면 published 로 기록한다 (2026-08-06).
+
+        실측: rate limit 403 을 받았는데 게시물은 올라가 있었다. 실패로 단정하면
+        로그가 pending 에 남고, 그걸 보고 --force 재실행하면 중복 게시가 난다.
+        """
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        slug = "value-seoul-20260718"
+        listing = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "data": [
+                    {
+                        "id": "MEDIA9",
+                        "permalink": "https://instagr.am/p/z",
+                        "caption": f"캡션 apt-recom.kr/content/{slug}",
+                    }
+                ]
+            },
+        )
+        fake_post, fake_get = self._publish_403_env(listing)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"),
+                patch.object(api.requests, "post", side_effect=fake_post),
+                patch.object(api.requests, "get", side_effect=fake_get),
+                patch.object(api.time, "sleep"),
+            ):
+                result = client.publish_carousel(
+                    slug, self._manifest(), f"캡션 apt-recom.kr/content/{slug}"
+                )
+            self.assertEqual(result["media_id"], "MEDIA9")
+            self.assertEqual(result["permalink"], "https://instagr.am/p/z")
+            self.assertIn("403", result["publish_error"])
+
+            entries = [
+                json.loads(line)
+                for line in (Path(tmp) / "log.jsonl").read_text().strip().split("\n")
+            ]
+            self.assertEqual(
+                [e["status"] for e in entries], ["published_pending", "published"]
+            )
+            self.assertIn("원격 확인 결과 게시됨", entries[-1]["note"])
+
+    def test_publish_403_and_not_posted_raises(self):
+        """원격에도 없으면 진짜 실패다 — 원래 예외를 올린다."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        listing = MagicMock(status_code=200, json=lambda: {"data": []})
+        fake_post, fake_get = self._publish_403_env(listing)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"),
+                patch.object(api.requests, "post", side_effect=fake_post),
+                patch.object(api.requests, "get", side_effect=fake_get),
+                patch.object(api.time, "sleep"),
+            ):
+                with self.assertRaises(api.InstagramApiError) as ctx:
+                    client.publish_carousel(
+                        "value-seoul-20260718",
+                        self._manifest(),
+                        "캡션 apt-recom.kr/content/value-seoul-20260718",
+                    )
+            self.assertIn("Application request limit reached", str(ctx.exception))
+
+    def test_publish_403_with_unverifiable_state_warns_about_force(self):
+        """확인 조회까지 막히면 상태 불명 — 임의 판단 없이 --check 를 안내한다."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.instagram import api
+
+        client = self._client()
+        blocked = MagicMock(status_code=403, text='{"error":{"message":"blocked"}}')
+        fake_post, fake_get = self._publish_403_env(blocked)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch.object(api, "LOG_PATH", Path(tmp) / "log.jsonl"),
+                patch.object(api.requests, "post", side_effect=fake_post),
+                patch.object(api.requests, "get", side_effect=fake_get),
+                patch.object(api.time, "sleep"),
+            ):
+                with self.assertRaises(api.InstagramApiError) as ctx:
+                    client.publish_carousel(
+                        "value-seoul-20260718",
+                        self._manifest(),
+                        "캡션 apt-recom.kr/content/value-seoul-20260718",
+                    )
+            message = str(ctx.exception)
+            self.assertIn("게시 여부 불명", message)
+            self.assertIn("--check", message)
+
+    def test_landing_marker_follows_site_url(self):
+        """마커는 site_url 을 따라간다 — 도메인 하드코딩 금지."""
+        from scripts.insta_cards.instagram.api import InstagramClient
+
+        client = InstagramClient("1", "t", "https://staging.example.com/")
+        self.assertEqual(
+            client.landing_marker("value-seoul-20260718"),
+            "staging.example.com/content/value-seoul-20260718",
+        )
+
     def test_child_error_stops_before_parent(self):
         from unittest.mock import MagicMock, patch
 

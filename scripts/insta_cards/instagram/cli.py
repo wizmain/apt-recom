@@ -90,6 +90,10 @@ def run_publish(
         return
 
     result = client.publish_carousel(slug, manifest, caption)
+    if result.get("publish_error"):
+        # media_publish 응답은 실패였지만 원격 확인 결과 게시된 경우 (2026-08-06)
+        print(f"  media_publish 응답 실패: {result['publish_error']}")
+        print("  원격 확인 결과 게시돼 있어 published 로 기록했습니다 — 재실행 불필요.")
     if result.get("permalink"):
         print(f"발행 완료: {result['permalink']} (media_id {result['media_id']})")
     else:
@@ -100,11 +104,12 @@ def run_publish(
 
 
 def run_check(client, slug: str) -> None:
-    marker = f"apt-recom.kr/content/{slug}"
-    for item in client.recent_permalinks():
-        if marker in (item.get("caption") or ""):
-            print(f"기게시 확인: {item.get('permalink')}")
-            return
+    # 판정 로직은 client.find_published_media 하나로 유지한다 — 발행 실패 시
+    # 자동 확인(_resolve_uncertain_publish)과 같은 기준이어야 한다(2026-08-06).
+    found = client.find_published_media(slug)
+    if found:
+        print(f"기게시 확인: {found.get('permalink')}")
+        return
     print(f"최근 25건에 '{slug}' 게시물 없음")
 
 
