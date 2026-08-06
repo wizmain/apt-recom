@@ -201,9 +201,16 @@ class InstagramClient:
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
         )
-        published = self._post(
-            f"/{self.user_id}/media_publish", creation_id=carousel["id"]
-        )
+        # media_publish 는 403 을 반환하고도 게시가 처리되는 경우가 있다
+        # (2026-08-06 실측: rate limit 403 인데 게시물은 실제로 올라갔다).
+        # 예외를 곧바로 실패로 단정하면 로그가 pending 에 남고, 그걸 보고 --force
+        # 재실행하면 중복 게시가 난다. 그래서 실패 시 원격을 먼저 확인한다.
+        try:
+            published = self._post(
+                f"/{self.user_id}/media_publish", creation_id=carousel["id"]
+            )
+        except InstagramApiError as publish_error:
+            return self._resolve_uncertain_publish(slug, publish_error)
         media_id = published["id"]
         # 게시 성공 사실의 기록이 부가 정보(permalink) 조회 실패로 유실되면 안 된다.
         # 실측(2026-08-03·04·05 3일 연속): media_publish 직후 permalink 조회가
@@ -225,6 +232,59 @@ class InstagramClient:
             "permalink": permalink,
             "permalink_error": permalink_error,
         }
+
+    def _resolve_uncertain_publish(
+        self, slug: str, publish_error: InstagramApiError
+    ) -> dict:
+        """media_publish 가 실패했을 때 원격으로 실게시 여부를 판정한다.
+
+        - 게시돼 있으면: published 로 기록하고 정상 반환 (사유는 publish_error 로 보존)
+        - 게시 안 됐으면: 원래 예외를 그대로 올린다
+        - 확인 조회 자체가 막히면: 상태 불명이므로 --check 안내와 함께 중단
+          (임의로 성공/실패를 단정하지 않는다)
+        """
+        try:
+            found = self.find_published_media(slug)
+        except InstagramApiError as lookup_error:
+            raise InstagramApiError(
+                f"media_publish 실패({publish_error}) 후 실게시 확인도 실패"
+                f"({lookup_error}) — 게시 여부 불명. `--check {slug}` 로 확인한 뒤"
+                " 재실행 여부를 판단하세요(그냥 --force 하면 중복 게시 위험)."
+            ) from publish_error
+        if found is None:
+            raise publish_error
+        media_id = found["id"]
+        permalink = found.get("permalink", "")
+        append_log(
+            {
+                "slug": slug,
+                "status": "published",
+                "media_id": media_id,
+                "permalink": permalink,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "note": f"media_publish 응답 실패했으나 원격 확인 결과 게시됨: {publish_error}",
+            }
+        )
+        return {
+            "media_id": media_id,
+            "permalink": permalink,
+            "permalink_error": None,
+            "publish_error": str(publish_error),
+        }
+
+    def landing_marker(self, slug: str) -> str:
+        """캡션에 실리는 랜딩 URL 조각 — 원격에서 이 slug 의 게시물을 식별하는 키."""
+        host = self.site_url.split("://", 1)[-1]
+        return f"{host}/content/{slug}"
+
+    def find_published_media(self, slug: str, limit: int = 25) -> dict | None:
+        """최근 게시물 중 이 slug 의 랜딩 URL 을 캡션에 가진 항목."""
+        marker = self.landing_marker(slug)
+        data = self._get("/me/media", fields="id,permalink,caption", limit=str(limit))
+        for item in data.get("data", []):
+            if marker in (item.get("caption") or ""):
+                return item
+        return None
 
     def _try_fetch_permalink(self, media_id: str) -> tuple[str, str | None]:
         """permalink 조회 — 실패해도 예외를 올리지 않는다 (게시는 이미 성공).
