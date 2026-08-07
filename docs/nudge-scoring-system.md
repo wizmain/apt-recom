@@ -265,16 +265,28 @@ INSERT INTO common_code VALUES
 - `set_nudge_weights()` — 넛지 축 구성 전체 재설정 (DELETE + INSERT)
 - 신규 스크립트는 additions dict 정의 + `run_cli()` 호출의 얇은 래퍼로 작성
 
-### ML 블렌딩
+### ML 블렌딩 (hedonic t값 기반)
 
-`batch/ml/update_weights.py` 가 학습된 가중치를 기존 가중치에 블렌딩한다:
+`batch/ml/update_weights.py` 가 시장 신호를 기존 가중치에 블렌딩한다:
 
 ```
-new = 기존 × (1 - ml_ratio) + ML × ml_ratio    # 기본 ml_ratio = 0.4
+new = 기존 × (1 - ml_ratio) + hedonic신호 × ml_ratio    # 기본 ml_ratio = 0.4
 ```
 
-`learned_weights.json` 에 없는 subtype(score_* 축, 신규 파생 지표)은 블렌딩하지
-않고 유지 후 전체 재정규화한다.
+- **입력 (2026-08-07 교체)**: XGB feature importance → **hedonic 회귀 t값**
+  (`models/hedonic_report.json`). XGB importance 는 시군구 고정효과 없이 학습돼
+  지역 가격 효과가 혼입된 "가격 상관"이고, hedonic t 는 within 회귀라 지역
+  효과를 통제한 시설 가치 신호다.
+- **방향 가드**: 신호는 `beta < 0 (가까울수록 비쌈) AND |t| ≥ 2` 인 subtype 의
+  정규화 |t| 에만 부여한다. 유의한 양수 계수(가까울수록 싸다 — 실측: cctv
+  t=+15.2, hospital +7.5, cafe +7.2, bus +5.4)를 |t| 만으로 정규화하면 역방향
+  증폭이 일어난다. 방향역전·유의미하지 않음·리포트 미포함(score_* 등) subtype 은
+  블렌딩 없이 유지하며 사유를 로그에 표기한다 — 넛지 축은 가격 가치만이 아니라
+  목적 가치(예: safety 넛지의 cctv)를 담으므로 시장 신호가 없는 축의 현행값을
+  존중한다.
+- 유지된 subtype 을 포함해 넛지별 전체 재정규화한다.
+- 선행 조건: `hedonic_validation` 실행 (`--type ml` 체인이 순서 보장).
+  신호 추출 로직은 `scripts/tests/test_update_weights_signal.py` 가 CI 검증.
 
 ---
 
@@ -288,7 +300,7 @@ new = 기존 × (1 - ml_ratio) + ML × ml_ratio    # 기본 ml_ratio = 0.4
 |------|--------|-----------------|
 | `train_scoring.py` — XGBoost 가격 회귀 (라벨: ㎡당 평균 매매가, 피처: 기본 4 + 15 subtype × 거리/밀도) | `models/learned_weights.json`, `models/distance_curves.json`(PDP 곡선), `models/scoring_model.joblib` | 파일 직접 사용 안 함 |
 | `apply_curves.py` — PDP 곡선을 로그감쇠 1파라미터로 최소자승 적합 (적합 RMSE > 20 이면 skip) | common_code `facility_decay_{profile}` upsert | DB 경유 (재기동 필요) |
-| `update_weights.py` — ML 가중치 블렌딩 (위 참조) | common_code `nudge_weight` UPDATE | DB 경유 |
+| `update_weights.py` — hedonic t값 블렌딩 (방향 가드, 위 참조) | common_code `nudge_weight` UPDATE | DB 경유 |
 | `hedonic_validation.py` — 시군구 고정효과 OLS 로 현행 가중치와 시장 중요도 비교 | `models/hedonic_report.json`, `docs/analysis/hedonic-validation-latest.md` | 리포트 전용 (DB 쓰기 없음) |
 
 **중요**: Railway 백엔드는 `web/backend/` 만 배포되어 `models/` 파일에 접근할 수
@@ -366,7 +378,7 @@ new = 기존 × (1 - ml_ratio) + ML × ml_ratio    # 기본 ml_ratio = 0.4
 | `batch/quarterly/recalc_summary.py` | apt_facility_summary + 안전점수 v3 재계산 (BallTree) |
 | `batch/ml/train_scoring.py` | XGBoost 학습, Feature Importance·PDP 곡선 추출 |
 | `batch/ml/apply_curves.py` | PDP 곡선 → decay 적합 → common_code 반영 |
-| `batch/ml/update_weights.py` | ML 가중치 블렌딩 → nudge_weight 반영 |
+| `batch/ml/update_weights.py` | hedonic t값 블렌딩(방향 가드) → nudge_weight 반영 |
 | `batch/ml/hedonic_validation.py` | 시군구 고정효과 OLS 검증 리포트 (+ 데이터셋 로더를 build_undervalue 와 공유) |
 | `batch/ml/build_undervalue.py` | 저평가 점수(hedonic 잔차 백분위) 계산 → apt_price_score.undervalue_score (trade 체인) |
 | `scripts/weight_update_lib.py` | 가중치 재배분/재설정 공용 라이브러리 |
