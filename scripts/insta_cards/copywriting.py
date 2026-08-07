@@ -129,6 +129,28 @@ def _join(labels: list[str]) -> str:
     return "·".join(labels) if labels else "생활 인프라"
 
 
+# 점수형 기여 항목(가격 점수·안전 점수 …)은 "접근" 이라는 말과 붙지 않는다 —
+# "가격이 높아도 가격 점수 접근을 우선한다면" 같은 모순 문장이 나온다(2026-08-07).
+_SCORE_LABELS = frozenset(
+    label for key, label in SUBTYPE_LABELS.items() if key.startswith("score_")
+)
+
+
+def _first_facility(labels: list[str]) -> str | None:
+    """접근성 표현에 쓸 수 있는 첫 시설 항목 (점수형 제외). 없으면 None."""
+    for label in labels:
+        if label not in _SCORE_LABELS:
+            return label
+    return None
+
+
+# 두 대표 거래의 전용면적 차가 이 값 이하면 "면적이 사실상 같다"고 본다.
+# 실측(2026-08-07, 큐 6개 조합): 대표 면적 차가 0.0 / 0.1 / 0.1 / 0.5 / 0.6 ㎡ 였다.
+# 두 지역에 같은 목표 면적(--area-a/--area-b)을 주는 구조라 면적은 거의 항상 같고,
+# 실제로 밴드가 다른 사례(2026-07-13 카드: 62.7 vs 83.0)는 20㎡ 대로 확연히 벌어진다.
+BUDGET_CHOICE_AREA_TIE_THRESHOLD = 3.0
+
+
 def build_budget_choice_copy(
     label_a: str,
     label_b: str,
@@ -145,11 +167,70 @@ def build_budget_choice_copy(
         f"{label_a} 는 {_join(contributors_a)} 접근성이 점수에 크게 기여했습니다.",
         f"{label_b} 는 {_join(contributors_b)} 접근성이 점수에 크게 기여했습니다.",
     )
-    fit_for = FitFor(
-        a=f"{label_a}: 면적보다 입지·{_join(contributors_a[:1])} 접근을 우선한다면",
-        b=f"{label_b}: 같은 예산으로 더 넓은 면적을 원한다면",
+    return CopyBundle(
+        hook=hook,
+        why=why,
+        fit_for=_budget_choice_fit_for(
+            label_a,
+            label_b,
+            price_a,
+            price_b,
+            area_a,
+            area_b,
+            contributors_a,
+            contributors_b,
+        ),
     )
-    return CopyBundle(hook=hook, why=why, fit_for=fit_for)
+
+
+def _narrow_fit_text(label: str, contributors: list[str]) -> str:
+    facility = _first_facility(contributors)
+    if facility:
+        return f"{label}: 면적보다 입지·{facility} 접근을 우선한다면"
+    return f"{label}: 면적보다 생활 점수를 우선한다면"
+
+
+def _budget_choice_fit_for(
+    label_a: str,
+    label_b: str,
+    price_a: int,
+    price_b: int,
+    area_a: float,
+    area_b: float,
+    contributors_a: list[str],
+    contributors_b: list[str],
+) -> FitFor:
+    """면적·가격 실측값으로 문구를 고른다 — 고정 문구는 사실과 어긋난다(2026-08-07).
+
+    이전에는 "B 는 같은 예산으로 더 넓은 면적" 이 상수였다. 두 문제가 있었다:
+    1) 같은 목표 면적을 쓰므로 실제로는 면적이 거의 같다(최대 0.6㎡ 차) — 늘 거짓
+    2) A 가 더 넓은 경우에도 B 를 넓다고 말한다 — 방향이 뒤집힌다
+    """
+    if abs(area_a - area_b) <= BUDGET_CHOICE_AREA_TIE_THRESHOLD:
+        # 면적이 사실상 같다 → 차이는 가격과 입지에서 난다. 저렴한 쪽을 데이터로 판별.
+        cheaper_is_a = price_a <= price_b
+        cheap_label, cheap_side = (label_a, "a") if cheaper_is_a else (label_b, "b")
+        other_label = label_b if cheaper_is_a else label_a
+        other_contribs = contributors_b if cheaper_is_a else contributors_a
+        cheap_text = f"{cheap_label}: 같은 면적대를 더 낮은 가격으로 잡고 싶다면"
+        facility = _first_facility(other_contribs)
+        other_text = (
+            f"{other_label}: 가격이 높아도 {facility} 접근을 우선한다면"
+            if facility
+            else f"{other_label}: 가격이 높아도 생활 점수가 높은 쪽을 원한다면"
+        )
+        if cheap_side == "a":
+            return FitFor(a=cheap_text, b=other_text)
+        return FitFor(a=other_text, b=cheap_text)
+
+    wider_is_b = area_b > area_a
+    wide_text_a = f"{label_a}: 같은 예산으로 더 넓은 면적을 원한다면"
+    wide_text_b = f"{label_b}: 같은 예산으로 더 넓은 면적을 원한다면"
+    narrow_text_a = _narrow_fit_text(label_a, contributors_a)
+    narrow_text_b = _narrow_fit_text(label_b, contributors_b)
+    if wider_is_b:
+        return FitFor(a=narrow_text_a, b=wide_text_b)
+    return FitFor(a=wide_text_a, b=narrow_text_b)
 
 
 def build_lifestyle_copy(
