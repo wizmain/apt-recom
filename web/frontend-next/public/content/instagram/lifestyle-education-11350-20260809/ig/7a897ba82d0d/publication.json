@@ -1,0 +1,326 @@
+{
+  "schema_version": 1,
+  "slug": "lifestyle-education-11350-20260809",
+  "status": "published",
+  "series": "lifestyle",
+  "title": "노원구(서울) 학군 추천 단지",
+  "eyebrow": "라이프스타일 추천 · 학군",
+  "hook": "노원구(서울)에서 학군 조건으로 고른 단지",
+  "summary": "노원구(서울)에서 학군 넛지 점수가 높고 최근 거래가 있는 단지입니다.",
+  "generated_at": "2026-08-09T11:49:24",
+  "published_at": "2026-08-09",
+  "data_as_of": "2026-08-09",
+  "period_label": "계약일 기준 최근 90일 실거래 + 넛지 점수",
+  "cover_image": "01-cover.png",
+  "cover_alt": "노원구(서울) 학군 아파트 추천 카드",
+  "conditions": [
+    {
+      "label": "라이프스타일",
+      "value": "학군"
+    },
+    {
+      "label": "지역",
+      "value": "노원구(서울)"
+    },
+    {
+      "label": "접근성",
+      "value": "지하철·버스 접근성 반영"
+    },
+    {
+      "label": "후보 하한",
+      "value": "100세대 · 전용 59㎡ 이상"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-08-09"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "공릉청솔9단지",
+      "region": "노원구(서울)",
+      "pnu": "1135010300000900000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "8억 4,500만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "84.8㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2000년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "198m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울태릉초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "79점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "31만원 (연 373만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "배정 초등학교",
+        "유치원",
+        "도서관"
+      ]
+    },
+    {
+      "rank": 2,
+      "name": "노원프레미어스엠코",
+      "region": "노원구(서울)",
+      "pnu": "1135010300006700020",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "9억 4,500만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "84.0㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "2016년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "70m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울공릉초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "85점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "32만원 (연 386만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "배정 초등학교",
+        "유치원",
+        "학교"
+      ]
+    },
+    {
+      "rank": 3,
+      "name": "중계라이프신동아청구아파트",
+      "region": "노원구(서울)",
+      "pnu": "1135010600003660000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "13억 3,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "115.5㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "1993년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "1,110m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울불암초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "80점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "37만원 (연 440만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "배정 초등학교",
+        "유치원",
+        "학교"
+      ]
+    },
+    {
+      "rank": 4,
+      "name": "상계마들대림",
+      "region": "노원구(서울)",
+      "pnu": "1135010500006950000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "9억 7,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "93.1㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "1988년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "579m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울상월초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "77점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "25만원 (연 298만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "배정 초등학교",
+        "유치원",
+        "학교"
+      ]
+    },
+    {
+      "rank": 5,
+      "name": "중계금호",
+      "region": "노원구(서울)",
+      "pnu": "1135010600005830000",
+      "metrics": [
+        {
+          "label": "최근 실거래가",
+          "value": "5억 4,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "84.5㎡",
+          "unit": ""
+        },
+        {
+          "label": "준공연도",
+          "value": "1997년",
+          "unit": ""
+        },
+        {
+          "label": "지하철",
+          "value": "1,530m",
+          "unit": ""
+        },
+        {
+          "label": "배정 초등학교",
+          "value": "서울수암초",
+          "unit": ""
+        },
+        {
+          "label": "안전점수",
+          "value": "79점",
+          "unit": ""
+        },
+        {
+          "label": "월 관리비",
+          "value": "23만원 (연 282만원)",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "배정 초등학교",
+        "유치원",
+        "학교"
+      ]
+    }
+  ],
+  "secondary_items": null,
+  "comparison": null,
+  "narrative": {
+    "why": [
+      "배정 초등학교·유치원·도서관 접근성이 학군 점수에 크게 기여했습니다."
+    ],
+    "fit_for": null
+  },
+  "methodology": [
+    "학군 넛지 상위 50 후보와 최근 90일 계약 거래 보유 단지의 교집합",
+    "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+    "모든 주택형이 전용 59㎡ 이상인 단지만 후보",
+    "표시 가격은 각 단지의 최근 계약 거래 기준"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "통근시간이 아닌 지하철·버스 접근성 점수 기준입니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [
+    {
+      "id": "map-main",
+      "label": "학군 조건 그대로 노원구(서울) 지도에서 보기",
+      "nudges": [
+        "education"
+      ],
+      "sigungu_code": "11350",
+      "region_label": "노원구(서울)",
+      "filters": {
+        "min_hhld": 100,
+        "min_smallest_area": 59.0
+      },
+      "keyword": null
+    }
+  ],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-ranking.jpg",
+    "04-candidate-1.jpg",
+    "05-candidate-2.jpg",
+    "06-candidate-3.jpg",
+    "07-caveats.jpg",
+    "08-cta.jpg"
+  ],
+  "asset_generation": "7a897ba82d0d"
+}
