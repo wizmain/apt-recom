@@ -1002,6 +1002,7 @@ class TestTradeTopSeries(unittest.TestCase):
             self._hot_rows(),
             days=7,
             min_hhld=100,
+            coverage={"current_days": 7, "prev_days": 7},
             slug="trade-top-20260713",
             status="draft",
             published_at=None,
@@ -1035,6 +1036,7 @@ class TestTradeTopSeries(unittest.TestCase):
                 self._hot_rows(),
                 days=7,
                 min_hhld=100,
+                coverage={"current_days": 7, "prev_days": 7},
                 slug="trade-top-20260713",
                 status="draft",
                 published_at=None,
@@ -1106,6 +1108,53 @@ class TestTradeTopSeries(unittest.TestCase):
             trade_top.fetch_hot_districts(None, 7)
         self.assertIn("prev_window", captured["sql"])
         self.assertIn(trade_top.MIN_REPORT_COUNT, captured["params"])
+
+    def test_coverage_sql_counts_distinct_ingest_days_per_window(self):
+        """적재 케이던스는 건수가 아니라 '적재가 발생한 날 수'로 센다 (2026-08-17)."""
+        from unittest.mock import patch
+
+        from scripts.insta_cards.series import trade_top
+
+        captured = {}
+
+        def fake_query_all(conn, sql, params=None):
+            captured["sql"], captured["params"] = sql, params
+            return [{"current_days": 5, "prev_days": 4}]
+
+        with patch("scripts.insta_cards.series.trade_top.query_all", fake_query_all):
+            result = trade_top.fetch_ingestion_coverage(None, 7)
+        self.assertEqual(result, {"current_days": 5, "prev_days": 4})
+        self.assertIn("COUNT(DISTINCT DATE(", captured["sql"])
+        # 두 창을 한 번에 세야 경계 정의가 fetch_hot_districts 와 어긋나지 않는다.
+        self.assertEqual(captured["sql"].count("FILTER"), 2)
+
+    def test_ingestion_cadence_is_disclosed(self):
+        """급증이 적재 건수 비교라는 사실을 조건·방법론 양쪽에 공시한다.
+
+        '적용과 공시는 별개' — 케이던스가 어긋난 날에만 공시하면 카드 모양이
+        들쭉날쭉해지고, 공시 유무 자체가 신호로 오독된다. 항상 싣는다.
+        """
+        from scripts.insta_cards import publication as p
+        from scripts.insta_cards.series import trade_top
+
+        pub = trade_top.build_publication(
+            self._price_rows(),
+            self._hot_rows(),
+            days=7,
+            min_hhld=100,
+            coverage={"current_days": 5, "prev_days": 4},
+            slug="trade-top-20260817",
+            status="draft",
+            published_at=None,
+            copy_overrides=None,
+        )
+        p.validate(pub)
+        chip = next(c for c in pub.conditions if c.label == "적재 발생일")
+        self.assertEqual(chip.value, "최근 5일 · 직전 4일")
+        self.assertTrue(
+            any("케이던스" in m for m in pub.methodology),
+            "방법론에 케이던스 고지가 없다",
+        )
 
 
 class TestValueSeries(unittest.TestCase):

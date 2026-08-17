@@ -13,6 +13,14 @@
 부티크 빌라가 대단지와 나란히 "아파트 최고가"로 실린다(1일차 검수: 이니그마빌 3위).
 매핑되지 않은 거래(pnu NULL)도 함께 제외된다 — 세대수를 확인할 수 없고 표시명이
 API 원본이라 단지명 신뢰도가 낮다.
+
+적재 케이던스 공시 (2026-08-17): 급증은 **적재 건수** 비교라 수집 배치가 빠진 기간이
+있으면 그 차이가 그대로 섞인다. 취소된 배치는 수집분을 메모리에 모았다 반환 후
+적재하는 구조라 **한 건도 쓰지 않고** 통째로 비고, 밀린 물량은 다음 성공 런에서
+한꺼번에 들어온다 — 즉 결손이 있던 창은 과소, 그 다음 창은 과대로 잡힌다.
+실측(2026-08-17): 직전 창 배치 9/15회 성공 vs 현재 창 11/14회, 전체 적재 2,844 → 5,243건.
+그래서 두 창의 **적재 발생일 수**를 조건에 공시한다. 배치 성공 횟수 자체는 GitHub
+Actions 사실이라 카드가 검증할 수 없어 쓰지 않는다 — DB 로 계산되는 값만 공시한다.
 """
 
 from __future__ import annotations
@@ -117,6 +125,32 @@ def fetch_hot_districts(conn, days: int) -> list[dict]:
     ]
 
 
+def fetch_ingestion_coverage(conn, days: int) -> dict:
+    """두 비교 창 각각에서 **적재가 발생한 날 수**. 급증 수치의 케이던스 공시용.
+
+    건수가 아니라 날 수인 이유: 결손은 "그날 배치가 통째로 빠졌다"로 나타나므로
+    날 수가 곧 케이던스다. 건수는 시장 활동과 케이던스가 섞여 분리되지 않는다.
+    """
+    rows = query_all(
+        conn,
+        """
+        SELECT
+            COUNT(DISTINCT DATE(created_at AT TIME ZONE 'Asia/Seoul'))
+                FILTER (WHERE created_at >= NOW() - (%s || ' days')::interval)
+                AS current_days,
+            COUNT(DISTINCT DATE(created_at AT TIME ZONE 'Asia/Seoul'))
+                FILTER (WHERE created_at >= NOW() - (%s || ' days')::interval * 2
+                          AND created_at <  NOW() - (%s || ' days')::interval)
+                AS prev_days
+        FROM trade_history
+        WHERE created_at >= NOW() - (%s || ' days')::interval * 2
+        """,
+        [days, days, days, days],
+    )
+    row = rows[0]
+    return {"current_days": row["current_days"], "prev_days": row["prev_days"]}
+
+
 def _load_sigungu_names(conn) -> dict[str, str]:
     rows = query_all(
         conn,
@@ -136,6 +170,7 @@ def build_publication(
     hot_rows: list[dict],
     days: int,
     min_hhld: int,
+    coverage: dict,
     *,
     slug: str,
     status: str,
@@ -208,6 +243,10 @@ def build_publication(
             Condition("기간", period_label),
             Condition("집계 단위", "단지별 최고가 1건"),
             Condition("최소 세대수", f"{min_hhld}세대"),
+            Condition(
+                "적재 발생일",
+                f"최근 {coverage['current_days']}일 · 직전 {coverage['prev_days']}일",
+            ),
             Condition("기준일", today),
         ),
         items=items,
@@ -218,6 +257,7 @@ def build_publication(
             "최고가: 최근 기간 새로 적재된 거래 중 단지별 최고가 1건만 집계",
             f"{min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
             f"급증: 직전 {days}일 대비 신규 적재 건수 증가분 (현재 {MIN_REPORT_COUNT}건 이상 지역만)",
+            "급증 수치에는 적재 케이던스 차이가 섞입니다 — 두 기간의 적재 발생일이 다르면 그만큼 과장됩니다",
         ),
         caveats=(
             "투자 자문이 아닙니다.",
@@ -236,6 +276,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
             print(warning)
         price_rows = fetch_top_price_trades(conn, args.days, args.min_hhld)
         hot_rows = fetch_hot_districts(conn, args.days)
+        coverage = fetch_ingestion_coverage(conn, args.days)
     finally:
         conn.close()
     return build_publication(
@@ -243,6 +284,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         hot_rows,
         args.days,
         args.min_hhld,
+        coverage,
         slug=slug,
         status=status,
         published_at=published_at,
