@@ -8,6 +8,10 @@ on:
 jobs:
   batch:
     runs-on: ubuntu-latest
+    # 올리지 말 것 — 수집은 batch.config.COLLECT_BUDGET_MINUTES(35분)로 자체 상한을 갖는다.
+    # 예산 35 + 체크 간격 초과분 1 + 후속 단계 약 7 = 약 43분. 이 값을 넘긴다면 원인은
+    # 수집 시간이 아니라 후속 단계이므로, 벽을 옮기지 말고 그쪽을 봐야 한다.
+    # 배경: docs/batch-operations.md '거래 수집의 시간 예산'
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5

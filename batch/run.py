@@ -25,12 +25,24 @@ def run_trade(args, logger, result):
     try:
         # 1. 수집
         t0 = time.time()
-        trade_rows, rent_rows = collect_trades(conn, logger, dry_run=args.dry_run)
+        trade_rows, rent_rows, stats = collect_trades(
+            conn, logger, dry_run=args.dry_run
+        )
+        # 예산 초과는 설계된 동작(부분 수집 보존)이라 실패로 올리지 않는다. 다만
+        # 매 런 반복되면 수집이 예산 안에 못 들어온다는 뜻이라 요약에 남긴다.
+        notes = []
+        if stats.budget_exceeded:
+            notes.append(
+                f"예산 초과 {stats.districts_done}/{stats.districts_total} 지점 중단"
+            )
+        if stats.failed:
+            notes.append(f"실패 {stats.failed:,}콜({stats.failure_ratio:.1%})")
         result.record(
             "거래 데이터 수집",
             "success",
             rows=len(trade_rows) + len(rent_rows),
             duration=time.time() - t0,
+            error=" · ".join(notes),
         )
 
         if args.dry_run:
