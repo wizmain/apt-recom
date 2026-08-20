@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from database import DictConnection
 from services.activity_log import log_event
 from services.identity import get_user_identifier
+from services.apartment_eligibility import sale_type_condition
 from services.facility_scores import build_facility_scores, resolve_sigungu_codes
 from services.scoring import (
     get_nudge_weights,
@@ -76,7 +77,8 @@ def nudge_score(
         apt_sql = """SELECT a.pnu, COALESCE(a.display_name, a.bld_nm) AS bld_nm, a.lat, a.lng, a.total_hhld_cnt, a.new_plat_plc, a.sigungu_code
             FROM apartments a
             LEFT JOIN apt_area_info ai ON a.pnu = ai.pnu
-            LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu"""
+            LEFT JOIN apt_price_score ps ON a.pnu = ps.pnu
+            LEFT JOIN apt_kapt_info k ON a.pnu = k.pnu"""
         conditions: list[str] = [
             "a.lat IS NOT NULL",
             "a.pnu NOT LIKE 'TRADE_%%'",
@@ -84,6 +86,13 @@ def nudge_score(
             "a.use_apr_day IS NOT NULL AND a.use_apr_day != ''",
         ]
         params: list = []
+
+        # 임대전용 단지 제외 — 세대수·면적 하한으로는 걸러지지 않는 별개의 가드.
+        # 정책값 출처는 common_code(apt_population_exclude). 근거는
+        # services/apartment_eligibility.py docstring 참고.
+        exclude_sql, exclude_params = sale_type_condition("k")
+        conditions.append(exclude_sql)
+        params.extend(exclude_params)
 
         # 다중 키워드 지원 (keywords 우선, 없으면 keyword 단일 호환)
         import re

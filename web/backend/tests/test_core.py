@@ -221,6 +221,96 @@ def test_nudge_area_floor_filter():
     conn.close()
 
 
+@test("넛지 모집단: 임대전용 단지(sale_type='임대') 미포함")
+def test_nudge_excludes_rental_only():
+    """세대수·면적 하한으로는 걸러지지 않는 별개 가드 (2026-08-20 추가).
+
+    파일럿 검수에서 청년주택·행복주택이 신혼육아 추천 상위에 올라온 것이 발단.
+    임대전용 318곳이 min_hhld 100 + min_smallest_area 59 를 모두 통과한다.
+    """
+    import requests
+    from database import DictConnection
+
+    conn = DictConnection()
+    # 임대전용이 실제로 존재하는 시군구를 골라야 검증이 성립한다 (없으면 무의미).
+    target = conn.execute(
+        """
+        SELECT a.sigungu_code, COUNT(*) AS c
+        FROM apartments a JOIN apt_kapt_info k ON k.pnu = a.pnu
+        WHERE k.sale_type = '임대' AND a.lat IS NOT NULL
+          AND a.total_hhld_cnt >= 100
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+        """
+    ).fetchone()
+    assert target, "임대전용 표본이 없어 검증 불가 — K-APT 적재 확인 필요"
+
+    resp = requests.post(
+        "http://localhost:8000/api/nudge/score",
+        json={
+            "nudges": ["newlywed"],
+            "top_n": 100,
+            "sigungu_code": target["sigungu_code"],
+            "min_hhld": 100,
+        },
+        timeout=30,
+    )
+    assert resp.status_code == 200, f"API 에러: {resp.status_code}"
+    data = resp.json()
+    assert len(data) > 0, (
+        f"{target['sigungu_code']} 결과가 비었음 (가드 과잉 차단 의심)"
+    )
+
+    pnus = [a["pnu"] for a in data]
+    placeholders = ", ".join(["%s"] * len(pnus))
+    leaked = conn.execute(
+        f"""
+        SELECT a.pnu, COALESCE(a.display_name, a.bld_nm) AS bld_nm
+        FROM apartments a JOIN apt_kapt_info k ON k.pnu = a.pnu
+        WHERE a.pnu IN ({placeholders}) AND k.sale_type = '임대'
+        """,
+        pnus,
+    ).fetchall()
+    conn.close()
+    assert not leaked, (
+        f"임대전용 {len(leaked)}곳이 응답에 포함됨: {[r['bld_nm'] for r in leaked[:3]]}"
+    )
+
+
+@test("넛지 모집단: K-APT 미보유 단지는 제외하지 않음")
+def test_nudge_keeps_unknown_sale_type():
+    """커버리지가 50.6% 뿐이라 '데이터 없음'을 제외로 취급하면 절반이 사라진다."""
+    import requests
+    from database import DictConnection
+
+    conn = DictConnection()
+    target = conn.execute(
+        """
+        SELECT a.sigungu_code, COUNT(*) AS c
+        FROM apartments a LEFT JOIN apt_kapt_info k ON k.pnu = a.pnu
+        WHERE k.pnu IS NULL AND a.lat IS NOT NULL AND a.total_hhld_cnt >= 100
+          AND a.use_apr_day IS NOT NULL AND a.use_apr_day != ''
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    assert target, "K-APT 미보유 표본이 없음"
+
+    resp = requests.post(
+        "http://localhost:8000/api/nudge/score",
+        json={
+            "nudges": ["newlywed"],
+            "top_n": 100,
+            "sigungu_code": target["sigungu_code"],
+        },
+        timeout=30,
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()) > 0, (
+        f"K-APT 미보유가 다수인 {target['sigungu_code']} 결과가 비었음 — "
+        "IS NULL 통과 조건이 깨졌을 가능성"
+    )
+
+
 # ============================================================
 # 3. 검색 정규화 테스트
 # ============================================================
