@@ -44,11 +44,15 @@ def _as_deal(row: dict) -> dict:
         "min_deal_year": row["min_deal_year"],
         "median_build_year": row["median_build_year"],
         "areas": row["areas"],
+        # 지번 대조 근거 (mapping_checks.jibun_points_elsewhere)
+        "jibun_pnus": row.get("jibun_pnus"),
+        "jibun_owner_pnus": row.get("jibun_owner_pnus"),
     }
 
 
 def _as_apt(row: dict) -> dict:
     return {
+        "pnu": row["pnu"],
         "bld_nm": row["bld_nm"],
         "max_floor": row["apt_max_floor"],
         "use_apr_day": row["use_apr_day"],
