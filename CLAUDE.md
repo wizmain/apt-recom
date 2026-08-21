@@ -157,6 +157,9 @@ routers/ → services/ → database.py (raw SQL)
 ## Git Workflow
 - main 브랜치 직접 push 금지
 - 브랜치명: feature/, bugfix/, hotfix/ 접두어
+- 콘텐츠 발행은 content/, 문서 전용 변경은 docs/ 접두어
+  — 인스타 데일리 런북(`docs/guides/instagram-daily-pilot.md` 4단계)이 `content/ig-YYYYMMDD` 를
+    지시하고 머지 이력도 그렇게 쌓여 있다. 규칙에 빠져 있던 것을 실제 관행에 맞춰 보완(2026-08-21).
 
 ## 금지 사항
 - .env 파일 git 커밋 (.env.example만 추적)
