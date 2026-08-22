@@ -8,6 +8,10 @@
 # - 지역/파라미터는 편집 대상. 큐를 늘리면 동일(포맷,지역) 재등장 간격이 늘어난다(PRD §5-2, 목표 ≥8).
 # - trade_top 은 전국(지역 파라미터 없음) — Phase 0 확정(월요일 1회, 주말 재배치).
 # - value 의 --region 은 한글 키워드라 slug 가 romanized 필요 → 각 항목에 slug 동봉.
+# - value 항목의 code 는 **모집단 한정용**이다(--sigungu-code). 키워드만으로는 동명 시군구를
+#   구분하지 못한다 — '중구' 는 서울·부산·대구·인천·대전·울산 6곳에 있고, 실제로 키워드
+#   검색이 울산 중구를 뽑았다(2026-08-22: 179만원/㎡ '양지동산맨션' 등 5곳 전부 울산).
+#   keyword 는 카드 표기에만 쓴다. 큐에 항목을 추가할 때 code 는 필수로 넣는다.
 
 timezone: Asia/Seoul
 # 날짜→인덱스 기준일(포함). 요일 계산에도 사용. 파일럿 시작일로 갱신 가능.
@@ -52,16 +56,16 @@ series:
     min_area: 60
     max_area: 85
     regions:
-      - { keyword: "강남구", slug: gangnam }
-      - { keyword: "서초구", slug: seocho }
-      - { keyword: "송파구", slug: songpa }
-      - { keyword: "마포구", slug: mapo }
-      - { keyword: "성동구", slug: seongdong }
-      - { keyword: "용산구", slug: yongsan }
-      - { keyword: "양천구", slug: yangcheon }
-      - { keyword: "노원구", slug: nowon }
-      - { keyword: "광진구", slug: gwangjin }
-      - { keyword: "강동구", slug: gangdong }
+      - { keyword: "강남구", slug: gangnam, code: "11680" }
+      - { keyword: "서초구", slug: seocho, code: "11650" }
+      - { keyword: "송파구", slug: songpa, code: "11710" }
+      - { keyword: "마포구", slug: mapo, code: "11440" }
+      - { keyword: "성동구", slug: seongdong, code: "11200" }
+      - { keyword: "용산구", slug: yongsan, code: "11170" }
+      - { keyword: "양천구", slug: yangcheon, code: "11470" }
+      - { keyword: "노원구", slug: nowon, code: "11350" }
+      - { keyword: "광진구", slug: gwangjin, code: "11215" }
+      - { keyword: "강동구", slug: gangdong, code: "11740" }
 
   compare:
     # 시군구 코드 2개(콤마). slug 는 코드 기반 자동 생성.

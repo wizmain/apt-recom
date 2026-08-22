@@ -81,6 +81,9 @@ def _build_command(series: str, params: dict, slug: str) -> str:
         parts.append(f"--min-hhld {params['min_hhld']}")
     elif series == "value":
         parts.append(f'--region "{params["keyword"]}"')
+        # 코드가 있으면 모집단을 그 시군구로 한정한다 (동명 시군구 방지, 2026-08-22).
+        if params.get("code"):
+            parts.append(f"--sigungu-code {params['code']}")
         parts.append(f"--nudge {params['nudge']}")
         parts.append(f"--min-smallest-area {params['min_smallest_area']}")
         parts.append(f"--min-area {params['min_area']}")
@@ -118,6 +121,7 @@ def resolve(cfg: dict, target: date) -> dict:
         region = s["regions"][occ % len(s["regions"])]
         params = {
             "keyword": region["keyword"],
+            "code": region.get("code"),
             "nudge": s["nudge"],
             "min_smallest_area": s["min_smallest_area"],
             "min_area": s["min_area"],

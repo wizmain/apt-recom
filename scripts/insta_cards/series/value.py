@@ -163,11 +163,18 @@ def select_candidates(
 
 
 def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
+    # 지역 한정은 코드가 있으면 코드로 한다. 키워드는 동명 시군구를 구분하지 못한다 —
+    # '중구' 로 검색하면 울산 중구가 나온다(2026-08-22 실측). --region 은 표기용으로 남는다.
+    region_filter = (
+        {"sigungu_code": args.sigungu_code}
+        if args.sigungu_code
+        else {"keyword": args.region}
+    )
     candidates = post_nudge_score(
         {
             "nudges": [args.nudge],
             "top_n": CANDIDATE_POOL_SIZE,
-            "keyword": args.region,
+            **region_filter,
             "min_hhld": args.min_hhld,
             "min_smallest_area": args.min_smallest_area,
             # 밴드 주택형이 있는 단지로 모집단을 좁힌다 — 순위 계산과 같은 밴드.
@@ -269,9 +276,10 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
                 id="map-main",
                 label=f"가성비 조건 그대로 {args.region} 지도에서 보기",
                 nudges=(args.nudge,),
-                sigungu_code=None,
+                # 랜딩 후보와 지도 재계산 모집단을 일치시킨다 — 코드가 있으면 코드로.
+                sigungu_code=args.sigungu_code,
                 region_label=args.region,
-                keyword=args.region,  # 시군구 코드가 없는 시리즈 — 키워드로 지역 재현
+                keyword=None if args.sigungu_code else args.region,
                 # 랜딩 선정 조건과 동일한 필터를 지도에도 실어 모집단을 일치시킨다.
                 filters={
                     "min_hhld": args.min_hhld,
