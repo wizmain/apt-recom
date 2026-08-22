@@ -1243,6 +1243,9 @@ class TestValueSeries(unittest.TestCase):
         args = MagicMock()
         args.region, args.nudge, args.min_hhld = "서울", "cost", 100
         args.min_smallest_area = 59
+        # MagicMock 은 미설정 속성을 truthy Mock 으로 만들어낸다 — 명시하지 않으면
+        # 코드 경로로 새어 키워드 폴백 커버리지가 사라진다(2026-08-22).
+        args.sigungu_code = None
         args.min_area, args.max_area = 60.0, 85.0
 
         seen_payload = {}
@@ -1309,6 +1312,70 @@ class TestValueSeries(unittest.TestCase):
         self.assertIn("전용면적", labels)
         self.assertIn("60~85㎡ 거래만으로 계산", " ".join(pub.methodology))
 
+
+    def test_sigungu_code_scopes_population(self):
+        """코드가 있으면 키워드 대신 코드로 모집단을 한정한다.
+
+        키워드만으로는 동명 시군구가 구분되지 않는다 — '중구' 로 검색하면 울산 중구가
+        나온다(2026-08-22 실측: 179만원/㎡ '양지동산맨션' 등 5곳 전부 울산).
+        """
+        from unittest.mock import MagicMock, patch
+
+        from scripts.insta_cards.series import value
+
+        candidates = self._candidates()
+        price_map = self._price_map(candidates, base=9_000_000.0, step=1)
+
+        args = MagicMock()
+        args.region, args.nudge, args.min_hhld = "중구", "cost", 100
+        args.min_smallest_area = 59
+        args.min_area, args.max_area = 60.0, 85.0
+        args.sigungu_code = "11140"
+
+        seen = {}
+
+        def fake_scored(payload):
+            seen.update(payload)
+            return candidates
+
+        with (
+            patch(
+                "scripts.insta_cards.series.value.post_nudge_score",
+                side_effect=fake_scored,
+            ),
+            patch(
+                "scripts.insta_cards.series.value.fetch_band_price_per_m2",
+                return_value=price_map,
+            ),
+            patch(
+                "scripts.insta_cards.series.value.fetch_district_band_avg",
+                return_value=30_000_000.0,
+            ),
+            patch(
+                "scripts.insta_cards.series.value.open_local_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "scripts.insta_cards.series.value.stale_trade_warning",
+                return_value=None,
+            ),
+        ):
+            pub = value.run(
+                args,
+                slug="value-junggu-20260822",
+                status="draft",
+                published_at=None,
+                copy_overrides=None,
+            )
+
+        # 넛지 payload 는 코드로 한정하고 키워드를 보내지 않는다
+        self.assertEqual(seen["sigungu_code"], "11140")
+        self.assertNotIn("keyword", seen)
+        # 지도 재계산 모집단도 같은 코드로 — 랜딩과 어긋나면 안 된다
+        self.assertEqual(pub.map_ctas[0].sigungu_code, "11140")
+        self.assertIsNone(pub.map_ctas[0].keyword)
+        # 표기는 --region 을 그대로 쓴다
+        self.assertEqual(pub.map_ctas[0].region_label, "중구")
 
 class TestCompareSeries(unittest.TestCase):
     def _scored(self, base):

@@ -65,7 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--region",
         type=str,
         default=None,
-        help="value: 키워드 / lifestyle: 시군구 코드",
+        help="value: 키워드(표시용) / lifestyle: 시군구 코드",
+    )
+    # value 전용. 키워드만으로는 지역이 특정되지 않는다 — '중구' 는 서울·부산·대구·
+    # 인천·대전·울산 6곳에 있어 키워드 검색이 울산 중구를 뽑았다(2026-08-22 실측).
+    # 코드가 주어지면 모집단을 그 시군구로 한정하고, --region 은 카드 표기에만 쓴다.
+    parser.add_argument(
+        "--sigungu-code",
+        type=str,
+        default=None,
+        help="value: 모집단을 한정할 시군구 코드 (미지정 시 --region 키워드 검색)",
     )
     parser.add_argument("--min-hhld", type=int, default=DEFAULT_MIN_HOUSEHOLDS)
     parser.add_argument(
