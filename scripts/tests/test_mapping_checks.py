@@ -11,6 +11,7 @@ from batch.trade.mapping_checks import (
     complex_number_conflict,
     complex_numbers,
     floor_exceeds,
+    jibun_points_elsewhere,
     mismatch_confirmed,
     name_consistent,
     timeline_violation,
@@ -255,4 +256,70 @@ class TestMismatchConfirmed(unittest.TestCase):
             self._deal(areas=[(59.9, 6), (84.82, 4)]), self._apt(areas=[84.8198])
         )
         self.assertEqual(codes(signals), {"area"})
+        self.assertFalse(mismatch_confirmed(signals))
+
+
+class TestJibunPointsElsewhere(unittest.TestCase):
+    """지번 대조 — 2026-08-21 실측에서 도출한 규칙."""
+
+    MAPPED = "2824511100005330000"   # 계양센트레빌3단지
+    SIBLING = "2824511100005310000"  # 계양센트레빌1단지
+
+    def test_지번이_다른_실존_단지를_가리키면_신호다(self):
+        self.assertTrue(
+            jibun_points_elsewhere([self.SIBLING], [self.SIBLING], self.MAPPED))
+
+    def test_지번이_매핑처와_일치하면_신호가_아니다(self):
+        """표본 오탐 3건이 전부 이 유형이었다 — 형제가 TRADE_ 더미였다."""
+        self.assertFalse(
+            jibun_points_elsewhere([self.MAPPED], [self.MAPPED], self.MAPPED))
+
+    def test_여러_필지에_걸치면_신호가_아니다(self):
+        """대표 필지가 아닌 지번으로 신고된 거래가 섞여도 매핑은 정상일 수 있다."""
+        self.assertFalse(jibun_points_elsewhere(
+            [self.MAPPED, self.SIBLING], [self.MAPPED, self.SIBLING], self.MAPPED))
+
+    def test_실존하지_않는_지번은_판단하지_않는다(self):
+        """제3의 지번을 가리킨 경우 — 근거가 없어 신호를 내지 않는다."""
+        self.assertFalse(
+            jibun_points_elsewhere(["2824511100009990000"], [], self.MAPPED))
+
+    def test_지번이_없으면_판단하지_않는다(self):
+        self.assertFalse(jibun_points_elsewhere([], [], self.MAPPED))
+        self.assertFalse(jibun_points_elsewhere(None, None, self.MAPPED))
+
+
+class TestJibunSignalInCheckMapping(unittest.TestCase):
+    def _deal(self, **kw):
+        base = {"apt_nm": "계양센트레빌1단지", "max_floor": None,
+                "min_deal_year": None, "median_build_year": None, "areas": []}
+        base.update(kw)
+        return base
+
+    def test_다른_지표와_함께_어긋나면_확정한다(self):
+        signals = check_mapping(
+            self._deal(jibun_pnus=["2824511100005310000"],
+                       jibun_owner_pnus=["2824511100005310000"]),
+            {"pnu": "2824511100005330000", "bld_nm": "계양센트레빌3단지",
+             "max_floor": None, "use_apr_day": None, "areas": []})
+        self.assertEqual(codes(signals), {"jibun", "complex_number"})
+        self.assertTrue(mismatch_confirmed(signals))
+
+    def test_지번_단독으로는_확정하지_않는다(self):
+        """실측: 단독 확정 2,240건 중 58%가 이름이 사실상 같은 오탐이었다."""
+        signals = check_mapping(
+            self._deal(apt_nm="대동",
+                       jibun_pnus=["4813010700001230000"],
+                       jibun_owner_pnus=["4813010700001230000"]),
+            {"pnu": "4813010700004560000", "bld_nm": "대동",
+             "max_floor": None, "use_apr_day": None, "areas": []})
+        self.assertEqual(codes(signals), {"jibun"})
+        self.assertFalse(mismatch_confirmed(signals))
+
+    def test_지번_근거가_없으면_기존_판정_그대로다(self):
+        signals = check_mapping(
+            self._deal(jibun_pnus=None, jibun_owner_pnus=None),
+            {"pnu": "2824511100005330000", "bld_nm": "계양센트레빌3단지",
+             "max_floor": None, "use_apr_day": None, "areas": []})
+        self.assertEqual(codes(signals), {"complex_number"})
         self.assertFalse(mismatch_confirmed(signals))

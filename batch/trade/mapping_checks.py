@@ -67,6 +67,36 @@ def complex_number_conflict(trade_nm: str, bld_nm: str) -> bool:
     return bool(a and b and not (a & b))
 
 
+def jibun_points_elsewhere(jibun_pnus, jibun_owner_pnus, apt_pnu) -> bool:
+    """거래 지번이 매핑처가 아닌 **실존하는 다른 단지**를 가리키는지.
+
+    PNU 는 법정동코드+산여부+본번+부번을 인코딩하므로 거래 지번으로 같은 키를 만들어
+    대조할 수 있다 (실측: 이안용산1차 지번 11-14 → PNU ...000110014).
+
+    두 조건을 모두 요구한다.
+      1) 거래 지번 중 매핑처 PNU 와 같은 것이 하나도 없다
+      2) 거래 지번 중 apartments 에 실존하는 다른 PNU 가 있다
+
+    (1) 만으로는 부족하다 — 단지가 여러 필지에 걸치면 대표 필지가 아닌 지번으로
+    신고된 거래가 정상적으로 존재한다. `jibun_owner_pnus` 는 숫자 PNU 만 담기므로
+    `TRADE_` 더미 매핑은 자연히 배제된다.
+
+    **단독 판정 근거로 쓰지 않는다(strong=False).** 전량 실측(2026-08-21)에서 이 신호
+    단독 확정은 2,240건(실적 59만건)이었고 그중 58%가 거래명과 매핑처 이름이 사실상
+    같은 경우였다 — `대동`→`대동`(지번주인 `대방대동아파트`), `하나`→`하나`(지번주인
+    `효성하나아파트`). 이름이 짧고 흔하면 지번이 가리키는 곳도 매핑된 곳도 그럴듯해서
+    이 신호만으로는 어느 쪽이 맞는지 가리지 못한다. 다른 물리 지표와 함께 어긋날 때만
+    확정한다(신규 확정 880건).
+    """
+    keys = set(jibun_pnus or [])
+    owners = set(jibun_owner_pnus or [])
+    if not keys or not owners:
+        return False
+    if apt_pnu and apt_pnu in keys:
+        return False
+    return bool(owners - {apt_pnu})
+
+
 def floor_exceeds(deal_max_floor: int | None, apt_max_floor: int | None) -> bool:
     """실적 최고층이 진본 최고층을 FLOOR_TOLERANCE 넘게 초과하는지.
 
@@ -132,9 +162,10 @@ def check_mapping(deal: dict, apt: dict) -> list[Signal]:
     한다 — 지표 하나만으로 판정하면 오탐이 많기 때문이다.
 
     deal — 거래·전월세 실적 집계
-      apt_nm, max_floor, min_deal_year, median_build_year, areas
+      apt_nm, max_floor, min_deal_year, median_build_year, areas,
+      jibun_pnus(거래 지번으로 만든 PNU 키), jibun_owner_pnus(그중 실존 단지 PNU)
     apt  — 매핑 대상 아파트
-      bld_nm, max_floor, use_apr_day, areas
+      pnu, bld_nm, max_floor, use_apr_day, areas
     """
     signals = []
 
@@ -143,6 +174,14 @@ def check_mapping(deal: dict, apt: dict) -> list[Signal]:
             "complex_number",
             f"단지번호 {sorted(complex_numbers(deal.get('apt_nm')))}"
             f" vs {sorted(complex_numbers(apt.get('bld_nm')))}",
+            strong=False,
+        ))
+
+    if jibun_points_elsewhere(
+            deal.get("jibun_pnus"), deal.get("jibun_owner_pnus"), apt.get("pnu")):
+        signals.append(Signal(
+            "jibun",
+            f"거래 지번이 다른 실존 단지 {sorted(set(deal['jibun_owner_pnus']))[:2]} 를 가리킴",
             strong=False,
         ))
 

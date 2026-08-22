@@ -96,11 +96,15 @@ def _as_deal(row: dict) -> dict:
         "min_deal_year": row["min_deal_year"],
         "median_build_year": row["median_build_year"],
         "areas": row["areas"],
+        # 지번 대조 근거 — 후보 검증에도 같은 신호가 걸려야 엉뚱한 곳으로 옮기지 않는다
+        "jibun_pnus": row.get("jibun_pnus"),
+        "jibun_owner_pnus": row.get("jibun_owner_pnus"),
     }
 
 
 def _as_apt(row: dict, prefix: str = "apt_") -> dict:
     return {
+        "pnu": row["pnu"],
         "bld_nm": row["bld_nm"],
         "max_floor": row.get(f"{prefix}max_floor", row.get("max_floor")),
         "use_apr_day": row["use_apr_day"],
