@@ -62,10 +62,16 @@ APT_SYNC_TABLES = [
         "mode": "missing_only",
     },
     {
+        # pnu 가 갱신되는 테이블이다 — scripts/rematch_bad_mappings.py 와 배치가
+        # 재매핑으로 값을 바꾼다. missing_only 는 "PK 가 추가될 뿐 값은 안 바뀐다" 를
+        # 전제하므로 여기엔 맞지 않는다: Railway 에서 매핑을 교정해도 로컬은 옛
+        # 대상을 유지하고, 행 수가 같아 카운트 검증도 통과한다
+        # (2026-08-22 실측: 653건 교정 후 로컬·Railway 가 44,718행으로 같은데
+        # pnu 는 23건 달랐다). 스코어 테이블과 같은 이유로 upsert 로 둔다.
         "name": "trade_apt_mapping",
         "pk": ["apt_seq"],
         "cols": ["apt_seq", "pnu", "apt_nm", "sgg_cd", "match_method"],
-        "mode": "missing_only",
+        "mode": "upsert",
     },
     {
         "name": "apt_facility_summary",
@@ -120,6 +126,52 @@ APT_SYNC_TABLES = [
         "mode": "upsert",
     },
 ]
+
+
+# 값 드리프트 검증에 쓰는 컬럼. PK 만으로는 재매핑처럼 "행 수는 같은데 값이 다른"
+# 변화를 못 본다 (2026-08-22). 목록에 없는 테이블은 카운트만 비교한다.
+CHECKSUM_COLS = {
+    "trade_apt_mapping": ["apt_seq", "pnu", "match_method"],
+    "apartments": ["pnu", "bld_nm", "total_hhld_cnt", "use_apr_day"],
+    "apt_facility_summary": ["pnu", "facility_subtype", "nearest_distance_m", "count_1km"],
+    "apt_price_score": ["pnu", "price_per_m2"],
+    "apt_safety_score": ["pnu", "cctv_count_500m"],
+}
+
+
+def build_checksum_sql(table: str) -> str | None:
+    """테이블 값 체크섬 SQL. 대상이 아니면 None.
+
+    md5 앞 8자리를 정수로 바꿔 합산한다 — 행 순서와 무관하고, 988k 행도 초 단위다.
+    컬럼 목록은 코드 상수이며 사용자 입력이 아니다(SQL 조립 안전).
+    """
+    cols = CHECKSUM_COLS.get(table)
+    if not cols:
+        return None
+    expr = " || ".join(f"COALESCE({c}::text, '~')" for c in cols)
+    return (
+        f"SELECT SUM(('x' || substr(md5({expr}), 1, 8))::bit(32)::bigint) "
+        f"FROM {table}"
+    )
+
+
+def _checksum(conn, table: str):
+    sql = build_checksum_sql(table)
+    if not sql:
+        return None
+    cur = conn.cursor()
+    cur.execute(sql)
+    return cur.fetchone()[0]
+
+
+def verify_status(local_count: int, railway_count: int, local_sum, railway_sum) -> str:
+    """검증 표시. 카운트가 같아도 값이 다르면 드러나야 한다."""
+    if local_count != railway_count:
+        diff = local_count - railway_count
+        return f"로컬 추가 +{diff:,}" if diff > 0 else f"부족 {diff:+,}"
+    if local_sum is not None and railway_sum is not None and local_sum != railway_sum:
+        return "값 불일치"
+    return "OK"
 
 
 def _sync_apt_table(local, railway, cfg, logger):
@@ -297,13 +349,13 @@ def incremental_sync(logger):
         l = lcur.fetchone()[0]
         rcur.execute(f"SELECT COUNT(*) FROM {table}")
         r = rcur.fetchone()[0]
-        if l == r:
-            status = "OK"
-        elif l > r:
-            status = f"로컬 추가 +{l - r:,}"
-        else:
-            status = f"부족 {r - l:+,}"
+        status = verify_status(l, r, _checksum(local, table), _checksum(railway, table))
         logger.info(f"  {table:28s} 로컬 {l:>10,} / Railway {r:>10,} [{status}]")
+        if status == "값 불일치":
+            logger.warning(
+                f"  {table}: 행 수는 같은데 값이 다르다 — 갱신되는 컬럼이 있는데 "
+                f"missing_only 로 동기화되고 있는지 확인할 것"
+            )
 
     local.close()
     railway.close()
@@ -385,8 +437,11 @@ def full_sync(logger):
             l = lcur.fetchone()[0]
             rcur.execute(f"SELECT COUNT(*) FROM {table}")
             r = rcur.fetchone()[0]
-            ok = "OK" if l == r else "MISMATCH"
-            logger.info(f"  {table:25s} 로컬: {l:>10,}  Railway: {r:>10,}  [{ok}]")
+            # 카운트만 보면 값 드리프트를 놓친다 — 증분 검증과 같은 기준을 쓴다
+            status = verify_status(
+                l, r, _checksum(local, table), _checksum(railway, table)
+            )
+            logger.info(f"  {table:25s} 로컬: {l:>10,}  Railway: {r:>10,}  [{status}]")
 
         # 동기화 시각 갱신
         now_str = datetime.now(timezone.utc).isoformat()
@@ -476,8 +531,11 @@ def push_to_railway(logger):
             l = lcur.fetchone()[0]
             rcur.execute(f"SELECT COUNT(*) FROM {table}")
             r = rcur.fetchone()[0]
-            ok = "OK" if l == r else "MISMATCH"
-            logger.info(f"  {table:25s} 로컬: {l:>10,}  Railway: {r:>10,}  [{ok}]")
+            # 카운트만 보면 값 드리프트를 놓친다 — 증분 검증과 같은 기준을 쓴다
+            status = verify_status(
+                l, r, _checksum(local, table), _checksum(railway, table)
+            )
+            logger.info(f"  {table:25s} 로컬: {l:>10,}  Railway: {r:>10,}  [{status}]")
 
         local.close()
         railway.close()
