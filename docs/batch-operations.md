@@ -129,7 +129,30 @@ Railway가 마스터 DB. 배치는 Railway에 직접 적재하고, 로컬은 필
 
 1. `pg_dump`로 Railway DB 백업 (455MB custom format)
 2. `pg_restore`로 로컬 DB에 복원 (--clean --if-exists)
-3. 정합성 검증 (테이블별 건수 비교)
+3. 정합성 검증 (건수 + 값 체크섬)
+
+### 정합성 검증 — 건수만으로는 부족하다 (2026-08-22)
+
+**행 수가 같아도 값이 다를 수 있다.** `rematch_bad_mappings.py` 로 Railway 매핑 653건을
+교정한 뒤 로컬·Railway 가 둘 다 44,718행이었는데 `pnu` 는 23건 달랐다. 당시 검증은
+`COUNT(*)` 만 비교해 `[OK]` 를 찍었고, 그 표시만 보면 드리프트를 놓친다.
+
+→ 값이 바뀌는 테이블은 **md5 집계 체크섬**을 함께 본다(`build_checksum_sql`).
+건수가 같은데 체크섬이 다르면 `[값 불일치]` 로 표시하고 경고를 남긴다.
+988,082행도 초 단위로 끝나며, 44,718행 중 1건만 달라도 잡는다(실측).
+
+### 동기화 모드별 값 갱신 (아파트 관련 테이블)
+
+`APT_SYNC_TABLES` 는 `created_at` 이 없어 PK 기반으로 동기화한다.
+
+| mode | 동작 | 대상 |
+|---|---|---|
+| `missing_only` | Railway 에만 있는 PK 만 INSERT — **기존 행의 값은 갱신 안 됨** | `apartments`, `apt_facility_summary` |
+| `upsert` | PK 충돌 시 전체 컬럼 UPDATE | `trade_apt_mapping`, `apt_price_score`, `apt_safety_score` |
+
+**값이 갱신되는 테이블에 `missing_only` 를 쓰면 안 된다.** `trade_apt_mapping.pnu` 는
+재매핑으로 바뀌므로 2026-08-22 에 `upsert` 로 전환했다. `apartments.bld_nm` 도 K-APT
+적재로 갱신되지만 실측 드리프트가 0이라 유지했다 — 체크섬이 붙었으니 생기면 드러난다.
 
 ### 주의사항
 
