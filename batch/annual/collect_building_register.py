@@ -4,6 +4,15 @@
 PoC 실측(2026-07-04): 층화 표본 30/30 히트 — PNU 파라미터는 원값 전달
 (platGbCd=pnu[10], int 변환 금지 — 변환 시 0/30).
 
+수집 항목에 사용승인일(useAprDay)이 포함된다(2026-08-24 추가). 원천이 이미 내려주는
+값이라 추가 호출이 없다. `apartments.use_apr_day` 가 비어 있는 단지를 보충하는 데 쓴다
+— 실측 973건이 세대수·준공일 없이 남아 있고, 넛지 모집단은 두 값을 모두 요구한다
+(`total_hhld_cnt > 0 AND use_apr_day <> ''`). 세대수만 채우면 trade_top 에서만 살아난다.
+
+min/max 를 함께 두는 이유: 편차가 크면 단계별 준공이거나 **한 PNU 에 여러 단지가 얹힌**
+것이라 그대로 보충하면 안 된다는 신호가 된다. 같은 원인으로 세대수도 어긋난다
+(실측: '비산삼성래미안아파트 160동' DB 92세대 / 대장 3,806세대).
+
 합산 규칙:
 - 주용도(mainPurpsCdNm)에 '아파트' 또는 '공동주택' 이 포함된 동만 합산
   (관리동/상가 승강기 혼입 방지). 해당 동이 하나도 없으면 전체 동 합산
@@ -27,6 +36,7 @@ PoC 실측(2026-07-04): 층화 표본 30/30 히트 — PNU 파라미터는 원�
 """
 
 import argparse
+import re
 import time
 import xml.etree.ElementTree as ET
 
@@ -77,6 +87,7 @@ def _fetch_title_items(pnu: str, logger) -> list[dict] | None:
         "bldNm",
         "mainPurpsCdNm",
         "hhldCnt",
+        "useAprDay",
         "rideUseElvtCnt",
         "emgenUseElvtCnt",
         *PARKING_FIELDS,
@@ -128,6 +139,21 @@ def _to_int(value: str) -> int:
         return 0
 
 
+_USE_DAY_RE = re.compile(r"^(19|20)\d{6}$")
+
+
+def _valid_use_days(items: list[dict]) -> list[str]:
+    """동 목록에서 정상 형식(YYYYMMDD)의 사용승인일만 골라 오름차순 반환.
+
+    원천에 ''·'0'·'00000000' 같은 값이 섞여 있어 그대로 쓰면 min 이 오염된다.
+    """
+    days = {
+        (it.get("useAprDay") or "").strip()
+        for it in items
+    }
+    return sorted(d for d in days if _USE_DAY_RE.match(d))
+
+
 def _aggregate(items: list[dict], logger, pnu: str) -> dict | None:
     """동 목록 → 단지 합산. 동이 없으면 None."""
     if not items:
@@ -154,12 +180,16 @@ def _aggregate(items: list[dict], logger, pnu: str) -> dict | None:
         for it in residential
     )
     hhld = sum(_to_int(it["hhldCnt"]) for it in residential)
+    use_days = _valid_use_days(residential)
     return {
         "elevator_count": elevator,
         "parking_total_count": parking_total,
         "parking_indoor_count": parking_indoor,
         "register_hhld_cnt": hhld,
         "register_dong_cnt": len(residential),
+        # 동마다 다를 수 있어 범위로 둔다 — 편차 자체가 보충 판단의 근거다
+        "register_use_apr_day": use_days[0] if use_days else None,
+        "register_use_apr_day_max": use_days[-1] if use_days else None,
     }
 
 
@@ -184,8 +214,9 @@ def _save_checkpoint(cur, pnu: str) -> None:
 UPSERT_SQL = """
     INSERT INTO apt_building_register
         (pnu, elevator_count, parking_total_count, parking_indoor_count,
-         register_hhld_cnt, register_dong_cnt, parking_per_hhld, updated_at)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+         register_hhld_cnt, register_dong_cnt, parking_per_hhld,
+         register_use_apr_day, register_use_apr_day_max, updated_at)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
     ON CONFLICT (pnu) DO UPDATE SET
         elevator_count = EXCLUDED.elevator_count,
         parking_total_count = EXCLUDED.parking_total_count,
@@ -193,6 +224,8 @@ UPSERT_SQL = """
         register_hhld_cnt = EXCLUDED.register_hhld_cnt,
         register_dong_cnt = EXCLUDED.register_dong_cnt,
         parking_per_hhld = EXCLUDED.parking_per_hhld,
+        register_use_apr_day = EXCLUDED.register_use_apr_day,
+        register_use_apr_day_max = EXCLUDED.register_use_apr_day_max,
         updated_at = NOW()
 """
 
@@ -285,6 +318,8 @@ def collect_building_register(
                     agg["register_hhld_cnt"],
                     agg["register_dong_cnt"],
                     ratio,
+                    agg["register_use_apr_day"],
+                    agg["register_use_apr_day_max"],
                 ],
             )
             upserted += 1
