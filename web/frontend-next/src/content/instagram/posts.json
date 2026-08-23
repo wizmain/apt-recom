@@ -1,6 +1,255 @@
 [
   {
     "schema_version": 1,
+    "slug": "trade-top-20260824",
+    "status": "published",
+    "series": "trade_top",
+    "title": "최근 7일 최고가 TOP 5",
+    "eyebrow": "적재 기준 · 최근 7일",
+    "hook": "최근 7일 새로 포착된 최고가는 85억",
+    "summary": "새로 포착된 거래 중 최고가와, 신규 거래가 크게 늘어난 동네를 모았습니다.",
+    "generated_at": "2026-08-24T08:37:37",
+    "published_at": "2026-08-24",
+    "data_as_of": "2026-08-24",
+    "period_label": "적재 기준 최근 7일",
+    "cover_image": "/content/instagram/trade-top-20260824/cover.png",
+    "cover_alt": "최근 7일 아파트 최고가 TOP 5 카드",
+    "conditions": [
+      {
+        "label": "기간",
+        "value": "적재 기준 최근 7일"
+      },
+      {
+        "label": "집계 단위",
+        "value": "단지별 최고가 1건"
+      },
+      {
+        "label": "최소 세대수",
+        "value": "100세대"
+      },
+      {
+        "label": "적재 발생일",
+        "value": "최근 4일 · 직전 6일"
+      },
+      {
+        "label": "기준일",
+        "value": "2026-08-24"
+      }
+    ],
+    "items": [
+      {
+        "rank": 1,
+        "name": "아크로리버파크",
+        "region": "서초구(서울)",
+        "pnu": "1165010700000020012",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "85억",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "130㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 2,
+        "name": "대치미도맨션",
+        "region": "강남구(서울)",
+        "pnu": "1168010600005110000",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "47억 8,000만원",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "126㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 3,
+        "name": "서초그랑자이",
+        "region": "서초구(서울)",
+        "pnu": "1165010800017570000",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "44억",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "91㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 4,
+        "name": "잠실주공5단지",
+        "region": "송파구(서울)",
+        "pnu": "1171010100000270000",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "40억 2,700만원",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "76㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 5,
+        "name": "반포미도아파트",
+        "region": "서초구(서울)",
+        "pnu": "1165010700000600004",
+        "metrics": [
+          {
+            "label": "거래가",
+            "value": "40억 1,500만원",
+            "unit": ""
+          },
+          {
+            "label": "전용면적",
+            "value": "85㎡",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      }
+    ],
+    "secondary_items": [
+      {
+        "rank": 1,
+        "name": "노원구(서울)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "85건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+49건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 2,
+        "name": "동안구(안양)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "61건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+47건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 3,
+        "name": "완산구(전주)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "103건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+39건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 4,
+        "name": "원미구(부천)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "101건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+35건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 5,
+        "name": "동구(대구)",
+        "region": null,
+        "pnu": null,
+        "metrics": [
+          {
+            "label": "신규 거래",
+            "value": "50건",
+            "unit": ""
+          },
+          {
+            "label": "직전 대비",
+            "value": "+33건",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      }
+    ],
+    "comparison": null,
+    "narrative": {
+      "why": [],
+      "fit_for": null
+    },
+    "methodology": [
+      "최고가: 최근 기간 새로 적재된 거래 중 단지별 최고가 1건만 집계",
+      "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+      "급증: 직전 7일 대비 신규 적재 건수 증가분 (현재 20건 이상 지역만)",
+      "급증 수치에는 적재 케이던스 차이가 섞입니다 — 두 기간의 적재 발생일이 다르면 그만큼 과장됩니다"
+    ],
+    "caveats": [
+      "투자 자문이 아닙니다.",
+      "데이터 적재일 기준이라 실제 계약 시점은 이보다 앞섭니다.",
+      "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+    ],
+    "map_ctas": []
+  },
+  {
+    "schema_version": 1,
     "slug": "value-nowon-20260822",
     "status": "published",
     "series": "value",
