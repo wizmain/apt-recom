@@ -536,9 +536,28 @@ def create_tables(conn) -> None:
             register_hhld_cnt INTEGER,
             register_dong_cnt INTEGER,
             parking_per_hhld DOUBLE PRECISION,
+            -- 주거용 동의 사용승인일 범위(YYYYMMDD). 원천(getBrTitleInfo)이 이미
+            -- 내려주는 값이라 추가 호출이 없다. apartments.use_apr_day 가 비어
+            -- 있는 단지(2026-08-24 실측 973건)를 보충하는 데 쓴다.
+            -- min/max 를 함께 두는 이유: 편차가 크면 단계별 준공이거나 한 PNU 에
+            -- 여러 단지가 얹힌 것이라, 보충 시 그대로 쓰면 안 된다는 신호가 된다
+            -- (같은 원인으로 세대수도 어긋난다 — '비산삼성래미안 160동' DB 92 / 대장 3,806).
+            register_use_apr_day TEXT,
+            register_use_apr_day_max TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
         );
+        -- 위 두 컬럼은 2026-08-24 추가분이다. CREATE TABLE IF NOT EXISTS 는 이미
+        -- 존재하는 DB 에 컬럼을 더하지 않으므로 ALTER 가 함께 있어야 한다 —
+        -- collect_building_register 의 UPSERT 가 두 컬럼을 즉시 참조해서,
+        -- 없으면 다음 배치가 'column does not exist' 로 전면 실패한다.
+        -- **CREATE 뒤에 둔다**: ADD COLUMN IF NOT EXISTS 는 컬럼만 보호하고
+        -- ALTER TABLE IF EXISTS 는 없어서, 빈 DB 에서 CREATE 보다 앞서면
+        -- 'relation does not exist' 로 이 execute 배치 전체가 중단된다.
+        ALTER TABLE apt_building_register
+            ADD COLUMN IF NOT EXISTS register_use_apr_day TEXT;
+        ALTER TABLE apt_building_register
+            ADD COLUMN IF NOT EXISTS register_use_apr_day_max TEXT;
 
         -- 에어코리아 대기질 (라이프점수 Phase 2-4: score_air pseudo-subtype)
         -- 수집: batch/quarterly/collect_air_quality.py (측정소 + 월평균 누적 → apt 점수)
