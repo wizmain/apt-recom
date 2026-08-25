@@ -148,7 +148,14 @@ Railway가 마스터 DB. 배치는 Railway에 직접 적재하고, 로컬은 필
 | mode | 동작 | 대상 |
 |---|---|---|
 | `missing_only` | Railway 에만 있는 PK 만 INSERT — **기존 행의 값은 갱신 안 됨** | `apartments`, `apt_facility_summary` |
-| `upsert` | PK 충돌 시 전체 컬럼 UPDATE | `trade_apt_mapping`, `apt_price_score`, `apt_safety_score` |
+| `upsert` | Railway 를 정본으로 **미러링**: UPSERT + 삭제 전파 | `trade_apt_mapping`, `apt_price_score`, `apt_safety_score` |
+
+**upsert 는 삭제도 전파한다 (2026-08-25).** 종전에는 INSERT/UPDATE 만 해서, Railway 의
+전체 재계산(`recalc_price` 는 `DELETE FROM apt_price_score` 후 재구축)이 지운 행이 로컬에
+잔존했다 — 실측: 8/22 재매핑으로 거래를 잃은 PNU 23건의 낡은 점수가 로컬에만 남아 검증이
+`[로컬 추가 +23]` 을 3일간 표시했다. 이제 Railway 에 없는 로컬 PK 를 지운다.
+단, **Railway 스냅샷이 비어 있으면 삭제하지 않는다** — 원격 장애나 재구축 중간 상태일 수
+있어 빈 스냅샷으로 미는 것은 데이터 유실이다.
 
 **값이 갱신되는 테이블에 `missing_only` 를 쓰면 안 된다.** `trade_apt_mapping.pnu` 는
 재매핑으로 바뀌므로 2026-08-22 에 `upsert` 로 전환했다. `apartments.bld_nm` 도 K-APT

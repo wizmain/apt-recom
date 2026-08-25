@@ -36,8 +36,9 @@ SYNC_TABLES = [
 ]
 
 # 아파트 관련 테이블: created_at 부재 → PK 기반 전략
-# mode: "missing_only" (Railway에만 있는 PK만 INSERT)
-#       "upsert"       (PK 충돌 시 전체 컬럼 UPDATE — 재계산되는 스코어용)
+# mode: "missing_only" (Railway에만 있는 PK만 INSERT — 값·삭제는 전파 안 됨)
+#       "upsert"       (Railway 를 정본으로 미러링: UPSERT + 삭제 전파 —
+#                       재계산·재매핑으로 값이 바뀌고 행이 사라지는 테이블용)
 APT_SYNC_TABLES = [
     {
         "name": "apartments",
@@ -174,6 +175,17 @@ def verify_status(local_count: int, railway_count: int, local_sum, railway_sum) 
     return "OK"
 
 
+def find_stale_pks(all_cols, pk_cols, railway_rows, local_pk_rows):
+    """Railway 스냅샷에 없는 로컬 PK 목록 (삭제 전파 대상).
+
+    railway_rows 는 all_cols 순서의 전체 행, local_pk_rows 는 pk_cols 순서의 PK 행.
+    순수 함수 — 판정 로직을 DB 없이 검증하기 위해 분리했다.
+    """
+    pk_indices = [all_cols.index(c) for c in pk_cols]
+    railway_pks = {tuple(row[i] for i in pk_indices) for row in railway_rows}
+    return [pk for pk in (tuple(r) for r in local_pk_rows) if pk not in railway_pks]
+
+
 def _sync_apt_table(local, railway, cfg, logger):
     """아파트 관련 테이블 단건 동기화."""
     table = cfg["name"]
@@ -216,12 +228,19 @@ def _sync_apt_table(local, railway, cfg, logger):
         return len(missing_rows)
 
     elif mode == "upsert":
-        # Railway 전체를 로컬로 UPSERT (PK 충돌 시 UPDATE)
+        # Railway 전체를 로컬로 미러링: UPSERT + **삭제 전파**.
+        # upsert 만으로는 Railway 가 지운 행이 로컬에 잔존한다 — 2026-08-25 실측:
+        # 8/22 재매핑으로 거래를 잃은 PNU 23건을 Railway recalc_price(전체 재계산)가
+        # 정당하게 지웠는데, 로컬 apt_price_score 에는 낡은 점수가 그대로 남았다.
+        # upsert 대상 세 테이블(trade_apt_mapping·apt_price_score·apt_safety_score)은
+        # 모두 Railway 가 정본이라 로컬 전용 행이 존재할 이유가 없다.
         rcur = railway.cursor()
         rcur.execute(f"SELECT {col_sql} FROM {table}")
         rows = rcur.fetchall()
         if not rows:
-            logger.info(f"  {table}: Railway 데이터 없음")
+            # Railway 가 비어 있으면 미러링(전체 삭제)하지 않는다 — 원격 장애나
+            # 재구축 중간 상태일 수 있어, 빈 스냅샷으로 로컬을 밀면 데이터 유실이다.
+            logger.warning(f"  {table}: Railway 데이터 없음 — 삭제 전파 생략")
             return 0
 
         update_cols = [c for c in all_cols if c not in pk_cols]
@@ -234,8 +253,17 @@ def _sync_apt_table(local, railway, cfg, logger):
             rows,
             page_size=500,
         )
+
+        # 삭제 전파: Railway 에 없는 로컬 PK 제거
+        lcur.execute(f"SELECT {pk_sql} FROM {table}")
+        stale = find_stale_pks(all_cols, pk_cols, rows, lcur.fetchall())
+        if stale:
+            where = " AND ".join(f"{c} = %s" for c in pk_cols)
+            for pk in stale:
+                lcur.execute(f"DELETE FROM {table} WHERE {where}", list(pk))
         local.commit()
-        logger.info(f"  {table}: {len(rows):,}건 UPSERT")
+        deleted = f" / 잔존 삭제 {len(stale):,}건" if stale else ""
+        logger.info(f"  {table}: {len(rows):,}건 UPSERT{deleted}")
         return len(rows)
 
     else:

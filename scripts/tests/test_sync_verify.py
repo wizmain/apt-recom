@@ -6,6 +6,7 @@ from batch.sync_from_railway import (
     APT_SYNC_TABLES,
     CHECKSUM_COLS,
     build_checksum_sql,
+    find_stale_pks,
     verify_status,
 )
 
@@ -67,3 +68,29 @@ class TestSyncModes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFindStalePks(unittest.TestCase):
+    """upsert 미러링의 삭제 전파 — 2026-08-25 실측(잔존 23건)에서 도출."""
+
+    COLS = ["pnu", "price_per_m2"]
+    PK = ["pnu"]
+
+    def test_Railway_에_없는_로컬_PK_만_잔존이다(self):
+        railway = [("A", 1.0), ("B", 2.0)]
+        local = [("A",), ("B",), ("C",)]
+        self.assertEqual(find_stale_pks(self.COLS, self.PK, railway, local), [("C",)])
+
+    def test_양쪽이_같으면_잔존_없음(self):
+        railway = [("A", 1.0)]
+        self.assertEqual(find_stale_pks(self.COLS, self.PK, railway, [("A",)]), [])
+
+    def test_복합_PK_도_지원한다(self):
+        cols = ["pnu", "facility_subtype", "score"]
+        pk = ["pnu", "facility_subtype"]
+        railway = [("A", "mart", 1.0)]
+        local = [("A", "mart"), ("A", "subway")]
+        self.assertEqual(find_stale_pks(cols, pk, railway, local), [("A", "subway")])
+
+    def test_로컬이_비어_있으면_잔존_없음(self):
+        self.assertEqual(find_stale_pks(self.COLS, self.PK, [("A", 1.0)], []), [])
