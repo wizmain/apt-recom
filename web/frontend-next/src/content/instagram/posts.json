@@ -1,6 +1,184 @@
 [
   {
     "schema_version": 1,
+    "slug": "compare-11590-vs-11560-20260826",
+    "status": "published",
+    "series": "compare",
+    "title": "동작구(서울) vs 영등포구(서울) — 신혼육아",
+    "eyebrow": "동네 비교",
+    "hook": "동작구(서울) vs 영등포구(서울), 신혼육아 점수가 높은 곳은?",
+    "summary": "신혼육아 기준으로 두 지역의 추천 상위 단지와 시세를 비교했습니다.",
+    "generated_at": "2026-08-26T09:21:52",
+    "published_at": "2026-08-26",
+    "data_as_of": "2026-08-26",
+    "period_label": "계약일 기준 최근 90일 실거래 + 넛지 점수",
+    "cover_image": "/content/instagram/compare-11590-vs-11560-20260826/cover.png",
+    "cover_alt": "동작구(서울) 영등포구(서울) 아파트 비교 카드",
+    "conditions": [
+      {
+        "label": "비교 기준",
+        "value": "신혼육아 넛지"
+      },
+      {
+        "label": "지역",
+        "value": "동작구(서울) / 영등포구(서울)"
+      },
+      {
+        "label": "최소 세대수",
+        "value": "100세대"
+      },
+      {
+        "label": "기준일",
+        "value": "2026-08-26"
+      }
+    ],
+    "items": [
+      {
+        "rank": 1,
+        "name": "신대방현대",
+        "region": "동작구(서울)",
+        "pnu": "1159010900007070000",
+        "metrics": [
+          {
+            "label": "신혼육아 점수",
+            "value": "84.6점",
+            "unit": ""
+          },
+          {
+            "label": "지하철",
+            "value": "582m",
+            "unit": ""
+          },
+          {
+            "label": "배정 초등학교",
+            "value": "서울보라매초",
+            "unit": ""
+          },
+          {
+            "label": "안전점수",
+            "value": "78점",
+            "unit": ""
+          },
+          {
+            "label": "월 관리비",
+            "value": "20만원 (연 244만원)",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "rank": 2,
+        "name": "당산2가현대",
+        "region": "영등포구(서울)",
+        "pnu": "1156011200001640000",
+        "metrics": [
+          {
+            "label": "신혼육아 점수",
+            "value": "85.6점",
+            "unit": ""
+          },
+          {
+            "label": "지하철",
+            "value": "25m",
+            "unit": ""
+          },
+          {
+            "label": "배정 초등학교",
+            "value": "서울당중초",
+            "unit": ""
+          },
+          {
+            "label": "안전점수",
+            "value": "73점",
+            "unit": ""
+          },
+          {
+            "label": "월 관리비",
+            "value": "22만원 (연 262만원)",
+            "unit": ""
+          }
+        ],
+        "reasons": []
+      }
+    ],
+    "secondary_items": null,
+    "comparison": {
+      "row_labels": [
+        "넛지 점수(상위10 평균)",
+        "중위 실거래가(90일)",
+        "거래 건수(90일)",
+        "평균 연식"
+      ],
+      "columns": [
+        {
+          "name": "동작구(서울)",
+          "values": [
+            "82.4점",
+            "14억 4,000만원",
+            "181건",
+            "22년"
+          ]
+        },
+        {
+          "name": "영등포구(서울)",
+          "values": [
+            "83.1점",
+            "12억 8,000만원",
+            "328건",
+            "24년"
+          ]
+        }
+      ]
+    },
+    "narrative": {
+      "why": [
+        "신혼육아 상위 10개 단지 평균은 0.7점 차 — 두 지역은 사실상 동률입니다.",
+        "차이는 점수가 아니라 가격·거래량·연식에서 납니다. 비교표에서 확인하세요."
+      ],
+      "fit_for": null
+    },
+    "methodology": [
+      "점수는 각 지역 신혼육아 넛지 상위 10개 단지의 평균 (지역 전체 평균 아님)",
+      "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+      "가격·거래량은 계약일 기준 최근 90일 실거래 집계"
+    ],
+    "caveats": [
+      "투자 자문이 아닙니다.",
+      "신고 지연으로 최근 거래가 늦게 반영될 수 있습니다.",
+      "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+    ],
+    "map_ctas": [
+      {
+        "id": "map-a",
+        "label": "동작구(서울) 추천 보기",
+        "nudges": [
+          "newlywed"
+        ],
+        "sigungu_code": "11590",
+        "region_label": "동작구(서울)",
+        "filters": {
+          "min_hhld": 100
+        },
+        "keyword": null
+      },
+      {
+        "id": "map-b",
+        "label": "영등포구(서울) 추천 보기",
+        "nudges": [
+          "newlywed"
+        ],
+        "sigungu_code": "11560",
+        "region_label": "영등포구(서울)",
+        "filters": {
+          "min_hhld": 100
+        },
+        "keyword": null
+      }
+    ]
+  },
+  {
+    "schema_version": 1,
     "slug": "value-gangseo-20260825",
     "status": "published",
     "series": "value",

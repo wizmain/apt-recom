@@ -159,15 +159,58 @@ def _teaser_ranking(canvas, items: tuple[Item, ...], top: float) -> None:
         )
 
 
+def _field_line_count(text: str, field: str) -> int:
+    """textrules 와 동일한 폰트/폭/최대줄수로 실제 렌더될 줄 수를 계산."""
+    limit = textrules.TEXT_LIMITS[field]
+    font = get_font(limit.font_weight, limit.font_size)
+    return len(textrules.wrap_text(text, font, limit.max_width)[: limit.max_lines])
+
+
+def _cover_text_spacing(
+    hook: str, summary: str, content_top: int, teaser_top: float
+) -> tuple[int, int, int, int]:
+    """커버 훅/요약 블록의 (top_pad, gap, hook_lh, summary_lh).
+
+    textrules 허용 최대(훅 3줄 + 요약 2줄)는 기본 행간으로는 티저 상단을
+    침범한다(긴 지역명 조합에서 발현 — compare 11590 vs 11560, 2026-08-26).
+    겹칠 때만 여백·행간을 압축해 맞추고, 통상 케이스(훅 2줄 이하)는 기존
+    레이아웃 그대로 둔다.
+    """
+    hook_size = textrules.TEXT_LIMITS["hook"].font_size
+    summary_size = textrules.TEXT_LIMITS["summary"].font_size
+    top_pad, gap = 36, 20
+    hook_lh = round(hook_size * 1.35)
+    summary_lh = round(summary_size * 1.35)
+    needed = (
+        top_pad
+        + _field_line_count(hook, "hook") * hook_lh
+        + gap
+        + _field_line_count(summary, "summary") * summary_lh
+        + 12
+    )
+    if content_top + needed > teaser_top:
+        top_pad, gap = 24, 14
+        hook_lh = round(hook_size * 1.28)
+        summary_lh = round(summary_size * 1.3)
+    return top_pad, gap, hook_lh, summary_lh
+
+
 def render_cover(pub: Publication) -> Image.Image:
     """L2 레이아웃 — 상단 대형 훅 + 하단 시리즈별 콘텐츠 티저 (하단 공백 제거)."""
     canvas = build_base_canvas(pub.eyebrow, [])
-    y = canvas.content_top + 36
-    y = _wrapped_text(canvas, pub.hook, "hook", y, COLOR_TEXT_WHITE)
-    y += 20
-    _wrapped_text(canvas, pub.summary, "summary", y, COLOR_TEXT_LIGHT)
-
     teaser_top = canvas.content_bottom - TEASER_HEIGHT - 56
+    top_pad, gap, hook_lh, summary_lh = _cover_text_spacing(
+        pub.hook, pub.summary, canvas.content_top, teaser_top
+    )
+
+    y = canvas.content_top + top_pad
+    y = _wrapped_text(
+        canvas, pub.hook, "hook", y, COLOR_TEXT_WHITE, line_height=hook_lh
+    )
+    y += gap
+    _wrapped_text(
+        canvas, pub.summary, "summary", y, COLOR_TEXT_LIGHT, line_height=summary_lh
+    )
     if pub.series in (Series.BUDGET_CHOICE, Series.COMPARE):
         _teaser_cards(canvas, pub.items, teaser_top)
     else:
