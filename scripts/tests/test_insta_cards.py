@@ -310,6 +310,46 @@ class TestSlides(unittest.TestCase):
         for _, image in slides.build_slides(pub):
             self.assertEqual(image.size, (1080, 1080))
 
+    def test_cover_three_line_hook_fits_above_teaser(self):
+        """훅 3줄(textrules 허용 최대)일 때 요약이 티저 블록을 침범하지 않는다.
+
+        2026-08-26 compare(동작 vs 영등포)에서 긴 지역명으로 훅이 3줄로 늘며
+        요약 둘째 줄이 티저 카드에 가려진 회귀 방지.
+        """
+        from scripts.insta_cards import slides, textrules, theme
+
+        limit = textrules.TEXT_LIMITS["hook"]
+        font = theme.get_font(limit.font_weight, limit.font_size)
+        hook = "동작구(서울) vs 영등포구(서울), 신혼육아 점수가 높은 곳은?"
+        self.assertEqual(len(textrules.wrap_text(hook, font, limit.max_width)), 3)
+        summary = "신혼육아 기준으로 두 지역의 추천 상위 단지와 시세를 비교했습니다."
+
+        canvas = theme.build_base_canvas("동네 비교", [])
+        teaser_top = canvas.content_bottom - slides.TEASER_HEIGHT - 56
+        top_pad, gap, hook_lh, summary_lh = slides._cover_text_spacing(
+            hook, summary, canvas.content_top, teaser_top
+        )
+        text_bottom = (
+            canvas.content_top
+            + top_pad
+            + slides._field_line_count(hook, "hook") * hook_lh
+            + gap
+            + slides._field_line_count(summary, "summary") * summary_lh
+        )
+        self.assertLessEqual(text_bottom, teaser_top)
+
+        # 통상 케이스(훅 2줄)는 기존 간격 그대로 — 기발행 커버 픽셀 불변 보장
+        short_hook = "노원구(서울) vs 광진구(서울), 신혼육아 점수가 높은 곳은?"
+        self.assertEqual(
+            len(textrules.wrap_text(short_hook, font, limit.max_width)), 2
+        )
+        self.assertEqual(
+            slides._cover_text_spacing(
+                short_hook, summary, canvas.content_top, teaser_top
+            ),
+            (36, 20, round(limit.font_size * 1.35), round(34 * 1.35)),
+        )
+
     def test_why_at_line_limit_validates_and_renders(self):
         """why 가 한도(2줄)를 정확히 채워도 검증 통과 + 렌더 폭 정합으로 줄 탈락 없음."""
         import dataclasses
