@@ -19,7 +19,7 @@ Railway 적재:
   python -m batch.push_table_to_railway apt_kapt_info
   python -m batch.push_table_to_railway apt_area_type
   python -m batch.push_table_to_railway apt_area_info
-  python -m batch.push_apartments_to_railway --upsert
+  python -m scripts.push_apartments_kapt_fields_to_railway --apply   # apartments K-APT 컬럼 4종
 """
 
 from __future__ import annotations
