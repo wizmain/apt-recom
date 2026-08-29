@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "slug": "value-yangcheon-20260829",
+  "status": "published",
+  "series": "value",
+  "title": "숨은 가성비 TOP 5 — 양천구",
+  "eyebrow": "가성비 랭킹",
+  "hook": "양천구, 가격은 낮은데 생활점수는 높은 단지 5곳",
+  "summary": "양천구에서 전용 60~85㎡ 거래 기준 ㎡당 가격이 낮은 5곳입니다.",
+  "generated_at": "2026-08-29T14:17:58",
+  "published_at": "2026-08-29",
+  "data_as_of": "2026-08-29",
+  "period_label": "계약일 기준 최근 180일 실거래 + 가성비 넛지 점수",
+  "cover_image": "01-cover.png",
+  "cover_alt": "양천구 숨은 가성비 아파트 TOP 5 카드",
+  "conditions": [
+    {
+      "label": "지역",
+      "value": "양천구"
+    },
+    {
+      "label": "비교 면적",
+      "value": "전용 60~85㎡"
+    },
+    {
+      "label": "최소 세대수",
+      "value": "100세대"
+    },
+    {
+      "label": "최소 주택형",
+      "value": "59㎡ 이상"
+    },
+    {
+      "label": "가격 기준",
+      "value": "구 평균 1,423만원/㎡ 이하"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-08-29"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "금하뜨라네",
+      "region": "양천구",
+      "pnu": "1147010300001420014",
+      "metrics": [
+        {
+          "label": "㎡당 가격",
+          "value": "554만원/㎡",
+          "unit": ""
+        },
+        {
+          "label": "최근 실거래가",
+          "value": "4억 8,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "84.8㎡",
+          "unit": ""
+        },
+        {
+          "label": "가성비 점수",
+          "value": "62.2",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "가격 점수",
+        "마트"
+      ]
+    },
+    {
+      "rank": 2,
+      "name": "신월해태아파트",
+      "region": "양천구",
+      "pnu": "1147010300005140003",
+      "metrics": [
+        {
+          "label": "㎡당 가격",
+          "value": "648만원/㎡",
+          "unit": ""
+        },
+        {
+          "label": "최근 실거래가",
+          "value": "5억 7,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "84.9㎡",
+          "unit": ""
+        },
+        {
+          "label": "가성비 점수",
+          "value": "70.4",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "가격 점수",
+        "전세가율 점수"
+      ]
+    },
+    {
+      "rank": 3,
+      "name": "신월2차보람쉬움",
+      "region": "양천구",
+      "pnu": "1147010300010390000",
+      "metrics": [
+        {
+          "label": "㎡당 가격",
+          "value": "769만원/㎡",
+          "unit": ""
+        },
+        {
+          "label": "최근 실거래가",
+          "value": "6억 7,500만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "82.5㎡",
+          "unit": ""
+        },
+        {
+          "label": "가성비 점수",
+          "value": "63.2",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "가격 점수",
+        "주차 점수"
+      ]
+    },
+    {
+      "rank": 4,
+      "name": "신월대성유니드",
+      "region": "양천구",
+      "pnu": "1147010300010330000",
+      "metrics": [
+        {
+          "label": "㎡당 가격",
+          "value": "803만원/㎡",
+          "unit": ""
+        },
+        {
+          "label": "최근 실거래가",
+          "value": "6억 6,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "76.0㎡",
+          "unit": ""
+        },
+        {
+          "label": "가성비 점수",
+          "value": "58.0",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "가격 점수",
+        "마트"
+      ]
+    },
+    {
+      "rank": 5,
+      "name": "신월대방샤인힐",
+      "region": "양천구",
+      "pnu": "1147010300010170000",
+      "metrics": [
+        {
+          "label": "㎡당 가격",
+          "value": "812만원/㎡",
+          "unit": ""
+        },
+        {
+          "label": "최근 실거래가",
+          "value": "6억 3,500만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "73.0㎡",
+          "unit": ""
+        },
+        {
+          "label": "가성비 점수",
+          "value": "60.4",
+          "unit": ""
+        }
+      ],
+      "reasons": [
+        "가격 점수",
+        "전세가율 점수"
+      ]
+    }
+  ],
+  "secondary_items": null,
+  "comparison": null,
+  "narrative": {
+    "why": [
+      "가성비 넛지 상위 후보 중에서 ㎡당 가격이 낮은 순서로 골랐습니다."
+    ],
+    "fit_for": null
+  },
+  "methodology": [
+    "가성비 넛지 상위 100개 후보 중 ㎡당 가격 오름차순 5곳",
+    "㎡당 가격은 전용 60~85㎡ 거래만으로 계산 (최근 180일 · 밴드 내 2건 이상)",
+    "모든 주택형이 전용 59㎡ 이상 · 100세대 이상인 단지만 후보",
+    "㎡당 가격이 같은 밴드 구 평균 이하인 단지만 후보"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "면적대가 다르면 ㎡당 가격은 직접 비교되지 않습니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [
+    {
+      "id": "map-main",
+      "label": "가성비 조건 그대로 양천구 지도에서 보기",
+      "nudges": [
+        "cost"
+      ],
+      "sigungu_code": "11470",
+      "region_label": "양천구",
+      "filters": {
+        "min_hhld": 100,
+        "min_smallest_area": 59.0,
+        "min_area": 60.0,
+        "max_area": 85.0
+      },
+      "keyword": null
+    }
+  ],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-ranking.jpg",
+    "04-candidate-1.jpg",
+    "05-candidate-2.jpg",
+    "06-candidate-3.jpg",
+    "07-why.jpg",
+    "08-caveats.jpg",
+    "09-cta.jpg"
+  ],
+  "asset_generation": "a26861b0c908"
+}
