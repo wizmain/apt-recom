@@ -23,16 +23,26 @@
    **훅과 실제 물건이 어긋나는지**가 검수의 핵심이다.
 
 3. **생성 + 프론트 반영**
-   `--dry-run` 없이 실행 → 다시 `--publish` 로 실행하면 posts.json·커버·IG 자산·content_index 가
+   `--dry-run` 없이 실행 → 다시 `--publish --force` 로 실행하면 posts.json·커버·IG 자산·content_index 가
    갱신된다(로컬 파일, "커밋 필요" 상태). **`--publish` 는 배포가 아니다.**
+
+   **`--force` 가 필요한 이유(2026-08-29·30 실측)**: 첫 실행(초안)이 `reports/insta/{날짜}/{slug}/` 를
+   만들고, 두 번째 `--publish` 실행은 같은 slug 디렉토리를 만나 `SlugConflictError` 로 중단된다.
+   이 시점의 `--force` 는 gitignore 된 초안 디렉토리를 교체할 뿐이라 안전하다 — 프론트 자산·posts.json
+   은 아직 갱신 전이고 게시 로그에도 항목이 없다. **게시(5단계) 이후의 `--force` 재실행은 다른 문제다**
+   — generation 이 바뀌어 캐시 404 를 부르므로 그때는 재생성하지 않는다(5단계 참조).
 
 4. **브랜치 → PR → 머지** (main 직접 push 금지)
    ```
    git switch -c content/ig-YYYYMMDD
-   git add web/frontend-next/src/content/instagram/ web/frontend-next/public/content/ web/backend/content/content_index.json
+   git add web/frontend-next/src/content/instagram/ web/frontend-next/public/content/instagram/{slug}/ web/backend/content/content_index.json
    git commit -m "content(ig): {slug} 발행"
    git push -u origin content/ig-YYYYMMDD && gh pr create ... && gh pr merge --merge
    ```
+   `public/content/` 자산은 **오늘 slug 디렉토리만** 스테이징한다. 디렉토리 전체를 add 하면 posts.json 에
+   등록되지 않은 미추적 고아 자산(예: `value-gangnam-20260725`, 2026-08-28 발견)까지 검토 없이
+   main 에 들어간다. 커밋 전 `git status --short web/frontend-next/public/content/` 로 오늘 slug 외
+   미추적 디렉토리가 있으면 정리한다.
 
 5. **배포 완료 확인** → **게시**
    머지 후 Cloudflare(웹) 배포가 끝나면 **generation 일치와 자산 200 을 둘 다** 확인한다.
