@@ -69,6 +69,35 @@ def normalize_sigungu(code: str, aliases: dict, bjdong: str | None = None) -> st
     return sgg.get(code, code)
 
 
+def normalize_sigungu_code(code: str, aliases: dict) -> str:
+    """법정동 문맥 없이 시군구 코드만 표준(구)코드로 접는다.
+
+    거래 수집처럼 법정동 코드가 함께 오지 않는 경계에서 쓴다(2026-08-29
+    실측: 국토부 RTMS 응답 sggCd 가 신코드를 반환하기 시작, umdCd 는 없음).
+
+    - 5자리 별칭이 있으면 그 값(개명형 — 광주·전남 12xxx).
+    - 없으면 10자리(재부여형) 항목들의 앞 5자리를 접어 **유일하게 결정될
+      때만** 그 값을 쓴다(분할형 — 인천 28275/28290 → 28260).
+    - 여러 구코드로 갈리거나 항목이 없으면 원본을 반환한다 — 병합형
+      신코드는 코드만으로 특정할 수 없고, audit_unknown_codes 가 잔존을
+      감시한다(조용한 오변환 금지).
+    """
+    if not code:
+        return code
+    sgg = aliases.get("sigungu", {})
+    hit = sgg.get(code)
+    if hit:
+        return hit[:5]
+    folded = {
+        value[:5]
+        for key, value in sgg.items()
+        if len(key) == 10 and key.startswith(code)
+    }
+    if len(folded) == 1:
+        return folded.pop()
+    return code
+
+
 def normalize_pnu(pnu: str, aliases: dict) -> str:
     """신코드로 조합된 19자리 PNU 를 표준 코드 기반으로 바꾼다.
 
