@@ -42,3 +42,19 @@
 - 시도명은 별도 레지스트리로 정비했다(2026-08-02): `common_code sido`(17개 시도) + `sido_alias`(표기 → 매칭 전용 canonical 토큰). 통합시는 광주·전남의 모든 표기를 "전남광주" 한 토큰으로 접어 구표기 DB 주소와 신표기 Kakao 주소가 같은 매칭 키가 되게 했다. `sigungu` 의 `extra` 는 지오코딩 질의용 지역 접두로 남긴다(시도명 아님).
 - 후속(Phase 2): Kakao b_code 를 받는 지점(`enrich_apartments`, `register_missing_apartments`, `fix_coord_drift`)에 `normalize_sigungu`/`normalize_pnu` 적용
 - 후속(Phase 3): 배치 감사(#211)에 미등록 코드 유입 경보 추가 — `is_known_sigungu` 로 다음 개편을 사고 전에 감지
+
+## 부기 (2026-08-31) — "신코드는 기존 API 에서 죽은 코드다" 전제 폐기
+
+2026-08-29 부터 국토부 RTMS 거래 API 가 **구코드(LAWD_CD) 질의에 신코드 `sggCd` 를
+응답**하기 시작했다(광주·전남 12xxx, 인천 서구 분할 28275/28290 — trade/rent 2,706건
+원코드 유입 실측). 근거 첫 줄의 "신코드는 기존 API 에서 죽은 코드" 전제는 더 이상
+수집 응답에는 성립하지 않는다 — **질의는 여전히 구코드, 응답 payload 는 신코드**인
+비대칭 상태다.
+
+- 대응: 거래 적재 경계(`batch/trade/load_trades.py`)에 정규화 추가. 거래 응답에는
+  법정동 문맥(umdCd)이 비어 오므로 코드 단독 환원 함수
+  `normalize_sigungu_code`(5자리 별칭 → 10자리 항목 prefix 접기, 유일할 때만)를 쓴다.
+  분할형(인천 서구 → 28275/28290, 전부 구 28260 귀속)은 이 접기로 해소되고,
+  병합형은 코드만으로 특정 불가라 원본 유지 + 감사 경보로 남는다.
+- 오염분은 리네임 대신 삭제 후 재수집(`batch/purge_unnormalized_region_rows.py`) —
+  apt_seq·PNU 에 코드가 배어 있어 리네임은 중복 병합이 필요해지기 때문.
