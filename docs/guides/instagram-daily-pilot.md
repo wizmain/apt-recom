@@ -44,12 +44,26 @@
    curl -s -o /dev/null -w '%{http_code}\n' \
      https://apt-recom.kr/content/instagram/{slug}/ig/{generation}/publication.json
    ```
-   둘 다 통과하면 게시:
+   둘 다 통과하면 **③ 자산 8장 캐시 워밍** — 전부 `cf-cache-status: HIT` 가 될 때까지 반복한다
+   (보통 2회). 파일명은 `publication.json` 의 `instagram_assets` 를 따른다.
+   ```
+   base=https://apt-recom.kr/content/instagram/{slug}/ig/{generation}
+   for f in $(curl -s $base/publication.json | python3 -c "import sys,json;print(' '.join(json.load(sys.stdin)['instagram_assets']))"); do
+     curl -s -o /dev/null -m 90 -w "%{http_code} %{time_total}s %header{cf-cache-status} $f\n" $base/$f
+   done
+   ```
+   전부 HIT 이면 게시:
    ```
    .venv/bin/python -m scripts.insta_cards.instagram {slug}
    ```
    `verify_assets` 가 원격 200/jpeg/8MB 를 강제하므로, 배포 전이면 게시가 실패한다(안전망). 실패 시
    배포 완료를 기다렸다 재실행.
+
+   **왜 워밍하나 (2026-09-02 실측)**: 배포 직후 캐시 MISS 자산은 오리진 응답이 **3~30초**로 불규칙해
+   (8장 중 2장이 30초 초과, 1장 27초) `verify_assets` 의 30초 타임아웃에 걸려 게시가 두 번 연속
+   실패했다. HIT 이면 0.3초대다. 워밍 없이 실패했을 때도 대응은 같다 — **재생성하지 말고** 워밍 후
+   같은 명령을 재실행한다. 게시 로그에 항목이 없으면 `verify_assets` 단계에서 멈춘 것이라 재실행이
+   안전하다. 9/3 은 워밍 후 1회에 성공했다.
 
    **왜 generation 까지 보나 (2026-07-29 3일차 실측)**: `latest.json` 의 캐시 헤더가
    `max-age=31536000, immutable, no-cache` 라 revalidate 에 의존한다. 머지 직후 게시하면 엣지에 따라
