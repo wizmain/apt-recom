@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "slug": "trade-top-20260914",
+  "status": "published",
+  "series": "trade_top",
+  "title": "최근 7일 최고가 TOP 5",
+  "eyebrow": "적재 기준 · 최근 7일",
+  "hook": "최근 7일 새로 포착된 최고가는 67억",
+  "summary": "새로 포착된 거래 중 최고가와, 신규 거래가 크게 늘어난 동네를 모았습니다.",
+  "generated_at": "2026-09-14T09:10:00",
+  "published_at": "2026-09-14",
+  "data_as_of": "2026-09-14",
+  "period_label": "적재 기준 최근 7일",
+  "cover_image": "01-cover.png",
+  "cover_alt": "최근 7일 아파트 최고가 TOP 5 카드",
+  "conditions": [
+    {
+      "label": "기간",
+      "value": "적재 기준 최근 7일"
+    },
+    {
+      "label": "집계 단위",
+      "value": "단지별 최고가 1건"
+    },
+    {
+      "label": "최소 세대수",
+      "value": "100세대"
+    },
+    {
+      "label": "적재 발생일",
+      "value": "최근 5일 · 직전 3일"
+    },
+    {
+      "label": "기준일",
+      "value": "2026-09-14"
+    }
+  ],
+  "items": [
+    {
+      "rank": 1,
+      "name": "반포자이",
+      "region": "서초구(서울)",
+      "pnu": "1165010700000200043",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "67억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "216㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "name": "래미안퍼스티지",
+      "region": "서초구(서울)",
+      "pnu": "1165010700000180001",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "49억",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "85㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "name": "판교푸르지오그랑블",
+      "region": "분당구(성남)",
+      "pnu": "4113511000005420000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "42억 9,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "118㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 4,
+      "name": "신반포한신2차",
+      "region": "서초구(서울)",
+      "pnu": "1165010600000730000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "41억 6,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "79㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 5,
+      "name": "도곡렉슬",
+      "region": "강남구(서울)",
+      "pnu": "1168011800005270000",
+      "metrics": [
+        {
+          "label": "거래가",
+          "value": "37억 8,000만원",
+          "unit": ""
+        },
+        {
+          "label": "전용면적",
+          "value": "85㎡",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    }
+  ],
+  "secondary_items": [
+    {
+      "rank": 1,
+      "name": "남동구(인천)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "99건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+57건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "name": "서북구(천안)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "121건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+54건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "name": "세종시(세종)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "95건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+41건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 4,
+      "name": "은평구(서울)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "63건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+40건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "rank": 5,
+      "name": "파주시(경기)",
+      "region": null,
+      "pnu": null,
+      "metrics": [
+        {
+          "label": "신규 거래",
+          "value": "85건",
+          "unit": ""
+        },
+        {
+          "label": "직전 대비",
+          "value": "+39건",
+          "unit": ""
+        }
+      ],
+      "reasons": []
+    }
+  ],
+  "comparison": null,
+  "narrative": {
+    "why": [],
+    "fit_for": null
+  },
+  "methodology": [
+    "최고가: 최근 기간 새로 적재된 거래 중 단지별 최고가 1건만 집계",
+    "100세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
+    "급증: 직전 7일 대비 신규 적재 건수 증가분 (현재 20건 이상 지역만)",
+    "급증 수치에는 적재 케이던스 차이가 섞입니다 — 두 기간의 적재 발생일이 다르면 그만큼 과장됩니다"
+  ],
+  "caveats": [
+    "투자 자문이 아닙니다.",
+    "데이터 적재일 기준이라 실제 계약 시점은 이보다 앞섭니다.",
+    "지도에서는 최신 데이터로 다시 계산되어 순서가 달라질 수 있습니다."
+  ],
+  "map_ctas": [],
+  "instagram_assets": [
+    "01-cover.jpg",
+    "02-conditions.jpg",
+    "03-ranking.jpg",
+    "04-ranking-hot.jpg",
+    "05-caveats.jpg",
+    "06-cta.jpg"
+  ],
+  "asset_generation": "4e74f3b8341d"
+}
