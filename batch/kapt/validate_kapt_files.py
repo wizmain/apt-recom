@@ -20,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from batch.db import get_connection, query_all
+from batch.kapt.cost_columns import COMMON_COST_TOTAL_COLUMN, normalize_cost_columns
 from batch.logger import setup_logger
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "apt_eda" / "data" / "k-apt"
@@ -40,7 +41,7 @@ REQUIRED_COLUMNS = {
         "단지코드",
         "단지명",
         "발생년월(YYYYMM)",
-        "공용관리비계",
+        COMMON_COST_TOTAL_COLUMN,
         "개별사용료계",
         "장충금 월부과액",
     ],
@@ -118,6 +119,8 @@ def _summarize(
     if not path.exists():
         raise FileNotFoundError(f"{LABELS[kind]} 파일 없음: {path}")
     df = pd.read_excel(path, header=1)
+    if kind == "cost":
+        df = normalize_cost_columns(df)
     missing = [col for col in REQUIRED_COLUMNS[kind] if col not in df.columns]
     codes = _code_set(df)
     mapped = len(codes & db_codes)
