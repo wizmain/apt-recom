@@ -14,18 +14,24 @@ on:
       - "scripts/**"
       - "requirements.txt"
       - ".github/workflows/ci-scripts-tests.yml"
+      # scripts/tests 가 batch 코드를 직접 테스트한다 — region_codes, trade/*,
+      # sync_from_railway, ml/*, kapt/*, config, annual/collect_building_register
+      # (2026-09-20 전수 확인). 파일 단위로 나열하면 테스트가 늘 때마다 누락되고,
+      # 실제로 batch/ml/apply_curves.py 하나만 등록돼 있어 collect_trades·cost_columns
+      # 만 고친 PR 에서는 그 테스트가 돌지 않았다. 스위트가 30초 안쪽이라 넓게 잡는다.
+      - "batch/**"
       # 복제 수식 일치 테스트(test_scoring_formula_consistency.py)의 비교 대상 —
-      # 어느 한쪽만 수정된 PR 에서도 드리프트 검증이 돌아야 한다.
+      # 어느 한쪽만 수정된 PR 에서도 드리프트 검증이 돌아야 한다(반대쪽은 batch/** 에 포함).
       - "web/backend/services/scoring.py"
-      - "batch/ml/apply_curves.py"
   push:
     branches: [main]
+    # pull_request 와 같은 목록을 유지할 것.
     paths:
       - "scripts/**"
       - "requirements.txt"
       - ".github/workflows/ci-scripts-tests.yml"
+      - "batch/**"
       - "web/backend/services/scoring.py"
-      - "batch/ml/apply_curves.py"
 
 jobs:
   unittest:
