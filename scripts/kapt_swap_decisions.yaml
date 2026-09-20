@@ -1,0 +1,70 @@
+# K-APT 분양·임대 PNU 경합(ADR-014) — 세대수 합산 여부에 대한 사람의 판정.
+#
+# scripts/kapt_rental_swap_candidates 가 읽어 자동 판정(이름 관계)보다 우선 적용한다.
+# 검수 목록 CSV 는 매번 다시 생성되고 *.csv 는 gitignore 대상이라, 판정은 이 파일에 둔다.
+#   combine_households: yes = 같은 단지의 임대동(합산) / no = 이웃한 다른 단지(합산 안 함)
+#   yes/no 가 아닌 값이 있으면 생성기가 중단한다. 코드는 검수 목록에서 복사할 것(기억으로 적지 말 것).
+decisions:
+- pnu: '1129010300006090001'
+  rental_kapt_code: A13606005
+  combine_households: 'yes'
+  sale_kapt_name: 돈암한신한진아파트
+  rental_kapt_name: 동소문한진임대
+  basis: 카카오맵 4515세대에 45A·45B형 580세대 포함
+  decided_on: '2026-09-20'
+- pnu: '1150010900008390000'
+  rental_kapt_code: A15722314
+  combine_households: 'yes'
+  sale_kapt_name: 방화2-2 그린
+  rental_kapt_name: 방화2단지
+  basis: 카카오맵 2547세대 = 분양 984 + 임대 1563
+  decided_on: '2026-09-20'
+- pnu: '1130510100013540000'
+  rental_kapt_code: A14272310
+  combine_households: 'yes'
+  sale_kapt_name: 벽산라이브파크
+  rental_kapt_name: 미아벽산임대
+  basis: 카카오맵 2075세대에 50형 490세대 포함
+  decided_on: '2026-09-20'
+- pnu: '4128710200000140000'
+  rental_kapt_code: A41137221
+  combine_households: 'yes'
+  sale_kapt_name: 문촌마을7단지(분양)
+  rental_kapt_name: 일산문촌7(임대)
+  basis: 카카오맵 1150세대 = 분양 505 + 임대 645
+  decided_on: '2026-09-20'
+- pnu: '1120010700003490000'
+  rental_kapt_code: A13373101
+  combine_households: 'yes'
+  sale_kapt_name: 서울숲한신더휴아파트
+  rental_kapt_name: 행당한신임대
+  basis: 도로명·사용승인일(20031223) 동일, 이웃 필지(349/350), 카카오 장소명이 같은 단지의 201동. 카카오는 1410세대로 분양만 표기
+  decided_on: '2026-09-20'
+- pnu: '1141012000003760000'
+  rental_kapt_code: A12072802
+  combine_households: 'yes'
+  sale_kapt_name: 남가좌동현대아파트
+  rental_kapt_name: 남가좌현대제2
+  basis: 도로명·사용승인일(19990527) 동일, 필지 376/376-2, 카카오 장소명이 같은 단지(376-2). 카카오는 1155세대로 분양만 표기
+  decided_on: '2026-09-20'
+- pnu: '1129013600002250000'
+  rental_kapt_code: A13613003
+  combine_households: 'no'
+  sale_kapt_name: 래미안월곡
+  rental_kapt_name: 월곡3SH-vill
+  basis: 주소는 같으나 사용승인일(2006-07 vs 2008-06)·시공사(삼성물산 vs 한양·중흥)가 다르고 카카오에서도 이름이 다른 별도 장소 — 따로 지어진 SH 임대동
+  decided_on: '2026-09-20'
+- pnu: '4127310900010790000'
+  rental_kapt_code: A42575907
+  combine_households: 'no'
+  sale_kapt_name: 군자주공14단지
+  rental_kapt_name: 안산군자13단지
+  basis: 단지 번호가 다른 이웃 단지(14단지 vs 13단지)
+  decided_on: '2026-09-20'
+- pnu: '5011013000019110000'
+  rental_kapt_code: A10027756
+  combine_households: 'no'
+  sale_kapt_name: 제주삼화6차부영
+  rental_kapt_name: 제주삼화LH3단지
+  basis: 사업 주체가 다른 이웃 단지(부영 vs LH)
+  decided_on: '2026-09-20'

@@ -54,7 +54,7 @@ sys.path.insert(0, str(REPO_ROOT))
 load_dotenv(REPO_ROOT / ".env")
 
 from batch.config import KAKAO_API_KEY, KAKAO_RATE  # noqa: E402
-from batch.trade.deal_stats import build_deal_stats_sql  # noqa: E402
+from batch.trade.deal_stats import COMPANION_COLUMN_SQL, build_deal_stats_sql  # noqa: E402
 from batch.trade.mapping_checks import check_mapping, mismatch_confirmed  # noqa: E402
 from batch.trade.name_matching import _name_variants, _normalize_name  # noqa: E402
 
@@ -269,7 +269,15 @@ def run(target: str, apply: bool, limit: int, out: str) -> int:
     else:
         print("전체 매핑 집계 중...")
 
-    cur.execute(build_deal_stats_sql(by_seqs=seqs is not None),
+    # 동반 레코드(임대동) 주택형 포함 — parent_pnu 컬럼이 있는 DB 에서만 (deal_stats 주석 참조).
+    # 감사(audit_mappings)와 같은 기준을 써야 두 도구의 판정이 어긋나지 않는다.
+    cur.execute(COMPANION_COLUMN_SQL)
+    with_companions = cur.fetchone() is not None
+    if not with_companions:
+        print("주의: apt_kapt_info.parent_pnu 컬럼 없음 — 동반 레코드 주택형을 빼고 판정한다")
+
+    cur.execute(build_deal_stats_sql(by_seqs=seqs is not None,
+                                     with_companions=with_companions),
                 {"seqs": seqs} if seqs is not None else None)
     rows = [dict(r) for r in cur.fetchall()]
     print(f"[{target}] {'APPLY' if apply else 'REPORT'} — 실적 있는 매핑 {len(rows):,}건 검사\n")

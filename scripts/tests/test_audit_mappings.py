@@ -155,3 +155,20 @@ class TestDealStatsSql(unittest.TestCase):
         from batch.trade.deal_stats import build_deal_stats_sql
         sql = build_deal_stats_sql(by_seqs=True, by_pnus=True)
         self.assertIn("m2.apt_seq = ANY(%(seqs)s) AND m2.pnu = ANY(%(pnus)s)", sql)
+
+    def test_기본값은_parent_pnu_를_참조하지_않는다(self):
+        """컬럼이 없는 DB(백엔드 배포 전)에서 SQL 이 실패하면 배치의 트랜잭션이 깨진다."""
+        from batch.trade.deal_stats import build_deal_stats_sql
+        for sql in (build_deal_stats_sql(), build_deal_stats_sql(by_pnus=True)):
+            self.assertNotIn("parent_pnu", sql)
+
+    def test_동반_레코드_주택형은_옵션으로만_합친다(self):
+        """혼합 단지 임대동의 전월세가 면적 위반으로 잡히지 않게 한다 (ADR-014)."""
+        from batch.trade.deal_stats import build_deal_stats_sql
+        for sql in (build_deal_stats_sql(with_companions=True),
+                    build_deal_stats_sql(by_pnus=True, with_companions=True)):
+            self.assertIn("k.parent_pnu AS pnu", sql)
+            self.assertIn("UNION ALL", sql.split("apt_area_agg AS")[1].split("),")[0])
+            # 플래너 함정은 그대로 피한다 — 동반 주택형도 GROUP BY 집계 안에서 합친다.
+            self.assertNotIn("(SELECT ARRAY_AGG", sql)
+            self.assertNotIn("IS NULL OR", sql)
