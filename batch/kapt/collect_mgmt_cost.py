@@ -22,6 +22,7 @@ import requests
 
 from batch.config import DATA_GO_KR_API_KEY, DATA_GO_KR_RATE
 from batch.db import get_connection, get_dict_cursor, query_all
+from batch.kapt.cost_columns import COMMON_COST_TOTAL_COLUMN, normalize_cost_columns
 from batch.logger import setup_logger
 
 # ── API 설정 ──
@@ -259,7 +260,7 @@ def collect_from_xlsx(
     dfs = []
     for f in cost_paths:
         if f.exists():
-            df = pd.read_excel(f, header=1)
+            df = normalize_cost_columns(pd.read_excel(f, header=1))
             dfs.append(df)
             logger.info(f"  {f.name}: {len(df):,}건")
         else:
@@ -365,7 +366,7 @@ def collect_from_xlsx(
         # 일부 단지는 세부 항목이 NaN이고 계 컬럼에만 합계가 있어 세부합만으로는 과소집계됨.
         common_sum = sum(int(row.get(c) or 0) for c in COMMON_COLS)
         indiv_sum = sum(int(row.get(c) or 0) for c in INDIV_COLS)
-        common = max(int(row.get("공용관리비계") or 0), common_sum)
+        common = max(int(row.get(COMMON_COST_TOTAL_COLUMN) or 0), common_sum)
         indiv = max(int(row.get("개별사용료계") or 0), indiv_sum)
         repair = int(row.get("장충금 월부과액") or 0)
         total = common + indiv + repair
