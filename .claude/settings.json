@@ -1,4 +1,10 @@
 {
+  "includeCoAuthoredBy": false,
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
       "Bash(uv pip *)",
@@ -12,6 +18,7 @@
       "Bash(git checkout *)",
       "Bash(git branch *)",
       "Bash(git commit *)",
+      "Bash(gh pr merge *)",
       "Bash(cat *)",
       "Bash(ls *)",
       "Bash(find *)",
@@ -73,7 +80,7 @@
           },
           {
             "type": "agent",
-            "prompt": "커밋 전 코드 리뷰를 수행합니다. git diff --cached로 스테이징된 변경사항을 확인하고, 다음 기준으로 리뷰하세요:\n1. 버그 또는 로직 오류\n2. 보안 취약점 (SQL injection, 하드코딩된 비밀값 등)\n3. 프로젝트 규칙 위반 (CLAUDE.md 참조)\n\nhigh-priority 이슈가 있으면 JSON으로 차단하세요: {\"decision\": \"block\", \"reason\": \"이슈 설명\"}\n이슈가 없으면 통과시키세요.",
+            "prompt": "커밋 전 코드 리뷰 훅입니다. 훅 입력: $ARGUMENTS\n\n0. 게이트(필수, 가장 먼저): tool_input.command 문자열에 `git commit` 이 포함되어 있지 않으면 리뷰 없이 즉시 통과시키세요. `if` 필터는 `$(...)`·heredoc·파이프가 섞인 복합 명령에서 파싱에 실패해 이 훅을 무조건 실행하므로, 게이트는 프롬프트 안에서 다시 확인합니다. `git commit-tree` 는 plumbing 이라 리뷰 대상이 아닙니다.\n\n1. 리뷰 대상은 오직 `git diff --cached` 로 보이는 스테이징된 변경사항입니다. 셸 명령 자체(브랜치 생성·전환, 작업 트리의 다른 미커밋 파일, git 정리 절차)는 판단 대상이 아닙니다. 특히 다음은 차단 사유가 아닙니다:\n   - `git switch -c`/`git checkout -b` 로 브랜치를 만들며 커밋하는 것 (main 의 다른 미커밋 변경은 `git add <경로>` 로 스테이징되지 않으면 커밋에 포함되지 않음)\n   - 콘텐츠 발행(runbook `docs/guides/instagram-daily-pilot.md`) 후 로컬 정리: `git checkout -- <콘텐츠 파일>`, 생성 디렉토리 `rm -r`, `git merge --ff-only origin/main`, 머지된 브랜치 `git branch -d`\n   - CLAUDE.md 의 \"파괴적 명령\" 은 `rm -rf`, `DROP DATABASE/TABLE`, `TRUNCATE`, `git push --force` 를 뜻하며, 위 정리 명령은 해당하지 않습니다.\n\n2. 스테이징된 diff 를 다음 기준으로 리뷰하세요:\n   - 버그 또는 로직 오류\n   - 보안 취약점 (SQL injection, 하드코딩된 비밀값, .env 내용 포함 등)\n   - 프로젝트 규칙 위반 (CLAUDE.md 참조) — 단, 리포지토리에 추적되지 않는 임시 스크립트·일회성 조회 코드에는 적용하지 않습니다.\n\n3. 스테이징된 변경이 없으면 통과시키세요. high-priority 이슈가 있을 때만 JSON 으로 차단하세요: {\"decision\": \"block\", \"reason\": \"이슈 설명\"}. 그 외에는 통과시키세요.",
             "if": "Bash(*git commit*)",
             "timeout": 120,
             "statusMessage": "커밋 전 코드 리뷰 중..."
