@@ -40,7 +40,7 @@ area_agg AS (
   FROM area_cnt GROUP BY apt_seq
 ),
 apt_area_agg AS (
-  SELECT pnu, ARRAY_AGG(exclusive_area) AS areas FROM apt_area_type GROUP BY pnu
+  SELECT pnu, ARRAY_AGG(exclusive_area) AS areas FROM ({apt_area_source}) u GROUP BY pnu
 ),
 -- 거래 지번 → PNU 키. PNU 는 법정동코드(10)+산여부(1)+본번(4)+부번(4) 이므로 신고
 -- 지번으로 같은 키를 만들어 매핑처와 대조한다 (mapping_checks.jibun_points_elsewhere).
@@ -90,21 +90,49 @@ ORDER BY (d.trades + d.rents) DESC
 
 _JOIN = "JOIN target g ON g.apt_seq = {alias}.apt_seq"
 
+_OWN_AREA_TYPES = "SELECT pnu, exclusive_area FROM apt_area_type"
 
-def build_deal_stats_sql(by_seqs: bool = False, by_pnus: bool = False) -> str:
+# 분양·임대 혼합 단지는 임대동 레코드가 동반 레코드(KAPT_ 더미 + parent_pnu)로 따로 있다 (ADR-014).
+# 임대동의 전월세는 같은 단지의 정당한 실적이므로, 그 주택형도 단지의 주택형으로 본다. 빼면
+# `남산타운(임대)` 전월세가 분양 주택형과 안 맞는다는 이유로 오매핑 위반이 된다(2026-09-20 실측:
+# 교체 직후 40 PNU 에서 31건).
+_COMPANION_AREA_TYPES = """
+    UNION ALL
+    SELECT k.parent_pnu AS pnu, t.exclusive_area
+      FROM apt_kapt_info k JOIN apt_area_type t ON t.pnu = k.pnu
+     WHERE k.parent_pnu IS NOT NULL"""
+
+COMPANION_COLUMN_SQL = """
+SELECT 1 FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'apt_kapt_info' AND column_name = 'parent_pnu'
+"""
+
+
+def build_deal_stats_sql(
+    by_seqs: bool = False, by_pnus: bool = False, with_companions: bool = False
+) -> str:
     """대상 필터에 맞는 집계 SQL 을 만든다.
 
     by_seqs → %(seqs)s (apt_seq 목록), by_pnus → %(pnus)s (매핑 pnu 목록).
     둘 다 False 면 전체 집계다. 파라미터는 psycopg2 %(name)s 로만 전달되며
     이 함수가 조립하는 조각은 전부 고정 문자열이다.
+
+    with_companions → 동반 레코드(임대동)의 주택형을 단지 주택형에 포함한다. `parent_pnu` 컬럼을
+    참조하므로 **컬럼이 있는 DB 에서만** 켠다 — 호출부가 COMPANION_COLUMN_SQL 로 확인해 넘긴다.
+    컬럼은 백엔드 create_tables() 가 만들기 때문에, 배포 전의 DB 에서 이 SQL 이 실패하면 같은
+    연결의 트랜잭션이 깨져 배치의 뒤 단계까지 막는다. 컬럼이 전 환경에 생긴 뒤에는 이 인자를
+    없애고 항상 포함하도록 정리한다(제거 조건: Railway 백엔드 배포 완료).
     """
+    area_source = _OWN_AREA_TYPES + (_COMPANION_AREA_TYPES if with_companions else "")
     conds = []
     if by_seqs:
         conds.append("m2.apt_seq = ANY(%(seqs)s)")
     if by_pnus:
         conds.append("m2.pnu = ANY(%(pnus)s)")
     if not conds:
-        return _TEMPLATE.format(target_cte="", trade_join="", rent_join="")
+        return _TEMPLATE.format(
+            target_cte="", trade_join="", rent_join="", apt_area_source=area_source
+        )
     target = (
         "target AS (\n"
         "  SELECT m2.apt_seq FROM trade_apt_mapping m2 WHERE "
@@ -114,4 +142,5 @@ def build_deal_stats_sql(by_seqs: bool = False, by_pnus: bool = False) -> str:
         target_cte=target,
         trade_join=_JOIN.format(alias="t"),
         rent_join=_JOIN.format(alias="r"),
+        apt_area_source=area_source,
     )

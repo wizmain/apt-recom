@@ -32,6 +32,12 @@ from pathlib import Path
 
 from batch.config import KAKAO_API_KEY
 from batch.db import get_connection, get_dict_cursor
+from batch.kapt.companion_records import (
+    apply_combined_households,
+    ensure_parent_pnu_column,
+    evict_to_dummy,
+)
+from batch.kapt.pnu_contention import REPLACE, names_related, resolve_contention
 from batch.kapt.register_new_apartments import geocode_address
 from batch.logger import setup_logger
 
@@ -249,6 +255,12 @@ def phase_a_kapt_info(conn, logger, basic_rows, kapt_pnu_map, area_hhld_map, che
     save_checkpoint(checkpoint)
     logger.info(f"[Phase A] 완료: kapt_info UPSERT {processed:,}건, apartments 갱신 {apt_updated:,}건, 에러 {errors}건")
 
+    # 위 루프는 세대수를 "그 PNU 에 붙은 레코드"의 값으로 덮어쓴다. 분양·임대 혼합 단지는 임대
+    # 레코드가 동반 레코드로 따로 있으므로, 단지 규모(합산)로 다시 맞춘다 (ADR-014).
+    combined = apply_combined_households(cur)
+    conn.commit()
+    logger.info(f"[Phase A] 혼합 단지 세대수 합산 {combined:,}건")
+
 
 def _build_kapt_upsert_sql() -> str:
     """apt_kapt_info UPSERT SQL 생성."""
@@ -418,6 +430,7 @@ def phase_c_register_new(conn, logger, basic_rows, kapt_pnu_map, limit):
 
     registered = 0
     skipped = 0
+    replaced = 0
     errors = 0
     new_mapping: dict[str, str] = {}
     t0 = time.time()
@@ -440,15 +453,41 @@ def phase_c_register_new(conn, logger, basic_rows, kapt_pnu_map, limit):
 
         pnu = geo["pnu"]
 
-        # PNU 충돌 체크
-        cur.execute("SELECT kapt_code FROM apt_kapt_info WHERE pnu = %s", [pnu])
+        # PNU 충돌 — 선착순이 아니라 분양형태로 가린다 (ADR-014, pnu_contention).
+        # 임대 레코드가 차지한 PNU 에 분양·혼합이 들어오면 임대를 더미로 옮기고 자리를 넘긴다.
+        cur.execute(
+            "SELECT kapt_code, sale_type, kapt_name FROM apt_kapt_info WHERE pnu = %s", [pnu]
+        )
         existing = cur.fetchone()
         if existing and existing[0] and existing[0] != kapt_code:
-            skipped += 1
+            incoming_sale_type = _safe_str(row.get("분양형태"))
+            if resolve_contention(existing[1], incoming_sale_type) != REPLACE:
+                skipped += 1
+                append_error(
+                    f"[PhaseC] PNU 충돌: {name}({kapt_code}) vs 기존({existing[0]}) pnu={pnu}"
+                )
+                continue
+            # 교체만 되돌릴 수 있게 SAVEPOINT 로 감싼다 — conn.rollback() 은 아직 커밋되지 않은
+            # 앞선 신규 등록(최대 BATCH 분량)까지 함께 버린다.
+            # 이름이 이어지는 경우에만 같은 단지의 임대동으로 보고 세대수 합산에 넣는다. 아니면
+            # 옮기기만 한다 — 같은 단지인데 이름이 다른 경우(돈암한신한진 ↔ 동소문한진임대)는
+            # scripts/kapt_rental_swap_candidates 검수에서 사람이 연결한다.
+            same_complex = names_related(name, existing[2])
+            cur.execute("SAVEPOINT pnu_contention")
+            try:
+                evict_to_dummy(cur, pnu, existing[0], link_as_companion=same_complex)
+                cur.execute("RELEASE SAVEPOINT pnu_contention")
+            except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT pnu_contention")
+                skipped += 1
+                append_error(f"[PhaseC] PNU 교체 거부 {kapt_code}: {e}")
+                continue
+            replaced += 1
             append_error(
-                f"[PhaseC] PNU 충돌: {name}({kapt_code}) vs 기존({existing[0]}) pnu={pnu}"
+                f"[PhaseC] PNU 교체: {name}({kapt_code}, {incoming_sale_type}) 가 "
+                f"기존({existing[0]}, {existing[1]}) 을 더미로 밀어냄 pnu={pnu} "
+                f"세대수 합산={'예' if same_complex else '보류(이름 불일치 — 검수 필요)'}"
             )
-            continue
 
         try:
             cur.execute(
@@ -489,7 +528,8 @@ def phase_c_register_new(conn, logger, basic_rows, kapt_pnu_map, limit):
 
     conn.commit()
     logger.info(
-        f"[Phase C] 완료: 신규 {registered:,}건, PNU 충돌 {skipped:,}건, 에러 {errors:,}건"
+        f"[Phase C] 완료: 신규 {registered:,}건, PNU 충돌 {skipped:,}건 "
+        f"(분양 우선 교체 {replaced:,}건), 에러 {errors:,}건"
     )
     return new_mapping
 
@@ -541,6 +581,9 @@ def main():
         logger.info("Dry-run: 적재 생략")
         conn.close()
         return
+
+    # 동반 레코드 소속 컬럼이 없으면 합산 세대수·경합 교체가 조용히 빠진다 — 시작 전에 막는다.
+    ensure_parent_pnu_column(conn.cursor())
 
     # Phase C (신규 등록) 먼저 실행해 Phase A/B가 새 pnu도 처리할 수 있게
     if args.register_new and unmapped_cnt > 0:

@@ -443,6 +443,14 @@ def create_tables(conn) -> None:
         ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS cleaning_staff INTEGER;
         ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS elevator_mgr_type TEXT;
 
+        -- 동반 레코드의 소속 단지 (ADR-014). 분양·임대 혼합 단지에서 실제 PNU 를 내주고
+        -- KAPT_<단지코드> 더미로 옮겨진 레코드가 원래 단지의 PNU 를 가리킨다. 실제 PNU 에 붙은
+        -- 레코드와 아직 매핑되지 않은 더미는 NULL. 채우는 주체: batch/kapt/companion_records.py
+        -- (적재 Phase C 의 경합 교체, scripts/swap_kapt_sale_rental). 합산 세대수 계산의 조인 키.
+        ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS parent_pnu TEXT;
+        CREATE INDEX IF NOT EXISTS idx_apt_kapt_info_parent_pnu
+            ON apt_kapt_info (parent_pnu) WHERE parent_pnu IS NOT NULL;
+
         -- 주택형별 면적/세대수 (K-APT 면적 엑셀의 "주거전용면적(세부)" row)
         CREATE TABLE IF NOT EXISTS apt_area_type (
             pnu TEXT NOT NULL,

@@ -29,3 +29,4 @@
 | [011](011-group-pnu-dedup.md) | 동일 단지 중복 PNU 통합 (group_pnu) | Accepted | 2026-03-29 |
 | [012](012-display-name-override.md) | 사용자 친화 단지명 컬럼(display_name) 도입 | Accepted | 2026-04-28 |
 | [013](013-region-code-canonicalization.md) | 행정구역 코드 표준화 — 내부는 구코드, 경계에서 변환 | Accepted | 2026-08-02 |
+| [014](014-kapt-sale-rental-pnu-contention.md) | K-APT 분양·임대 레코드의 PNU 경합 — PNU 당 1건 유지, 분양 우선, 세대수는 합산 | Accepted | 2026-09-20 |

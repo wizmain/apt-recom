@@ -33,7 +33,7 @@ from __future__ import annotations
 import argparse
 
 from batch.db import get_connection, query_all
-from batch.trade.deal_stats import build_deal_stats_sql
+from batch.trade.deal_stats import COMPANION_COLUMN_SQL, build_deal_stats_sql
 from batch.logger import setup_logger
 from batch.trade.mapping_checks import check_mapping, mismatch_confirmed
 
@@ -71,9 +71,20 @@ def audit(conn, logger, apt_seqs: list[str] | None = None,
         params["seqs"] = list(apt_seqs)
     if pnus:
         params["pnus"] = list(pnus)
+    # 동반 레코드(임대동) 주택형 포함 여부 — parent_pnu 컬럼이 있는 DB 에서만 (deal_stats 주석 참조).
+    with_companions = bool(query_all(conn, COMPANION_COLUMN_SQL))
+    if not with_companions:
+        logger.warning(
+            "apt_kapt_info.parent_pnu 컬럼 없음 — 동반 레코드 주택형을 빼고 감사한다 "
+            "(혼합 단지의 임대동 전월세가 면적 위반으로 잡힐 수 있음, 백엔드 배포 후 해소)"
+        )
     rows = query_all(
         conn,
-        build_deal_stats_sql(by_seqs="seqs" in params, by_pnus="pnus" in params),
+        build_deal_stats_sql(
+            by_seqs="seqs" in params,
+            by_pnus="pnus" in params,
+            with_companions=with_companions,
+        ),
         params or None,
     )
 
