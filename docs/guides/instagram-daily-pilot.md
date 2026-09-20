@@ -23,16 +23,38 @@
    **훅과 실제 물건이 어긋나는지**가 검수의 핵심이다.
 
 3. **생성 + 프론트 반영**
-   `--dry-run` 없이 실행 → 다시 `--publish` 로 실행하면 posts.json·커버·IG 자산·content_index 가
-   갱신된다(로컬 파일, "커밋 필요" 상태). **`--publish` 는 배포가 아니다.**
+   `--dry-run` 을 떼고 `--publish` 를 붙여 **한 번** 실행하면 reports PNG·posts.json·커버·IG 자산·
+   content_index 가 갱신된다(로컬 파일, "커밋 필요" 상태). **`--publish` 는 배포가 아니다.**
+   `--publish` 없이 먼저 생성해 슬라이드를 검수했다면 `reports/insta/{날짜}/{slug}` 가 이미 있어
+   두 번째 실행이 `SlugConflictError` 로 멈춘다 — 같은 명령에 `--force` 를 붙여 재실행한다
+   (2026-09-09 실측). 이 `--force` 는 로컬 리포트 덮어쓰기 전용이며, 게시 CLI
+   (`scripts.insta_cards.instagram`)의 `--force`(중복 게시 게이트 해제)와는 다른 것이다.
 
 4. **브랜치 → PR → 머지** (main 직접 push 금지)
    ```
    git switch -c content/ig-YYYYMMDD
-   git add web/frontend-next/src/content/instagram/ web/frontend-next/public/content/ web/backend/content/content_index.json
+   git add web/frontend-next/src/content/instagram/ web/frontend-next/public/content/instagram/{slug}/ web/backend/content/content_index.json
    git commit -m "content(ig): {slug} 발행"
    git push -u origin content/ig-YYYYMMDD && gh pr create ... && gh pr merge --merge
    ```
+   `public/content/` 자산은 **오늘 slug 디렉토리만** 스테이징한다. 디렉토리 전체를 add 하면 posts.json 에
+   등록되지 않은 미추적 고아 자산(예: `value-gangnam-20260725`, 2026-08-28 발견)까지 검토 없이
+   main 에 들어간다. 커밋 전 `git status --short web/frontend-next/public/content/` 로 오늘 slug 외
+   미추적 디렉토리가 있으면 정리한다.
+
+   **로컬 main 정리(머지 직후)**: 브랜치에서 직접 커밋했다면 `git switch main` →
+   `git merge --ff-only origin/main` → `git branch -d` 로 끝난다(2026-09-19 실측). 아래 되돌리기는
+   **임시 인덱스 커밋 경로 전용**이다 — 그 경우 `--publish` 가 만든 파일이 작업 트리에 미커밋 상태로
+   남아 있고 로컬 main 은 머지 전이다. 내용이 origin/main 과 같음을 확인한 뒤 되돌리고 ff 한다.
+   ```
+   git fetch origin
+   git checkout -- web/frontend-next/src/content/instagram/posts.json web/backend/content/content_index.json
+   rm -r web/frontend-next/public/content/instagram/{slug}
+   git merge --ff-only origin/main && git branch -d content/ig-YYYYMMDD
+   ```
+   main 에 다른 미커밋 변경이 있어 `git switch -c` 가 훅에 막히면, 임시 인덱스로 콘텐츠
+   3경로만 담은 커밋을 만들면 된다(`GIT_INDEX_FILE` + `read-tree HEAD` → `add` → `write-tree`
+   → `commit-tree` → `git branch`). 작업 트리를 건드리지 않는다(2026-09-16 실측).
 
 5. **배포 완료 확인** → **게시**
    머지 후 Cloudflare(웹) 배포가 끝나면 **generation 일치와 자산 200 을 둘 다** 확인한다.
@@ -130,8 +152,33 @@ rate limit **403** 이 4일 연속(8/3~8/6) 발생했고, **매번 게시는 성
 - 없으면 넛지 점수 상위에 빌라급 단지가 올라와 **지역 대표 단지**로 실린다(3일차 검수: 성동구 1위가
   17세대 '드림', 2위가 21세대 '상왕'). 비교표의 "상위10 평균" 점수도 함께 왜곡된다.
 - API 가 하한을 무시하면 `verify_min_households` 가 발행을 중단시킨다(조용한 약화 금지).
-- **큐 순서 주의**: compare 큐 0번은 파일럿 직전 수동 발행분(2026-07-17 마포 vs 성동)과 겹쳐
-  마지막으로 돌렸다. 큐 편집 시 과거 발행분과의 재등장 간격(PRD §5-2, ≥8주)을 함께 확인할 것.
+- **큐 순서 주의**: 파일럿 직전 수동 발행분(2026-07-17 마포 vs 성동)을 큐 마지막으로 돌리려
+  했으나 실제로는 5번에 있었다 — 아래 "compare 마포 vs 성동 재등장" 참조. 큐 편집 시 과거
+  발행분과의 재등장 간격(PRD §5-2, ≥8주)을 **파일럿 이전 수동 발행분까지 포함해** 확인할 것.
+
+## compare 마포 vs 성동 재등장 (2026-09-04 정리)
+9/2 compare 가 7/17 수동 발행분과 같은 쌍이라 **47일(6.7주) 만에 재등장**했다(PRD §5-2 ≥8주 미달).
+원인은 큐 편집 실수다 — 주석은 "큐 마지막"이라 적었는데 실제 위치는 8개 중 5번이었고, 리졸버는
+앵커(7/27) 이후 배정만 계산하므로 **앵커 이전 수동 발행분은 어떤 검증에도 잡히지 않는다.**
+
+**큐를 고치지 않는다.** 판단 근거(게시 로그 + 리졸버 2027-01-15 까지, 시군구 코드로 정규화):
+
+| 구성 | 같은 (포맷,지역) 8주 미만 | 시리즈 간 3일 내 근접 |
+|---|---|---|
+| 현행 | 2건 (7/13→7/31 budget 노원·용인수지, 7/17→9/2 compare 마포·성동 — **둘 다 앵커 이전 수동분과의 충돌, 발행 완료**) | 7건 (강남 value→lifestyle, 노원 compare→value 가 8주마다 반복 — 8/22 정리 때 확인된 고정 인덱스) |
+| compare #6↔#7 교환 | 2건 (동일) | **19건** (영등포·광진·성동이 매 사이클 연속 등장) |
+
+- 9/2 이후 마포 vs 성동은 10/28 → 12/23 로 **8주 주기**라 앞으로는 PRD 를 충족한다.
+- #0~#5 는 발행 완료로 인덱스 고정이고, 움직일 수 있는 #6·#7 을 바꾸면 더 나빠진다.
+- **남은 관찰 항목(미처리)**: budget_choice #4(마포 vs 성동, 8/28)와 compare #5(같은 쌍, 9/2)가
+  둘 다 8개 큐·주 1회라 **매 사이클 5일 간격으로 같은 쌍이 두 포맷으로 나온다**(10/23→10/28,
+  12/18→12/23). 3일 기준에는 걸리지 않지만 반복 패턴이다. 풀려면 두 큐의 길이를 다르게 해
+  위상을 어긋나게 해야 한다(예: compare 에 9번째 쌍 추가 → 9주 주기, 발행 완료 인덱스 영향 없음).
+  새 쌍은 dry-run 검증이 필요하므로 별도 작업으로 남긴다.
+
+**교훈**: 큐 주석의 "마지막"은 검증 없는 선언이었다. 큐 위치에 관한 주장은 `--calendar` 출력이나
+리졸버 결과로 확인한 뒤 적는다. 파일럿 이전 수동 발행분은 게시 로그에 있으므로 재등장 검사는
+**리졸버 결과가 아니라 게시 로그를 과거 축으로** 써야 한다.
 
 ## 큐 간 지역 충돌 (2026-08-02 7일차 추가)
 **PRD §5-2 는 (포맷, 지역) 쌍 기준이라 큐 간 충돌을 잡지 못한다.** value 와 lifestyle 의 지역 큐가
