@@ -1,9 +1,7 @@
 """K-APT 2026-09 관리비 합계 열 이름 변경 회귀 검증.
 
-별칭 해소(`resolve_cost_column_aliases`)는 순수 함수라 CI 에서 항상 돈다.
-로더·검증기 통합 테스트는 pandas 가 필요한데, 루트 `requirements.txt` 에는 pandas 가 없다
-(K-APT 적재는 로컬 수동 플로우라 `web/backend/requirements.txt` 에만 있다). 그래서 pandas 가
-없는 환경(CI)에서는 통합 테스트를 건너뛴다 — 로컬 `.venv` 에서는 전부 실행된다.
+별칭 해소(`resolve_cost_column_aliases`) 단위 테스트와, 로더·검증기가 옛/새 열 이름을
+모두 받아들이는지 보는 통합 테스트로 나뉜다. 엑셀 읽기·DB 는 전부 patch 된다.
 """
 
 import tempfile
@@ -11,16 +9,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
+
+from batch.kapt import collect_mgmt_cost as loader
 from batch.kapt.cost_columns import (
     COMMON_COST_TOTAL_COLUMN,
     COST_COLUMN_ALIASES,
     resolve_cost_column_aliases,
 )
-
-try:
-    import pandas as pd
-except ImportError:  # CI — 위 모듈 docstring 참조
-    pd = None
+from batch.kapt.validate_kapt_files import _summarize
 
 NEW_TOTAL_COLUMN = "공용관리비(합계)"
 TOTAL_COLUMN_VARIANTS = [COMMON_COST_TOTAL_COLUMN, NEW_TOTAL_COLUMN]
@@ -49,19 +46,8 @@ class ResolveCostColumnAliasesTest(unittest.TestCase):
         self.assertEqual(resolve_cost_column_aliases(["단지코드"]), {})
 
 
-@unittest.skipIf(pd is None, "pandas 미설치 환경 — 모듈 docstring 참조")
 class CostColumnsIntegrationTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # validate_kapt_files 는 최상단에서 pandas 를 import 하므로 여기서 불러온다.
-        from batch.kapt import collect_mgmt_cost
-        from batch.kapt.validate_kapt_files import _summarize
-
-        cls.loader = collect_mgmt_cost
-        cls.summarize = staticmethod(_summarize)
-
     def frame(self, total_column):
-        loader = self.loader
         row = dict.fromkeys(
             loader.COMMON_COLS
             + loader.INDIV_COLS
@@ -85,13 +71,10 @@ class CostColumnsIntegrationTest(unittest.TestCase):
         for column in TOTAL_COLUMN_VARIANTS:
             with self.subTest(column=column), tempfile.NamedTemporaryFile() as file:
                 with patch("pandas.read_excel", return_value=self.frame(column)):
-                    summary, _, _ = self.summarize(
-                        "cost", Path(file.name), {"A1"}, {"A1"}
-                    )
+                    summary, _, _ = _summarize("cost", Path(file.name), {"A1"}, {"A1"})
                 self.assertEqual(summary.missing_columns, [])
 
     def test_loader_preserves_reported_total_above_partial_details(self):
-        loader = self.loader
         for column in TOTAL_COLUMN_VARIANTS:
             with self.subTest(column=column), tempfile.NamedTemporaryFile() as file:
                 area = pd.DataFrame(
