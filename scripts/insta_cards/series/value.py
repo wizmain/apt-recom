@@ -54,6 +54,11 @@ LIST_SIZE = 5
 BAND_TRADE_DAYS = 180
 # 단발 거래로 순위가 뒤집히지 않도록 최소 표본 수.
 MIN_BAND_TRADES = 2
+# 직거래는 가족·특수관계 간 저가 거래가 섞여 ㎡당 평균을 끌어내린다 — 송파 거여우방이
+# 1층 직거래 6.61억(같은 84.9㎡ 중개 12.75억의 절반)으로 구 2위에 올랐다(2026-09-29).
+# 값은 국토부 실거래 API 의 dealingGbn 원문. NULL(필드 수집 이전 거래)은 구분 불가라
+# 유지한다 — 제외하면 과거 표본이 통째로 사라진다.
+EXCLUDED_DEALING_GBN = "직거래"
 
 
 def fetch_band_price_per_m2(
@@ -85,12 +90,20 @@ def fetch_band_price_per_m2(
         WHERE m.pnu IN ({placeholders})
           AND t.deal_amount > 0
           AND t.exclu_use_ar BETWEEN %s AND %s
+          AND t.dealing_gbn IS DISTINCT FROM %s
           AND make_date(t.deal_year, t.deal_month, t.deal_day)
               >= CURRENT_DATE - (%s || ' days')::interval
         GROUP BY m.pnu
         HAVING COUNT(*) >= %s
         """,
-        [*pnu_list, min_area, max_area, BAND_TRADE_DAYS, MIN_BAND_TRADES],
+        [
+            *pnu_list,
+            min_area,
+            max_area,
+            EXCLUDED_DEALING_GBN,
+            BAND_TRADE_DAYS,
+            MIN_BAND_TRADES,
+        ],
     )
     return {r["pnu"]: dict(r) for r in rows}
 
@@ -119,10 +132,11 @@ def fetch_district_band_avg(
               )
           AND t.deal_amount > 0
           AND t.exclu_use_ar BETWEEN %s AND %s
+          AND t.dealing_gbn IS DISTINCT FROM %s
           AND make_date(t.deal_year, t.deal_month, t.deal_day)
               >= CURRENT_DATE - (%s || ' days')::interval
         """,
-        [*pnu_list, min_area, max_area, BAND_TRADE_DAYS],
+        [*pnu_list, min_area, max_area, EXCLUDED_DEALING_GBN, BAND_TRADE_DAYS],
     )
     return rows[0]["price_per_m2"] if rows else None
 
@@ -261,7 +275,8 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         methodology=(
             f"가성비 넛지 상위 {CANDIDATE_POOL_SIZE}개 후보 중 ㎡당 가격 오름차순 {LIST_SIZE}곳",
             f"㎡당 가격은 전용 {args.min_area:g}~{args.max_area:g}㎡ 거래만으로 계산 "
-            f"(최근 {BAND_TRADE_DAYS}일 · 밴드 내 {MIN_BAND_TRADES}건 이상)",
+            f"(최근 {BAND_TRADE_DAYS}일 · {EXCLUDED_DEALING_GBN} 제외 · "
+            f"밴드 내 {MIN_BAND_TRADES}건 이상)",
             f"모든 주택형이 전용 {args.min_smallest_area:g}㎡ 이상 · "
             f"{args.min_hhld}세대 이상인 단지만 후보",
             "㎡당 가격이 같은 밴드 구 평균 이하인 단지만 후보",

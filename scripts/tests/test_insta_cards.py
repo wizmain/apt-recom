@@ -340,9 +340,7 @@ class TestSlides(unittest.TestCase):
 
         # 통상 케이스(훅 2줄)는 기존 간격 그대로 — 기발행 커버 픽셀 불변 보장
         short_hook = "노원구(서울) vs 광진구(서울), 신혼육아 점수가 높은 곳은?"
-        self.assertEqual(
-            len(textrules.wrap_text(short_hook, font, limit.max_width)), 2
-        )
+        self.assertEqual(len(textrules.wrap_text(short_hook, font, limit.max_width)), 2)
         self.assertEqual(
             slides._cover_text_spacing(
                 short_hook, summary, canvas.content_top, teaser_top
@@ -1222,6 +1220,28 @@ class TestValueSeries(unittest.TestCase):
             for i, c in enumerate(candidates)
         }
 
+    def test_band_queries_exclude_direct_trades(self):
+        """밴드 ㎡당 평균과 구 평균 둘 다 직거래를 빼야 순위와 기준선이 같은 모집단이다."""
+        from unittest.mock import patch
+
+        from scripts.insta_cards.series import value
+
+        captured = []
+
+        def fake_query_all(conn, sql, params=None):
+            captured.append((sql, params))
+            return []
+
+        with patch("scripts.insta_cards.series.value.query_all", fake_query_all):
+            value.fetch_band_price_per_m2(None, ["1" * 19], 60, 85)
+            value.fetch_district_band_avg(None, ["1" * 19], 60, 85)
+
+        self.assertEqual(len(captured), 2)
+        for sql, params in captured:
+            # NULL(필드 수집 이전 거래)은 유지해야 하므로 != 가 아니라 IS DISTINCT FROM.
+            self.assertIn("dealing_gbn IS DISTINCT FROM %s", sql)
+            self.assertIn(value.EXCLUDED_DEALING_GBN, params)
+
     def test_select_candidates_sorts_by_price(self):
         from scripts.insta_cards.series import value
 
@@ -1352,7 +1372,6 @@ class TestValueSeries(unittest.TestCase):
         self.assertIn("전용면적", labels)
         self.assertIn("60~85㎡ 거래만으로 계산", " ".join(pub.methodology))
 
-
     def test_sigungu_code_scopes_population(self):
         """코드가 있으면 키워드 대신 코드로 모집단을 한정한다.
 
@@ -1416,6 +1435,7 @@ class TestValueSeries(unittest.TestCase):
         self.assertIsNone(pub.map_ctas[0].keyword)
         # 표기는 --region 을 그대로 쓴다
         self.assertEqual(pub.map_ctas[0].region_label, "중구")
+
 
 class TestCompareSeries(unittest.TestCase):
     def _scored(self, base):
