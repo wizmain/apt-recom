@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from batch.kapt.pnu_contention import dummy_pnu, is_dummy_pnu
+from batch.kapt.pnu_contention import complex_name, dummy_pnu, is_dummy_pnu
 
 # K-APT 레코드 유래 테이블 — 전부 pnu 로 키잉된다 (2026-09-20 스키마 확인, 외래키 없음).
 KAPT_KEYED_TABLES: tuple[str, ...] = (
@@ -122,6 +122,9 @@ def swap_records(
 
     같은 함수에 코드를 바꿔 넣으면 역교환이 된다. `link_as_companion` 은 `evict_to_dummy` 참고.
     """
+    outgoing_name = _scalar(
+        cur, "SELECT kapt_name FROM apt_kapt_info WHERE pnu = %s", [real_pnu]
+    )
     source = dummy_pnu(incoming_kapt_code)
     at_source = _scalar(
         cur, "SELECT kapt_code FROM apt_kapt_info WHERE pnu = %s", [source]
@@ -140,8 +143,35 @@ def swap_records(
         [real_pnu[:5], real_pnu],
     )
     sync_apartment_fields(cur, real_pnu)
+    adopt_record_name(cur, real_pnu, outgoing_name)
     apply_combined_households(cur, [real_pnu])
     return {"evicted": evicted, "moved_in": moved_in}
+
+
+def adopt_record_name(cur, real_pnu: str, outgoing_name: str | None) -> int:
+    """apartments 의 이름이 밀려난 레코드의 이름이면, 실제 PNU 에 붙은 레코드의 이름으로 바꾼다.
+
+    교체 뒤에도 이름이 임대 레코드명(`금호대우임대`)으로 남으면 분양 단지가 임대 이름으로 노출된다
+    (2026-09-30 실측: 교체 40곳 중 10곳). `bld_nm`·`display_name` 중 **밀려난 이름과 같은 쪽만**
+    바꾼다 — 운영자나 표시명 보정이 따로 넣은 이름은 건드리지 않는다. 갱신한 행 수를 반환한다.
+    """
+    if not outgoing_name:
+        return 0
+    incoming_name = complex_name(
+        _scalar(cur, "SELECT kapt_name FROM apt_kapt_info WHERE pnu = %s", [real_pnu])
+    )
+    if not incoming_name or incoming_name == outgoing_name:
+        return 0
+    cur.execute(
+        """
+        UPDATE apartments SET
+          bld_nm = CASE WHEN bld_nm = %(old)s THEN %(new)s ELSE bld_nm END,
+          display_name = CASE WHEN display_name = %(old)s THEN %(new)s ELSE display_name END
+        WHERE pnu = %(pnu)s AND %(old)s IN (bld_nm, display_name)
+        """,
+        {"old": outgoing_name, "new": incoming_name, "pnu": real_pnu},
+    )
+    return cur.rowcount
 
 
 def sync_apartment_fields(cur, real_pnu: str) -> None:
