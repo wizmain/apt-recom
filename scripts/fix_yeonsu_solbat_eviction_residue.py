@@ -7,7 +7,7 @@
 
   1. apt_area_type — 분양 PNU 에 섞인 임대 주택형(더미에 같은 행이 있는 것만) 삭제
   2. apt_area_info — 남은 주택형으로 재계산
-  3. apartments — display_name(임대 이름) 과 도로명주소(임대 쪽 212) 를 분양 레코드 값으로
+  3. apartments — bld_nm·display_name(임대 이름) 과 도로명주소(임대 쪽 212) 를 분양 레코드 값으로
 
 세대수 합산은 하지 않는다(scripts/kapt_swap_decisions.yaml: no) — 두 단지는 같은 지번을 쓰는
 별개 단지다. 임대 레코드와 그 관리비·주택형은 더미 키에 그대로 남는다.
@@ -116,14 +116,18 @@ def _apply_fix(cur) -> None:
     )
     print(f"  apt_area_type 삭제: {cur.rowcount}행")
     recalc_area_info(cur, PNU)
-    # 표시명은 임대 이름일 때만 바꾼다. 도로명은 K-APT 분양 레코드 주소의 시도 표기를 기존 형식으로.
+    # 이름은 임대 이름일 때만, 실제 PNU 에 붙은 K-APT 분양 레코드명으로 바꾼다. bld_nm 을 출처로
+    # 쓰면 안 된다 — Railway 는 bld_nm 도 임대 이름이다(apartments push 는 세대수 등 4컬럼만 갱신).
+    # 도로명은 분양 레코드 주소의 시도 표기를 기존 형식으로.
     cur.execute(
         """
         UPDATE apartments a
-           SET display_name = a.bld_nm,
+           SET bld_nm = k.kapt_name,
+               display_name = k.kapt_name,
                new_plat_plc = regexp_replace(k.road_addr, '^인천광역시', '인천')
           FROM apt_kapt_info k
-         WHERE a.pnu = %s AND k.pnu = a.pnu AND a.display_name = %s
+         WHERE a.pnu = %s AND k.pnu = a.pnu
+           AND %s IN (a.bld_nm, a.display_name)
         """,
         [PNU, RENTAL_DISPLAY_NAME],
     )
