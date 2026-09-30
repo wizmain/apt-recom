@@ -20,6 +20,10 @@ _NAME_NOISE_RE = re.compile(
     r"\(분양\)|\(임대\)|임대|분양|아파트|관리사무소|제\d+|\d+차|[\s()\-·,]"
 )
 
+# 단지명 끝의 분양 구분 표기 — K-APT 가 혼합 단지의 분양 레코드에 붙인다(`신당남산타운(분양)`).
+# 단지 이름의 일부가 아니므로 표시명에서는 뗀다.
+_SALE_MARKER_SUFFIX_RE = re.compile(r"\s*\(분양\)\s*$")
+
 KEEP_EXISTING = "keep_existing"
 REPLACE = "replace"
 
@@ -41,6 +45,11 @@ def is_dummy_pnu(pnu: str | None) -> bool:
 
 def name_core(name: str | None) -> str:
     return _NAME_NOISE_RE.sub("", name or "")
+
+
+def complex_name(kapt_name: str | None) -> str:
+    """K-APT 레코드명에서 단지 표시명을 얻는다 — 끝의 `(분양)` 표기만 뗀다."""
+    return _SALE_MARKER_SUFFIX_RE.sub("", (kapt_name or "").strip())
 
 
 def names_related(a: str | None, b: str | None) -> bool:

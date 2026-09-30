@@ -33,6 +33,7 @@ from pathlib import Path
 from batch.config import KAKAO_API_KEY
 from batch.db import get_connection, get_dict_cursor
 from batch.kapt.companion_records import (
+    adopt_record_name,
     apply_combined_households,
     ensure_parent_pnu_column,
     evict_to_dummy,
@@ -468,6 +469,7 @@ def phase_c_register_new(conn, logger, basic_rows, kapt_pnu_map, limit):
             "SELECT kapt_code, sale_type, kapt_name FROM apt_kapt_info WHERE pnu = %s", [pnu]
         )
         existing = cur.fetchone()
+        evicted_name = None
         if existing and existing[0] and existing[0] != kapt_code:
             incoming_sale_type = _safe_str(row.get("분양형태"))
             if resolve_contention(existing[1], incoming_sale_type) != REPLACE:
@@ -492,6 +494,7 @@ def phase_c_register_new(conn, logger, basic_rows, kapt_pnu_map, limit):
                 append_error(f"[PhaseC] PNU 교체 거부 {kapt_code}: {e}")
                 continue
             replaced += 1
+            evicted_name = existing[2]
             # 밀려난 레코드의 매핑도 더미로 옮긴다. 빠뜨리면 뒤이은 Phase A·B 가 옛 실제 PNU 에
             # 임대 레코드의 값·주택형을 다시 써넣는다(2026-09-30 연수솔밭마을: 분양 PNU 에
             # 임대 주택형 26~40㎡ 가 섞임).
@@ -527,6 +530,10 @@ def phase_c_register_new(conn, logger, basic_rows, kapt_pnu_map, limit):
                 """,
                 [pnu, kapt_code, name, geo["sigungu_code"]],
             )
+
+            # 교체였다면 apartments 에 남은 밀려난 레코드의 이름을 새 레코드 이름으로 바꾼다.
+            if evicted_name:
+                adopt_record_name(cur, pnu, evicted_name)
 
             new_mapping[kapt_code] = pnu
             registered += 1

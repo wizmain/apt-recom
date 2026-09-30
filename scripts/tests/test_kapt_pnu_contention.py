@@ -13,12 +13,14 @@ from unittest.mock import patch
 from batch.kapt.companion_records import (
     KAPT_KEYED_TABLES,
     CompanionRecordError,
+    adopt_record_name,
     evict_to_dummy,
     swap_records,
 )
 from batch.kapt.pnu_contention import (
     KEEP_EXISTING,
     REPLACE,
+    complex_name,
     dummy_pnu,
     is_dummy_pnu,
     resolve_contention,
@@ -177,6 +179,58 @@ class SwapRecordsTest(unittest.TestCase):
                 link_as_companion=True,
             )
         self.assertEqual(cur.moves(), [])
+
+
+class _NameCursor:
+    """실제 PNU 에 붙은 레코드명을 돌려주고, 실행된 UPDATE 를 기록한다."""
+
+    def __init__(self, kapt_name_at_real_pnu):
+        self._kapt_name = kapt_name_at_real_pnu
+        self._result = None
+        self.updates: list[dict] = []
+        self.rowcount = 0
+
+    def execute(self, sql, params=None):
+        sql = " ".join(sql.split())
+        if sql.startswith("SELECT kapt_name FROM apt_kapt_info"):
+            self._result = (self._kapt_name,) if self._kapt_name else None
+        elif sql.startswith("UPDATE apartments"):
+            self.updates.append(params)
+            self.rowcount = 1
+
+    def fetchone(self):
+        return self._result
+
+
+class AdoptRecordNameTest(unittest.TestCase):
+    def test_complex_name_strips_only_the_trailing_sale_marker(self):
+        self.assertEqual(complex_name("신당남산타운(분양)"), "신당남산타운")
+        self.assertEqual(complex_name("금호대우"), "금호대우")
+        # 단지 이름 안의 표기는 그대로 둔다.
+        self.assertEqual(complex_name("문촌마을7단지(분양) 상가"), "문촌마을7단지(분양) 상가")
+        self.assertEqual(complex_name(None), "")
+
+    def test_renames_from_evicted_name_to_the_record_at_the_pnu(self):
+        cur = _NameCursor("금호대우")
+        self.assertEqual(adopt_record_name(cur, REAL_PNU, "금호대우임대"), 1)
+        self.assertEqual(
+            cur.updates, [{"old": "금호대우임대", "new": "금호대우", "pnu": REAL_PNU}]
+        )
+
+    def test_sale_marker_is_not_carried_into_the_name(self):
+        cur = _NameCursor("신당남산타운(분양)")
+        adopt_record_name(cur, REAL_PNU, "신당남산타운임대")
+        self.assertEqual(cur.updates[0]["new"], "신당남산타운")
+
+    def test_no_update_when_names_already_agree(self):
+        """`DMC래미안클라시스`(임대 레코드명) ↔ `DMC래미안클라시스(분양)` — 바꿀 것이 없다."""
+        cur = _NameCursor("DMC래미안클라시스(분양)")
+        self.assertEqual(adopt_record_name(cur, REAL_PNU, "DMC래미안클라시스"), 0)
+        self.assertEqual(cur.updates, [])
+
+    def test_no_update_without_an_evicted_or_incoming_name(self):
+        self.assertEqual(adopt_record_name(_NameCursor("금호대우"), REAL_PNU, None), 0)
+        self.assertEqual(adopt_record_name(_NameCursor(None), REAL_PNU, "금호대우임대"), 0)
 
 
 class _PhaseCCursor:
