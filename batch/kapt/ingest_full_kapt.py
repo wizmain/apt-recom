@@ -37,7 +37,12 @@ from batch.kapt.companion_records import (
     ensure_parent_pnu_column,
     evict_to_dummy,
 )
-from batch.kapt.pnu_contention import REPLACE, names_related, resolve_contention
+from batch.kapt.pnu_contention import (
+    REPLACE,
+    dummy_pnu,
+    names_related,
+    resolve_contention,
+)
 from batch.kapt.register_new_apartments import geocode_address
 from batch.logger import setup_logger
 
@@ -284,6 +289,63 @@ def _build_kapt_upsert_sql() -> str:
 
 # ── Phase B: apt_area_type UPSERT + apt_area_info 재계산 ──
 
+def recalc_area_info(cur, pnu: str) -> bool:
+    """apt_area_type 에서 한 pnu 의 apt_area_info(면적 요약)를 다시 계산해 UPSERT 한다.
+
+    주택형이 없거나 세대수 합이 0 이면 건드리지 않고 False 를 돌려준다.
+    """
+    cur.execute(
+        "SELECT exclusive_area, unit_count FROM apt_area_type WHERE pnu = %s", [pnu]
+    )
+    types = cur.fetchall()
+    if not types:
+        return False
+
+    total_units = sum(units for _, units in types)
+    if total_units == 0:
+        return False
+
+    areas = [area for area, _ in types]
+    weighted_avg = sum(area * units for area, units in types) / total_units
+
+    bucket_cnt = {name: 0 for name, _, _ in AREA_BUCKETS}
+    for area, units in types:
+        for name, lo, hi in AREA_BUCKETS:
+            if lo <= area < hi:
+                bucket_cnt[name] += units
+                break
+
+    cur.execute(
+        """
+        INSERT INTO apt_area_info
+          (pnu, min_area, max_area, avg_area, unit_count, area_types,
+           cnt_under_40, cnt_40_60, cnt_60_85, cnt_85_115, cnt_115_135, cnt_over_135,
+           source, last_refreshed)
+        VALUES (%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s, 'kapt_area', NOW())
+        ON CONFLICT (pnu) DO UPDATE SET
+          min_area = EXCLUDED.min_area,
+          max_area = EXCLUDED.max_area,
+          avg_area = EXCLUDED.avg_area,
+          unit_count = EXCLUDED.unit_count,
+          area_types = EXCLUDED.area_types,
+          cnt_under_40 = EXCLUDED.cnt_under_40,
+          cnt_40_60 = EXCLUDED.cnt_40_60,
+          cnt_60_85 = EXCLUDED.cnt_60_85,
+          cnt_85_115 = EXCLUDED.cnt_85_115,
+          cnt_115_135 = EXCLUDED.cnt_115_135,
+          cnt_over_135 = EXCLUDED.cnt_over_135,
+          source = 'kapt_area',
+          last_refreshed = NOW()
+        """,
+        [
+            pnu, min(areas), max(areas), round(weighted_avg, 2), total_units, len(types),
+            bucket_cnt["cnt_under_40"], bucket_cnt["cnt_40_60"], bucket_cnt["cnt_60_85"],
+            bucket_cnt["cnt_85_115"], bucket_cnt["cnt_115_135"], bucket_cnt["cnt_over_135"],
+        ],
+    )
+    return True
+
+
 def phase_b_area(conn, logger, area_rows, kapt_pnu_map, limit):
     """면적 엑셀 → apt_area_type UPSERT + apt_area_info 재계산."""
     cur = conn.cursor()
@@ -341,61 +403,8 @@ def phase_b_area(conn, logger, area_rows, kapt_pnu_map, limit):
     recalc = 0
     for pnu in affected_pnus:
         try:
-            rows = cur.execute if False else None  # placeholder for type checker
-            dict_cur = get_dict_cursor(conn)
-            dict_cur.execute(
-                "SELECT exclusive_area, unit_count FROM apt_area_type WHERE pnu = %s",
-                [pnu],
-            )
-            types = dict_cur.fetchall()
-            if not types:
-                continue
-
-            total_units = sum(r["unit_count"] for r in types)
-            if total_units == 0:
-                continue
-
-            areas = [r["exclusive_area"] for r in types]
-            min_a, max_a = min(areas), max(areas)
-            weighted_avg = sum(r["exclusive_area"] * r["unit_count"] for r in types) / total_units
-
-            bucket_cnt = {name: 0 for name, _, _ in AREA_BUCKETS}
-            for r in types:
-                ea = r["exclusive_area"]
-                for name, lo, hi in AREA_BUCKETS:
-                    if lo <= ea < hi:
-                        bucket_cnt[name] += r["unit_count"]
-                        break
-
-            cur.execute(
-                """
-                INSERT INTO apt_area_info
-                  (pnu, min_area, max_area, avg_area, unit_count, area_types,
-                   cnt_under_40, cnt_40_60, cnt_60_85, cnt_85_115, cnt_115_135, cnt_over_135,
-                   source, last_refreshed)
-                VALUES (%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s, 'kapt_area', NOW())
-                ON CONFLICT (pnu) DO UPDATE SET
-                  min_area = EXCLUDED.min_area,
-                  max_area = EXCLUDED.max_area,
-                  avg_area = EXCLUDED.avg_area,
-                  unit_count = EXCLUDED.unit_count,
-                  area_types = EXCLUDED.area_types,
-                  cnt_under_40 = EXCLUDED.cnt_under_40,
-                  cnt_40_60 = EXCLUDED.cnt_40_60,
-                  cnt_60_85 = EXCLUDED.cnt_60_85,
-                  cnt_85_115 = EXCLUDED.cnt_85_115,
-                  cnt_115_135 = EXCLUDED.cnt_115_135,
-                  cnt_over_135 = EXCLUDED.cnt_over_135,
-                  source = 'kapt_area',
-                  last_refreshed = NOW()
-                """,
-                [
-                    pnu, min_a, max_a, round(weighted_avg, 2), total_units, len(types),
-                    bucket_cnt["cnt_under_40"], bucket_cnt["cnt_40_60"], bucket_cnt["cnt_60_85"],
-                    bucket_cnt["cnt_85_115"], bucket_cnt["cnt_115_135"], bucket_cnt["cnt_over_135"],
-                ],
-            )
-            recalc += 1
+            if recalc_area_info(cur, pnu):
+                recalc += 1
         except Exception as e:
             append_error(f"[PhaseB:area_info] pnu={pnu}: {e}")
 
@@ -483,6 +492,10 @@ def phase_c_register_new(conn, logger, basic_rows, kapt_pnu_map, limit):
                 append_error(f"[PhaseC] PNU 교체 거부 {kapt_code}: {e}")
                 continue
             replaced += 1
+            # 밀려난 레코드의 매핑도 더미로 옮긴다. 빠뜨리면 뒤이은 Phase A·B 가 옛 실제 PNU 에
+            # 임대 레코드의 값·주택형을 다시 써넣는다(2026-09-30 연수솔밭마을: 분양 PNU 에
+            # 임대 주택형 26~40㎡ 가 섞임).
+            new_mapping[existing[0]] = dummy_pnu(existing[0])
             append_error(
                 f"[PhaseC] PNU 교체: {name}({kapt_code}, {incoming_sale_type}) 가 "
                 f"기존({existing[0]}, {existing[1]}) 을 더미로 밀어냄 pnu={pnu} "
