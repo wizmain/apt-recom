@@ -68,3 +68,10 @@ decisions:
   rental_kapt_name: 제주삼화LH3단지
   basis: 사업 주체가 다른 이웃 단지(부영 vs LH)
   decided_on: '2026-09-20'
+- pnu: '2818510300005820002'
+  rental_kapt_code: A40681704
+  combine_households: 'no'
+  sale_kapt_name: 연수솔밭마을
+  rental_kapt_name: 연수1차시영임
+  basis: 같은 지번(연수동 582-2)의 별개 단지 — 도로명(원인재로 232 vs 212)·사용승인(1993 vs 1992)·시공사 다름, 카카오맵 솔밭마을 1200세대·9동(임대 1000세대 미포함)
+  decided_on: '2026-09-30'

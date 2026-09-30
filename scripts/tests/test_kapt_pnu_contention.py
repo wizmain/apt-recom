@@ -8,6 +8,7 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from batch.kapt.companion_records import (
     KAPT_KEYED_TABLES,
@@ -176,6 +177,65 @@ class SwapRecordsTest(unittest.TestCase):
                 link_as_companion=True,
             )
         self.assertEqual(cur.moves(), [])
+
+
+class _PhaseCCursor:
+    """Phase C 가 쓰는 최소 인터페이스 — PNU 점유 조회에만 준비된 행을 돌려준다."""
+
+    def __init__(self, occupant):
+        self._occupant = occupant
+        self._result = None
+
+    def execute(self, sql, params=None):
+        sql = " ".join(sql.split())
+        occupied = sql.startswith("SELECT kapt_code, sale_type, kapt_name FROM apt_kapt_info")
+        self._result = self._occupant if occupied else None
+
+    def fetchone(self):
+        return self._result
+
+
+class _PhaseCConn:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        pass
+
+
+class _SilentLogger:
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+
+class PhaseCEvictionMappingTest(unittest.TestCase):
+    def test_evicted_record_is_remapped_to_its_dummy(self):
+        """밀려난 임대 레코드의 매핑이 실제 PNU 에 남으면 Phase A·B 가 분양 PNU 를 다시 덮는다."""
+        from batch.kapt import ingest_full_kapt as ingest
+
+        geo = {
+            "pnu": REAL_PNU, "plat_plc": "지번", "new_plat_plc": "도로명",
+            "bjd_code": REAL_PNU[:10], "sigungu_code": REAL_PNU[:5], "lat": 37.0, "lng": 127.0,
+        }
+        rows = [{"단지코드": SALE_CODE, "단지명": "솔밭마을", "도로명주소": "도로명", "분양형태": "분양"}]
+        conn = _PhaseCConn(_PhaseCCursor((RENTAL_CODE, "임대", "시영1차임대")))
+        with patch.object(ingest, "KAKAO_API_KEY", "key"), \
+                patch.object(ingest, "geocode_address", return_value=geo), \
+                patch.object(ingest, "evict_to_dummy") as evict, \
+                patch.object(ingest, "append_error"):
+            mapping = ingest.phase_c_register_new(
+                conn, _SilentLogger(), rows, {RENTAL_CODE: REAL_PNU}, 0
+            )
+
+        evict.assert_called_once()
+        self.assertEqual(mapping[SALE_CODE], REAL_PNU)
+        self.assertEqual(mapping[RENTAL_CODE], dummy_pnu(RENTAL_CODE))
 
 
 class LoadTargetsTest(unittest.TestCase):
