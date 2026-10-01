@@ -906,8 +906,16 @@ class TestDatasources(unittest.TestCase):
                 None, "11440", max_amount=70000, min_area=54.9, max_area=64.9
             )
         self.assertIn("deal_amount <= %s", captured["sql"])
-        self.assertIn("exclu_use_ar BETWEEN %s AND %s", captured["sql"])
+        self.assertIn("exclu_use_ar >= %s", captured["sql"])
+        self.assertIn("exclu_use_ar <= %s", captured["sql"])
         self.assertEqual(list(result.keys()), ["1" * 19])
+
+        # 하한만 줘도 적용된다 — lifestyle 이 이 형태로 쓴다 (2026-10-01).
+        with patch("scripts.insta_cards.datasources.query_all", fake_query_all):
+            datasources.fetch_recent_trades(None, "11470", min_area=59)
+        self.assertIn("exclu_use_ar >= %s", captured["sql"])
+        self.assertNotIn("exclu_use_ar <= %s", captured["sql"])
+        self.assertIn(59, captured["params"])
 
 
 class TestOutput(unittest.TestCase):
@@ -1856,18 +1864,17 @@ class TestLifestyleSeries(unittest.TestCase):
         }
         args = MagicMock()
         args.profile, args.region, args.min_hhld = "newlywed", "41135", 100
-        args.min_smallest_area = 59
-        args.max_price, args.min_area, args.max_area = 70000, None, None
+        args.max_price, args.min_area, args.max_area = 70000, 59, None
 
         with (
             patch(
                 "scripts.insta_cards.series.lifestyle.fetch_recent_trades",
                 return_value=self._eligible(range(1, 7)),
-            ),
+            ) as fetch_trades,
             patch(
                 "scripts.insta_cards.series.lifestyle.post_nudge_score",
                 return_value=self._scored(range(1, 7)),
-            ),
+            ) as score,
             patch(
                 "scripts.insta_cards.series.lifestyle.get_region_name",
                 return_value="성남 분당구",
@@ -1899,13 +1906,21 @@ class TestLifestyleSeries(unittest.TestCase):
         self.assertEqual(pub.map_ctas[0].filters["max_price"], 70000)
         self.assertIn("min_hhld", pub.map_ctas[0].filters)
         # 랜딩 TOP5 와 지도 재계산 모집단이 같아야 한다 (2026-07-30).
-        self.assertEqual(pub.map_ctas[0].filters["min_smallest_area"], 59)
+        self.assertEqual(pub.map_ctas[0].filters["min_area"], 59)
+        # "모든 주택형" 하한은 쓰지 않는다 — 소형이 섞인 대단지까지 막았다 (2026-10-01).
+        self.assertNotIn("min_smallest_area", pub.map_ctas[0].filters)
+        self.assertEqual(score.call_args.args[0]["min_area"], 59)
+        self.assertNotIn("min_smallest_area", score.call_args.args[0])
+        # 카드에 싣는 거래도 하한 이상이어야 7/30 의 가격 비교 왜곡이 생기지 않는다.
+        self.assertEqual(fetch_trades.call_args.kwargs["min_area"], 59)
         # 적용만 하지 말고 카드에도 공시해야 한다 (2026-07-29).
         conditions = " ".join(c.value for c in pub.conditions)
         self.assertIn("100세대", conditions)
         self.assertIn("59㎡ 이상", conditions)
-        self.assertIn("100세대 이상", " ".join(pub.methodology))
-        self.assertIn("모든 주택형이 전용 59㎡ 이상", " ".join(pub.methodology))
+        methodology = " ".join(pub.methodology)
+        self.assertIn("100세대 이상", methodology)
+        self.assertIn("전용 59㎡ 이상 주택형이 있는 단지만", methodology)
+        self.assertIn("전용 59㎡ 이상 최근 계약 거래", methodology)
 
 
 class TestCli(unittest.TestCase):
@@ -2056,8 +2071,11 @@ class TestCli(unittest.TestCase):
                 ]
             )
 
-    def test_lifestyle_requires_min_smallest_area(self):
-        """세대수 하한만으로는 전 주택형 소형 단지가 통과한다 — 누락 즉시 차단 (2026-07-30)."""
+    def test_lifestyle_requires_min_area(self):
+        """세대수 하한만으로는 전 주택형 소형 단지가 통과한다 — 누락 즉시 차단 (2026-07-30).
+
+        lifestyle 의 면적 하한은 min-area 다(2026-10-01) — min-smallest-area 만으로는 통과하지 않는다.
+        """
         from scripts.insta_cards import cli
 
         with self.assertRaises(SystemExit):
@@ -2071,6 +2089,27 @@ class TestCli(unittest.TestCase):
                     "11680",
                     "--slug",
                     "lifestyle-pet-11680-20260730",
+                    "--dry-run",
+                ]
+            )
+
+    def test_lifestyle_min_smallest_area_alone_is_not_enough(self):
+        """옛 하한(모든 주택형 ≥ N)만 주면 조용히 통과하지 않고 막는다 (2026-10-01)."""
+        from scripts.insta_cards import cli
+
+        with self.assertRaises(SystemExit):
+            cli.main(
+                [
+                    "--series",
+                    "lifestyle",
+                    "--profile",
+                    "education",
+                    "--region",
+                    "11470",
+                    "--min-smallest-area",
+                    "59",
+                    "--slug",
+                    "lifestyle-education-11470-20261001",
                     "--dry-run",
                 ]
             )

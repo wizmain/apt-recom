@@ -3,10 +3,17 @@
 통근시간 조건은 지원하지 않는다 — 조건 칩에 '지하철·버스 접근성 반영'으로
 표기 (통근시간 사칭 금지). /api/commute 표시 연동은 후속 (--destination).
 
-min_hhld·min_smallest_area 는 둘 다 필수다. 세대수 하한만으로는 전 주택형이
-소형인 단지가 통과해 라이프스타일 훅과 실제 물건이 어긋난다(2026-07-30 4일차:
-강남 반려동물 4위가 294세대인데 전용 35~51㎡, 23~34억 사이에 4.6억). 값의 출처는
-rotation.yaml 의 series.lifestyle.* 다.
+min_hhld·min_area 는 둘 다 필수다. 세대수 하한만으로는 전 주택형이 소형인 단지가
+통과해 라이프스타일 훅과 실제 물건이 어긋난다(2026-07-30 4일차: 강남 반려동물 4위가
+294세대인데 전용 35~51㎡, 23~34억 사이에 4.6억). 값의 출처는 rotation.yaml 의
+series.lifestyle.* 다.
+
+면적 하한은 **"그 면적 이상 주택형이 있는 단지 + 그 면적 이상 거래만 표기"** 다
+(min_area — 넛지 API 의 ai.max_area 조건, 표시 거래의 전용면적 조건). 처음에는
+"모든 주택형이 N㎡ 이상"(min_smallest_area)이었으나, 소형 주택형이 일부 섞인
+대단지까지 막았다 — 양천 학군 1·2위인 목동8·9단지가 47~55㎡ 주택형 때문에 빠지고
+목동신시가지 14곳 중 11곳이 제외됐다(2026-10-01). 문제의 본질은 단지가 아니라 카드에
+실리는 거래의 크기가 제각각이라는 점이라, 표시 거래를 하한 이상으로 한정해 푼다.
 """
 
 from __future__ import annotations
@@ -93,12 +100,10 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         "top_n": SCORE_POOL_SIZE,
         "sigungu_code": args.region,
         "min_hhld": args.min_hhld,
-        "min_smallest_area": args.min_smallest_area,
+        "min_area": args.min_area,
     }
     if args.max_price is not None:
         payload["max_price"] = args.max_price
-    if args.min_area is not None:
-        payload["min_area"] = args.min_area
     if args.max_area is not None:
         payload["max_area"] = args.max_area
     scored = post_nudge_score(payload)
@@ -153,19 +158,17 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
     conditions.append(
         Condition(
             "후보 하한",
-            f"{args.min_hhld}세대 · 전용 {args.min_smallest_area:g}㎡ 이상",
+            f"{args.min_hhld}세대 · 전용 {args.min_area:g}㎡ 이상",
         )
     )
     conditions.append(Condition("기준일", today))
 
     cta_filters = {
         "min_hhld": args.min_hhld,
-        "min_smallest_area": args.min_smallest_area,
+        "min_area": args.min_area,
     }
     if args.max_price is not None:
         cta_filters["max_price"] = args.max_price
-    if args.min_area is not None:
-        cta_filters["min_area"] = args.min_area
     if args.max_area is not None:
         cta_filters["max_area"] = args.max_area
 
@@ -192,8 +195,8 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
         methodology=(
             f"{profile_label} 넛지 상위 {SCORE_POOL_SIZE} 후보와 최근 90일 계약 거래 보유 단지의 교집합",
             f"{args.min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
-            f"모든 주택형이 전용 {args.min_smallest_area:g}㎡ 이상인 단지만 후보",
-            "표시 가격은 각 단지의 최근 계약 거래 기준",
+            f"전용 {args.min_area:g}㎡ 이상 주택형이 있는 단지만 후보",
+            f"표시 가격은 각 단지의 전용 {args.min_area:g}㎡ 이상 최근 계약 거래 기준",
         ),
         caveats=(
             "투자 자문이 아닙니다.",
