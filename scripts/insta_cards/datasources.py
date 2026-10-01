@@ -189,9 +189,13 @@ def fetch_recent_trades(
     if max_amount is not None:
         conditions.append("t.deal_amount <= %s")
         params.append(max_amount)
-    if min_area is not None and max_area is not None:
-        conditions.append("t.exclu_use_ar BETWEEN %s AND %s")
-        params.extend([min_area, max_area])
+    # 면적은 한쪽만 줘도 적용한다 — lifestyle 은 하한만 쓴다(2026-10-01).
+    if min_area is not None:
+        conditions.append("t.exclu_use_ar >= %s")
+        params.append(min_area)
+    if max_area is not None:
+        conditions.append("t.exclu_use_ar <= %s")
+        params.append(max_area)
 
     sql = f"""
         SELECT DISTINCT ON (m.pnu)

@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="가장 작은 주택형의 하한(㎡) — 모든 주택형이 이 값 이상인 단지만. "
-        "value·lifestyle 시리즈 필수 (소형 오피스텔 단지 제외)",
+        "value 시리즈 필수 (소형 오피스텔 단지 제외)",
     )
     # budget-choice
     parser.add_argument("--budget", type=int, default=None, help="예산 상한 (만원)")
@@ -143,15 +143,16 @@ def _validate_series_args(parser, series: Series, args) -> None:
     if series is Series.BUDGET_CHOICE:
         # min-budget-ratio 도 필수 — "예산 이하"만으로는 예산의 1/3짜리 대표가 뽑혀
         # "같은 예산" 훅이 성립하지 않는다(2026-07-31). 기본값을 두지 않는 이유는
-        # value·lifestyle 의 min-smallest-area 와 같다(정책 출처 rotation.yaml 단일화).
+        # value 의 min-smallest-area·lifestyle 의 min-area 와 같다(정책 출처 rotation.yaml 단일화).
         require(["budget", "area-a", "area-b", "min-budget-ratio"])
         if not 0 < args.min_budget_ratio <= 1:
             parser.error("--min-budget-ratio 는 0 초과 1 이하 비율이어야 합니다.")
     if series is Series.LIFESTYLE:
         # 면적 하한은 lifestyle 도 필수 — 세대수 하한만으로는 전 주택형이 소형인
         # 단지가 통과한다(2026-07-30 4일차: 294세대인데 전용 35~51㎡). value 와
-        # 같은 이유로 기본값을 두지 않는다.
-        require(["profile", "region", "min-smallest-area"])
+        # 같은 이유로 기본값을 두지 않는다. "모든 주택형" 하한(min-smallest-area)이
+        # 아니라 min-area 다 — 소형이 섞인 대단지(목동신시가지)까지 막았다(2026-10-01).
+        require(["profile", "region", "min-area"])
     if series is Series.VALUE:
         # 면적 하한은 필수 — 누락 시 소형(오피스텔·도시형생활주택) 단지가 ㎡당 가격
         # 상위를 점령한다(2026-07-25). 기본값을 두지 않는 이유: 정책값 출처를
