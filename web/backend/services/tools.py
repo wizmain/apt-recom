@@ -1,6 +1,7 @@
 """Tool functions for the chatbot — query PostgreSQL and return structured results."""
 
 import json
+from datetime import date
 
 from database import DictConnection
 from services.facility_scores import build_facility_scores, resolve_sigungu_codes
@@ -585,14 +586,28 @@ async def compare_apartments(queries: list[str]) -> str:
     )
 
 
-async def get_market_trend(region: str, period: str = "1y") -> str:
+# 시세 동향 조회 기간 → 개월 수. 미지원 값은 기본 기간으로 처리.
+MARKET_TREND_PERIOD_MONTHS = {"1y": 12, "3y": 36, "5y": 60}
+DEFAULT_MARKET_TREND_PERIOD = "1y"
+
+
+def _trend_window_start(today: date, window_months: int) -> tuple[int, int]:
+    """이번 달을 포함한 최근 window_months 개월 창의 시작 (연, 월).
+
+    예: 2026-10 기준 12개월 → (2025, 11).
+    """
+    month_index = today.year * 12 + (today.month - 1) - (window_months - 1)
+    return month_index // 12, month_index % 12 + 1
+
+
+async def get_market_trend(region: str, period: str = DEFAULT_MARKET_TREND_PERIOD) -> str:
     """Get market trends for a region."""
     conn = _get_conn()
     try:
-        # Map period to years
-        years_map = {"1y": 1, "3y": 3, "5y": 5}
-        years = years_map.get(period, 1)
-        min_year = 2026 - years  # current date context is 2026
+        window_months = MARKET_TREND_PERIOD_MONTHS.get(
+            period, MARKET_TREND_PERIOD_MONTHS[DEFAULT_MARKET_TREND_PERIOD]
+        )
+        start_year, start_month = _trend_window_start(date.today(), window_months)
 
         # Find sgg_cd from region name
         sgg_cd = region
@@ -625,11 +640,11 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
                    ROUND(AVG(deal_amount)::numeric)::float as avg_price,
                    ROUND(AVG(deal_amount::float / NULLIF(exclu_use_ar, 0))::numeric, 1)::float as avg_price_per_m2
             FROM trade_history
-            WHERE sgg_cd = %s AND deal_year >= %s
+            WHERE sgg_cd = %s AND (deal_year, deal_month) >= (%s, %s)
             GROUP BY deal_year, deal_month
             ORDER BY deal_year, deal_month
             """,
-            [sgg_cd, min_year],
+            [sgg_cd, start_year, start_month],
         ).fetchall()
 
         # Rent stats
@@ -640,11 +655,11 @@ async def get_market_trend(region: str, period: str = "1y") -> str:
                    ROUND(AVG(deposit)::numeric)::float as avg_deposit,
                    ROUND(AVG(monthly_rent)::numeric)::float as avg_monthly_rent
             FROM rent_history
-            WHERE sgg_cd = %s AND deal_year >= %s
+            WHERE sgg_cd = %s AND (deal_year, deal_month) >= (%s, %s)
             GROUP BY deal_year, deal_month
             ORDER BY deal_year, deal_month
             """,
-            [sgg_cd, min_year],
+            [sgg_cd, start_year, start_month],
         ).fetchall()
 
         def _fmt(val):
