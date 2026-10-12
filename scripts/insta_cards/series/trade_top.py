@@ -21,6 +21,12 @@ API 원본이라 단지명 신뢰도가 낮다.
 실측(2026-08-17): 직전 창 배치 9/15회 성공 vs 현재 창 11/14회, 전체 적재 2,844 → 5,243건.
 그래서 두 창의 **적재 발생일 수**를 조건에 공시한다. 배치 성공 횟수 자체는 GitHub
 Actions 사실이라 카드가 검증할 수 없어 쓰지 않는다 — DB 로 계산되는 값만 공시한다.
+
+직전 창 0건 지역 제외 (2026-10-12): 급증 후보는 **두 창 모두 적재가 있는 지역**만이다.
+직전 창이 0건이면 시장 변화가 아니라 수집 공백일 가능성이 압도적이다 — 10/5 회차 급증
+상위 4곳(광주 북구 324·인천 서구 227·광주 서구 189·인천 중구 93)이 전부 6/30 이후 적재가
+없다가 10/1 에 9월분이 일괄 적재된 지역이었다(7/1 행정구역 개편 후 신규 코드 소급 미수집 추정).
+비교 기준이 없는 지역은 "증가"를 말할 수 없으므로 순위에서 빼고 방법론에 공시한다.
 """
 
 from __future__ import annotations
@@ -101,11 +107,12 @@ def fetch_hot_districts(conn, days: int) -> list[dict]:
         )
         SELECT c.sgg_cd,
                c.cnt AS current_count,
-               COALESCE(p.cnt, 0) AS prev_count,
-               c.cnt - COALESCE(p.cnt, 0) AS delta
+               p.cnt AS prev_count,
+               c.cnt - p.cnt AS delta
         FROM current_window c
-        LEFT JOIN prev_window p ON p.sgg_cd = c.sgg_cd
-        WHERE c.cnt >= %s AND c.cnt > COALESCE(p.cnt, 0)
+        -- INNER JOIN: 직전 창 0건 지역 제외 (수집 공백 → '급증' 둔갑 방지, 모듈 docstring)
+        JOIN prev_window p ON p.sgg_cd = c.sgg_cd
+        WHERE c.cnt >= %s AND c.cnt > p.cnt
         ORDER BY delta DESC, c.cnt DESC
         LIMIT %s
         """,
@@ -183,7 +190,7 @@ def build_publication(
         )
     if len(hot_rows) < LIST_SIZE:
         raise ValueError(
-            f"급증 조건(현재 {MIN_REPORT_COUNT}건 이상 + 직전 대비 증가) 충족 지역이 "
+            f"급증 조건(현재 {MIN_REPORT_COUNT}건 이상 + 직전 창 적재 존재 + 증가) 충족 지역이 "
             f"{len(hot_rows)}곳 — {LIST_SIZE}곳 미만이라 발행 중단"
         )
 
@@ -256,7 +263,10 @@ def build_publication(
         methodology=(
             "최고가: 최근 기간 새로 적재된 거래 중 단지별 최고가 1건만 집계",
             f"{min_hhld}세대 이상 단지만 후보 (세대수 미확인 단지 제외)",
-            f"급증: 직전 {days}일 대비 신규 적재 건수 증가분 (현재 {MIN_REPORT_COUNT}건 이상 지역만)",
+            (
+                f"급증: 직전 {days}일 대비 신규 적재 건수 증가분 (현재 {MIN_REPORT_COUNT}건 이상"
+                " · 직전 0건 지역은 비교 기준이 없어 제외)"
+            ),
             "급증 수치에는 적재 케이던스 차이가 섞입니다 — 두 기간의 적재 발생일이 다르면 그만큼 과장됩니다",
         ),
         caveats=(

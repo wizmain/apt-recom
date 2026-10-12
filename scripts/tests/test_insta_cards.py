@@ -1155,6 +1155,40 @@ class TestTradeTopSeries(unittest.TestCase):
         self.assertIn("prev_window", captured["sql"])
         self.assertIn(trade_top.MIN_REPORT_COUNT, captured["params"])
 
+    def test_hot_sql_excludes_regions_without_prev_window(self):
+        """직전 창 0건 지역은 수집 공백일 수 있어 급증 후보가 아니다 (2026-10-12)."""
+        from unittest.mock import patch
+
+        from scripts.insta_cards.series import trade_top
+
+        captured = {}
+
+        def fake_query_all(conn, sql, params=None):
+            captured["sql"] = sql
+            return []
+
+        with patch("scripts.insta_cards.series.trade_top.query_all", fake_query_all):
+            trade_top.fetch_hot_districts(None, 7)
+        self.assertNotIn("LEFT JOIN", captured["sql"])
+        self.assertNotIn("COALESCE", captured["sql"])
+        self.assertIn("JOIN prev_window", captured["sql"])
+
+    def test_methodology_discloses_zero_prev_exclusion(self):
+        from scripts.insta_cards.series import trade_top
+
+        pub = trade_top.build_publication(
+            self._price_rows(),
+            self._hot_rows(),
+            7,
+            100,
+            {"current_days": 7, "prev_days": 7},
+            slug="trade-top-test",
+            status="draft",
+            published_at=None,
+            copy_overrides=None,
+        )
+        self.assertTrue(any("0건" in m and "제외" in m for m in pub.methodology))
+
     def test_coverage_sql_counts_distinct_ingest_days_per_window(self):
         """적재 케이던스는 건수가 아니라 '적재가 발생한 날 수'로 센다 (2026-08-17)."""
         from unittest.mock import patch
