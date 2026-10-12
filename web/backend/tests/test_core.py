@@ -605,6 +605,25 @@ def test_tool_market_trend():
     )
 
 
+@test("챗봇: get_market_trend 기간 창은 이번 달 포함 최근 N개월")
+def test_tool_market_trend_period_window():
+    from datetime import date
+
+    from services.tools import _trend_window_start, get_market_trend
+
+    assert _trend_window_start(date(2026, 10, 12), 12) == (2025, 11)
+    assert _trend_window_start(date(2027, 1, 1), 12) == (2026, 2)
+    assert _trend_window_start(date(2026, 12, 31), 12) == (2026, 1)
+    assert _trend_window_start(date(2026, 10, 1), 36) == (2023, 11)
+
+    data = json.loads(asyncio.run(get_market_trend(region="마포구", period="1y")))
+    months = [r["month"] for r in data["trade_trends"] + data["rent_trends"]]
+    assert len(set(months)) <= 12, f"1y 인데 {len(set(months))}개월 반환"
+    start_year, start_month = _trend_window_start(date.today(), 12)
+    start_label = f"{start_year}.{start_month:02d}"
+    assert all(m >= start_label for m in months), f"창 시작({start_label}) 이전 월 포함"
+
+
 @test("챗봇: get_school_info tool")
 def test_tool_school_info():
     from services.tools import get_school_info
