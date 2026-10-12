@@ -7,6 +7,10 @@
 
 시작 오프셋 회전: 시군구 코드는 오름차순이라 예산에 걸려 잘리는 쪽이 늘 뒤쪽
 (비수도권)이다. 고정되면 그 지역만 결손이 누적되므로 런마다 시작 지점을 옮긴다.
+
+연결 불가 조기 중단 (2026-10-12): 연속 실패가 COLLECT_ABORT_CONSECUTIVE_FAILURES 에
+닿으면 그 회차는 API 에 닿지 못하는 것으로 보고 접는다. 예산 초과와 같은 방식(정상
+반환)이라 부분 수집분은 보존되며, 호출부(run_trade)가 이 경우를 실패로 올려 알림을 낸다.
 """
 
 import time
@@ -16,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from batch.config import (
+    COLLECT_ABORT_CONSECUTIVE_FAILURES,
     COLLECT_BUDGET_MINUTES,
     COLLECT_FAILURE_WARN_RATIO,
     DATA_GO_KR_API_KEY,
@@ -42,10 +47,23 @@ class CollectStats:
     districts_total: int = 0
     budget_exceeded: bool = False
     start_offset: int = 0
+    consecutive_failures: int = 0
+    aborted_unreachable: bool = False
 
     @property
     def failure_ratio(self) -> float:
         return self.failed / self.attempted if self.attempted else 0.0
+
+    def count_call(self, succeeded: bool) -> None:
+        """콜 결과를 집계한다. 성공하면 연속 실패 카운터가 리셋된다."""
+        self.attempted += 1
+        if succeeded:
+            self.consecutive_failures = 0
+            return
+        self.failed += 1
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= COLLECT_ABORT_CONSECUTIVE_FAILURES:
+            self.aborted_unreachable = True
 
 
 TRADE_COL_MAP = {
@@ -127,6 +145,14 @@ def _call_api(url, lawd_cd, deal_ymd, logger, retries=DATA_GO_KR_RETRIES):
         f"{type(last_error).__name__}: {last_error}"
     )
     return None
+
+
+def _log_unreachable_abort(stats, logger):
+    logger.warning(
+        f"연속 실패 {stats.consecutive_failures}콜 — API 연결 불가로 보고 "
+        f"{stats.districts_done}/{stats.districts_total} 지점에서 수집을 중단합니다. "
+        "수집분은 그대로 적재하며, 남은 몫은 다음 런이 이어받습니다."
+    )
 
 
 def _rotate(codes, offset):
@@ -232,21 +258,25 @@ def collect_trades(
 
             # 매매
             xml = _call_api(TRADE_URL, code, month, logger)
-            stats.attempted += 1
-            stats.failed += xml is None
+            stats.count_call(xml is not None)
             trade_rows.extend(_parse_xml(xml, TRADE_COL_MAP))
             time.sleep(DATA_GO_KR_RATE)
+            if stats.aborted_unreachable:
+                _log_unreachable_abort(stats, logger)
+                break
 
             # 전월세
             xml = _call_api(RENT_URL, code, month, logger)
-            stats.attempted += 1
-            stats.failed += xml is None
+            stats.count_call(xml is not None)
             rent_rows.extend(_parse_xml(xml, RENT_COL_MAP))
             time.sleep(DATA_GO_KR_RATE)
+            if stats.aborted_unreachable:
+                _log_unreachable_abort(stats, logger)
+                break
 
             stats.districts_done += 1
 
-        if stats.budget_exceeded:
+        if stats.budget_exceeded or stats.aborted_unreachable:
             break
 
         logger.info(
