@@ -37,6 +37,12 @@ COLLECT_BUDGET_MINUTES = 35
 
 # 실패율이 이 값을 넘으면 수집 요약에 경고를 남긴다 (예산 초과의 선행 지표).
 COLLECT_FAILURE_WARN_RATIO = 0.05
+
+# 연속 실패가 이 콜 수에 닿으면 연결 불가로 보고 수집을 접는다 (2026-10-12).
+# 실측: 9/20~10/12 약 44회 중 10회가 ConnectTimeout 100% 로 예산 35분을 소진하고
+# 0건 적재 — 실패는 늘 0% 아니면 100% 였다(회차별 러너 IP 차단 추정). 6콜 = 시군구 3곳
+# × 매매·전월세, 최악 약 3분. 정상 회차의 산발 실패는 성공 콜이 끼면 리셋돼 걸리지 않는다.
+COLLECT_ABORT_CONSECUTIVE_FAILURES = 6
 KOSIS_RATE = 2.0
 NEIS_RATE = 0.1
 

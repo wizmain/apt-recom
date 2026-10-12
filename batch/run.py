@@ -30,7 +30,14 @@ def run_trade(args, logger, result):
         )
         # 예산 초과는 설계된 동작(부분 수집 보존)이라 실패로 올리지 않는다. 다만
         # 매 런 반복되면 수집이 예산 안에 못 들어온다는 뜻이라 요약에 남긴다.
+        # 연결 불가 중단은 다르다 — 수집분은 보존하되 단계를 failed 로 올려 워크플로가
+        # 실패로 끝나게 한다. 0건 적재가 success 로 묻히던 문제(2026-10-12).
         notes = []
+        if stats.aborted_unreachable:
+            notes.append(
+                f"API 연결 불가 — 연속 실패 {stats.consecutive_failures}콜, "
+                f"{stats.districts_done}/{stats.districts_total} 지점 중단"
+            )
         if stats.budget_exceeded:
             notes.append(
                 f"예산 초과 {stats.districts_done}/{stats.districts_total} 지점 중단"
@@ -39,7 +46,7 @@ def run_trade(args, logger, result):
             notes.append(f"실패 {stats.failed:,}콜({stats.failure_ratio:.1%})")
         result.record(
             "거래 데이터 수집",
-            "success",
+            "failed" if stats.aborted_unreachable else "success",
             rows=len(trade_rows) + len(rent_rows),
             duration=time.time() - t0,
             error=" · ".join(notes),

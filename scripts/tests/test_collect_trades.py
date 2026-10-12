@@ -17,6 +17,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from batch.config import (  # noqa: E402
+    COLLECT_ABORT_CONSECUTIVE_FAILURES,
     COLLECT_BUDGET_MINUTES,
     DATA_GO_KR_RETRIES,
     DATA_GO_KR_TIMEOUT,
@@ -221,6 +222,99 @@ class TestCollectBudget(unittest.TestCase):
         실측: 후속 단계(적재·가격 재계산·저평가·신규 등록)가 약 7분.
         """
         self.assertLessEqual(COLLECT_BUDGET_MINUTES + 7, 60)
+
+
+class TestUnreachableAbort(unittest.TestCase):
+    """연결 불가 회차는 예산을 다 쓰지 말고 빨리 접어야 한다 (2026-10-12).
+
+    실측: 9/20~10/12 약 44회 중 10회가 apis.data.go.kr ConnectTimeout **100%** 로
+    35분 예산을 소진하고 0건 적재 — 그런데 워크플로는 success 였다. 실패는 항상
+    0% 아니면 100% 라(회차마다 다른 러너 IP 가 방화벽에 드롭되는 것으로 추정)
+    연속 실패가 몇 콜 이어지면 그 회차는 회복되지 않는다.
+    """
+
+    _run = TestCollectBudget._run
+
+    def test_all_failing_run_aborts_after_threshold(self):
+        codes = [f"{i:05d}" for i in range(50)]
+        _, _, stats, logger = self._run(
+            codes=codes, budget_seconds=10_000, step=1, fail_codes=set(codes)
+        )
+        self.assertTrue(stats.aborted_unreachable)
+        self.assertEqual(stats.attempted, COLLECT_ABORT_CONSECUTIVE_FAILURES)
+        self.assertLess(stats.districts_done, len(codes))
+        self.assertIn("연속", logger.text("warning"), "중단 사유가 로그에 없다")
+
+    def test_sporadic_failures_do_not_abort(self):
+        """성공 콜이 끼면 연속 카운터가 리셋된다 — 산발 실패는 예전처럼 허용."""
+        codes = [f"{i:05d}" for i in range(50)]
+        every_other = {c for i, c in enumerate(codes) if i % 2}
+        _, _, stats, _ = self._run(
+            codes=codes, budget_seconds=10_000, step=1, fail_codes=every_other
+        )
+        self.assertFalse(stats.aborted_unreachable)
+        self.assertEqual(stats.districts_done, len(codes))
+
+    def test_mid_run_outage_keeps_collected_rows(self):
+        """도중에 끊겨도 예외가 아니라 정상 반환 — 그때까지 수집분은 적재 대상이다."""
+        codes = [f"{i:05d}" for i in range(50)]
+        # 수집은 회전된 순서로 돈다 — 앞의 2곳만 성공하도록 회전 순서 기준으로 고른다
+        offset = mod._rotation_offset(len(codes), datetime(2026, 8, 17, 3, 0))
+        visit_order = mod._rotate(codes, offset)
+        trade_rows, _, stats, _ = self._run(
+            codes=codes,
+            budget_seconds=10_000,
+            step=1,
+            fail_codes=set(visit_order[2:]),
+        )
+        self.assertTrue(stats.aborted_unreachable)
+        self.assertEqual(len(trade_rows), 2)
+
+    def test_threshold_is_far_below_budget(self):
+        """임계값만큼의 실패 콜(최악 31초씩)이 예산의 작은 일부여야 의미가 있다."""
+        worst_call = DATA_GO_KR_TIMEOUT * DATA_GO_KR_RETRIES + 1
+        abort_cost = COLLECT_ABORT_CONSECUTIVE_FAILURES * worst_call
+        self.assertLess(abort_cost, COLLECT_BUDGET_MINUTES * 60 / 5)
+
+
+class TestRunTradeReportsUnreachable(unittest.TestCase):
+    """연결 불가 중단은 수집 단계를 failed 로 올려 워크플로를 실패시켜야 한다.
+
+    예산 초과는 설계된 동작이라 success 를 유지하지만, 연결 불가는 알림이 와야 한다.
+    """
+
+    def _run_trade(self, stats):
+        from batch import run as run_mod
+        from batch.logger import BatchResult
+
+        result = BatchResult()
+        args = type("Args", (), {"dry_run": True})()
+        with (
+            patch.object(run_mod, "get_connection", return_value=FakeConn()),
+            patch.object(mod, "collect_trades", return_value=([], [], stats)),
+        ):
+            run_mod.run_trade(args, FakeLogger(), result)
+        return result
+
+    def test_unreachable_abort_fails_the_batch(self):
+        stats = mod.CollectStats(attempted=6, failed=6, aborted_unreachable=True)
+        result = self._run_trade(stats)
+        step = next(s for s in result.steps if s["step"] == "거래 데이터 수집")
+        self.assertEqual(step["status"], "failed")
+        self.assertIn("연결 불가", step["error"])
+        self.assertEqual(result.exit_code(), 1)
+
+    def test_budget_exceeded_alone_stays_success(self):
+        stats = mod.CollectStats(attempted=100, budget_exceeded=True)
+        result = self._run_trade(stats)
+        step = next(s for s in result.steps if s["step"] == "거래 데이터 수집")
+        self.assertEqual(step["status"], "success")
+        self.assertEqual(result.exit_code(), 0)
+
+
+class FakeConn:
+    def close(self):
+        pass
 
 
 if __name__ == "__main__":

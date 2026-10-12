@@ -20,6 +20,17 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install psycopg2-binary requests python-dotenv pandas joblib numpy scikit-learn
+      # 진단 전용 — 실패해도 배치는 돈다. 9/20~10/12 에 회차 단위로 apis.data.go.kr
+      # ConnectTimeout 100% 가 반복됐고(리전·시각 무관, 0% 아니면 100%) 러너 IP 차단이
+      # 추정 원인이다. 실패 회차의 출발 IP 와 연결 결과를 짝지어 확증하기 위한 기록.
+      # 배경: docs/batch-operations.md '연결 불가 조기 중단'
+      - name: Diagnose data.go.kr reachability
+        continue-on-error: true
+        run: |
+          echo "runner public ip: $(curl -s -m 10 https://api.ipify.org || echo unknown)"
+          curl -s -o /dev/null -m 20 --connect-timeout 15 \
+            -w 'apis.data.go.kr connect=%{time_connect}s http=%{http_code} ip=%{remote_ip}\n' \
+            https://apis.data.go.kr/ || echo "apis.data.go.kr unreachable (curl exit $?)"
       - name: Run trade batch
         run: python -m batch.run --type trade
         env:
