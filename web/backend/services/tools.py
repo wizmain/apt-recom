@@ -841,6 +841,10 @@ async def search_commute(pnu: str, destination: str) -> str:
     }, ensure_ascii=False)
 
 
+# 대시보드 월별 추이 최대 개월 수 (MCP tool 문서의 "최대 60" 과 일치).
+DASHBOARD_TREND_MAX_MONTHS = 60
+
+
 async def get_dashboard_info(region: str = "", months: int = 6) -> str:
     """거래 동향 대시보드 정보 조회."""
     conn = _get_conn()
@@ -891,14 +895,16 @@ async def get_dashboard_info(region: str = "", months: int = 6) -> str:
         [cur_year, cur_month] + sgg_params
     ).fetchone()
 
-    # 월별 추이
-    start_ym = (cur_year - 1) * 100 + cur_month if months > 12 else cur_year * 100 + max(1, cur_month - months)
-    trend_params = [start_ym] + sgg_params
+    # 월별 추이 — 이번 달 포함 최근 months 개월.
+    # (deal_year, deal_month) 행 비교로 걸러야 idx_trade_ymd 를 탄다 (연산식은 풀스캔).
+    window_months = min(max(months, 1), DASHBOARD_TREND_MAX_MONTHS)
+    start_year, start_month = _trend_window_start(now.date(), window_months)
+    trend_params = [start_year, start_month] + sgg_params
     trend = conn.execute(f"""
         SELECT deal_year, deal_month, COUNT(*) as vol,
                COALESCE(AVG(deal_amount), 0) as avg_price
         FROM trade_history
-        WHERE deal_year * 100 + deal_month >= %s {sgg_filter}
+        WHERE (deal_year, deal_month) >= (%s, %s) {sgg_filter}
         GROUP BY deal_year, deal_month
         ORDER BY deal_year, deal_month
     """, trend_params).fetchall()
@@ -912,7 +918,7 @@ async def get_dashboard_info(region: str = "", months: int = 6) -> str:
 
     trend_text = ", ".join(
         f"{r['deal_year']}.{r['deal_month']:02d}: {r['vol']}건(평균 {round(float(r['avg_price'])):,}만원)"
-        for r in trend[-6:]
+        for r in trend
     )
 
     return json.dumps({

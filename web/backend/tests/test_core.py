@@ -676,6 +676,16 @@ def test_tool_dashboard_price_format():
     assert "만원" in trend, f"추이 금액 단위 누락: {trend}"
 
 
+@test("챗봇: get_dashboard_info 추이는 이번 달 포함 최근 months 개월")
+def test_tool_dashboard_trend_window():
+    from services.tools import get_dashboard_info
+
+    for months in (3, 6, 24):
+        data = json.loads(asyncio.run(get_dashboard_info(months=months)))
+        entries = [e for e in data.get("monthly_trend", "").split(", ") if e]
+        assert 0 < len(entries) <= months, f"months={months} 인데 {len(entries)}개월"
+
+
 @test("챗봇: 안전 점수 관련 데이터 포함 응답")
 def test_chat_safety_data():
     """get_apartment_detail 결과에 safety + crime_detail 포함 확인."""
