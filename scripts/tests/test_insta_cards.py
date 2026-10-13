@@ -1284,6 +1284,31 @@ class TestValueSeries(unittest.TestCase):
             self.assertIn("dealing_gbn IS DISTINCT FROM %s", sql)
             self.assertIn(value.EXCLUDED_DEALING_GBN, params)
 
+    def test_band_price_excludes_outliers_from_median(self):
+        """밴드 ㎡당 평균은 단지 중앙값에서 크게 벗어난 거래를 빼고 계산한다 (2026-10-13)."""
+        from unittest.mock import patch
+
+        from scripts.insta_cards.series import value
+
+        captured = []
+
+        def fake_query_all(conn, sql, params=None):
+            captured.append((sql, params))
+            return []
+
+        with patch("scripts.insta_cards.series.value.query_all", fake_query_all):
+            value.fetch_band_price_per_m2(None, ["1" * 19], 60, 85)
+
+        sql, params = captured[0]
+        self.assertIn("PERCENTILE_CONT(0.5)", sql)
+        self.assertIn("<= bm.median_price_per_m2 * %s", sql)
+        # 이상치 필터 뒤에 최소 표본 수를 센다 — 순서가 바뀌면 탈락 판정이 달라진다.
+        self.assertEqual(
+            params[-2:], [value.BAND_OUTLIER_MAX_DEVIATION, value.MIN_BAND_TRADES]
+        )
+        self.assertGreater(value.BAND_OUTLIER_MAX_DEVIATION, 0)
+        self.assertLess(value.BAND_OUTLIER_MAX_DEVIATION, 1)
+
     def test_select_candidates_sorts_by_price(self):
         from scripts.insta_cards.series import value
 

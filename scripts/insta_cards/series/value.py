@@ -59,6 +59,14 @@ MIN_BAND_TRADES = 2
 # 값은 국토부 실거래 API 의 dealingGbn 원문. NULL(필드 수집 이전 거래)은 구분 불가라
 # 유지한다 — 제외하면 과거 표본이 통째로 사라진다.
 EXCLUDED_DEALING_GBN = "직거래"
+# 단지 밴드 거래의 ㎡당 중앙값에서 이 비율 넘게 벗어난 거래는 평균에서 뺀다.
+# 동작 현진에버빌 84.9㎡ 가 8.4억·8.25억 사이에 5.5억 중개거래 한 건(-33%, 같은 층·금액이
+# 2/23 에도 있어 중복 신고 의심)이 섞여 ㎡당 평균이 869만원으로 내려가 구 1위가 됐다
+# (2026-10-13). 같은 단지·같은 밴드의 층·향 차이는 실측 10~15% 이내라 25% 면 정상 거래를
+# 건드리지 않는다. 표본 2건이 서로 이 비율 넘게 벌어지면 둘 다 빠져 후보에서 탈락한다
+# (어느 쪽이 정상인지 판단할 근거가 없으므로). 구 평균(fetch_district_band_avg)은 표본이
+# 커서 단발 이상치 영향이 작아 적용하지 않는다.
+BAND_OUTLIER_MAX_DEVIATION = 0.25
 
 
 def fetch_band_price_per_m2(
@@ -68,6 +76,7 @@ def fetch_band_price_per_m2(
 
     apt_price_score.price_per_m2 를 쓰지 않는 이유: 그 값은 단지 전체 거래의
     평균이라 대형 평형 비중이 큰 단지가 구조적으로 싸 보인다(2026-08-01 6일차).
+    단지 중앙값에서 BAND_OUTLIER_MAX_DEVIATION 넘게 벗어난 거래는 평균·대표 거래에서 뺀다.
     반환: pnu → {price_per_m2, trade_count, recent_amount, recent_area}
     """
     if not pnu_list:
@@ -76,24 +85,39 @@ def fetch_band_price_per_m2(
     rows = query_all(
         conn,
         f"""
-        SELECT m.pnu,
-               AVG(t.deal_amount * 10000.0 / t.exclu_use_ar) AS price_per_m2,
+        WITH band AS (
+            SELECT m.pnu,
+                   t.deal_amount,
+                   t.exclu_use_ar,
+                   make_date(t.deal_year, t.deal_month, t.deal_day) AS deal_date,
+                   t.deal_amount * 10000.0 / t.exclu_use_ar AS price_per_m2
+            FROM trade_history t
+            JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
+            WHERE m.pnu IN ({placeholders})
+              AND t.deal_amount > 0
+              AND t.exclu_use_ar BETWEEN %s AND %s
+              AND t.dealing_gbn IS DISTINCT FROM %s
+              AND make_date(t.deal_year, t.deal_month, t.deal_day)
+                  >= CURRENT_DATE - (%s || ' days')::interval
+        ),
+        band_median AS (
+            SELECT pnu,
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_per_m2) AS median_price_per_m2
+            FROM band
+            GROUP BY pnu
+        )
+        SELECT b.pnu,
+               AVG(b.price_per_m2) AS price_per_m2,
                COUNT(*) AS trade_count,
-               (ARRAY_AGG(t.deal_amount ORDER BY
-                    make_date(t.deal_year, t.deal_month, t.deal_day) DESC,
-                    t.deal_amount DESC))[1] AS recent_amount,
-               (ARRAY_AGG(t.exclu_use_ar ORDER BY
-                    make_date(t.deal_year, t.deal_month, t.deal_day) DESC,
-                    t.deal_amount DESC))[1] AS recent_area
-        FROM trade_history t
-        JOIN trade_apt_mapping m ON t.apt_seq = m.apt_seq
-        WHERE m.pnu IN ({placeholders})
-          AND t.deal_amount > 0
-          AND t.exclu_use_ar BETWEEN %s AND %s
-          AND t.dealing_gbn IS DISTINCT FROM %s
-          AND make_date(t.deal_year, t.deal_month, t.deal_day)
-              >= CURRENT_DATE - (%s || ' days')::interval
-        GROUP BY m.pnu
+               (ARRAY_AGG(b.deal_amount ORDER BY b.deal_date DESC, b.deal_amount DESC))[1]
+                   AS recent_amount,
+               (ARRAY_AGG(b.exclu_use_ar ORDER BY b.deal_date DESC, b.deal_amount DESC))[1]
+                   AS recent_area
+        FROM band b
+        JOIN band_median bm ON bm.pnu = b.pnu
+        WHERE ABS(b.price_per_m2 - bm.median_price_per_m2)
+              <= bm.median_price_per_m2 * %s
+        GROUP BY b.pnu
         HAVING COUNT(*) >= %s
         """,
         [
@@ -102,6 +126,7 @@ def fetch_band_price_per_m2(
             max_area,
             EXCLUDED_DEALING_GBN,
             BAND_TRADE_DAYS,
+            BAND_OUTLIER_MAX_DEVIATION,
             MIN_BAND_TRADES,
         ],
     )
