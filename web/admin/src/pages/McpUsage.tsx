@@ -53,9 +53,19 @@ export function McpUsage() {
         추정치입니다.
       </p>
       <RangeFilterBar value={range} onChange={setRange} />
+      {usage && <ExcludedInternalNote count={usage.summary.count_excluded_internal} />}
       {error && <div className="text-sm text-red-500 mb-3">{error}</div>}
       <McpUsageBody usage={usage} loading={loading} />
     </div>
+  );
+}
+
+function ExcludedInternalNote({ count }: { count: number }) {
+  return (
+    <p className="text-xs text-gray-400 mb-3">
+      내부 점검 호출 {count.toLocaleString()}건 제외됨 (공통코드 mcp_internal_ua 의 User-Agent
+      접두어 기준)
+    </p>
   );
 }
 

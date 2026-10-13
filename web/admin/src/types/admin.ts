@@ -248,6 +248,7 @@ export interface McpUsageSummary {
   count_ip_prefixes: number;
   avg_duration_ms: number | null;
   p95_duration_ms: number | null;
+  count_excluded_internal: number;
 }
 
 export interface McpUsageDailyPoint {

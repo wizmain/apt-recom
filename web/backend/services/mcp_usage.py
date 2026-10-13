@@ -10,11 +10,18 @@ mcp_call_log 에는 두 종류의 행이 섞여 있다.
       클라이언트가 스스로 밝힌 이름이다.
 
 사용자 수는 client_ip(/24 마스킹) 고유 개수로 추정한 근사치다.
+
+내부 점검 호출(운영자의 curl 점검 등)은 집계에서 제외한다. 판별 기준은
+common_code `mcp_internal_ua` 그룹의 code(User-Agent 접두어) 목록이며, 원본 행은
+삭제하지 않고 집계 시점에만 거른다. 제외 건수는 summary.count_excluded_internal.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
+
+from common_codes import get_codes
 
 # 일별 버킷 기준 시간대 — 관리자 화면은 KST 날짜로 본다.
 USAGE_TIMEZONE = "Asia/Seoul"
@@ -26,9 +33,43 @@ CONNECTION_TOOL_NAME = "protocol:initialize"
 # clientInfo 를 보내지 않은 연결의 표시명
 UNNAMED_CLIENT = "unknown"
 
-# 기간 필터는 모든 쿼리에 공통 (BRIN idx_mcp_call_log_created_brin 사용)
+# 내부 점검 User-Agent 접두어를 관리하는 common_code 그룹
+INTERNAL_UA_CODE_GROUP = "mcp_internal_ua"
+
+# 기간 + 내부 점검 제외 필터 — 모든 집계 쿼리에 공통.
+# 기간은 BRIN idx_mcp_call_log_created_brin 사용. 파라미터는 _UsageScope.params 순서.
 _RANGE_WHERE = "created_at BETWEEN %s AND %s"
-_TOOL_CALL_WHERE = f"{_RANGE_WHERE} AND tool_name NOT LIKE %s"
+_INTERNAL_MATCH = "COALESCE(user_agent, '') LIKE ANY(%s::text[])"
+_SCOPE_WHERE = f"{_RANGE_WHERE} AND NOT {_INTERNAL_MATCH}"
+_TOOL_CALL_WHERE = f"{_SCOPE_WHERE} AND tool_name NOT LIKE %s"
+
+
+@dataclass(frozen=True)
+class _UsageScope:
+    """집계 대상 범위: 기간 + 내부 점검 제외용 LIKE 패턴."""
+
+    frm: datetime
+    to: datetime
+    internal_ua_patterns: list[str]
+
+    @property
+    def params(self) -> list:
+        """_SCOPE_WHERE 의 바인딩 파라미터."""
+        return [self.frm, self.to, self.internal_ua_patterns]
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def load_internal_ua_patterns(conn) -> list[str]:
+    """common_code 에 등록된 내부 점검 UA 접두어 → LIKE 패턴 목록."""
+    return [
+        f"{_escape_like(c['code'])}%"
+        for c in get_codes(INTERNAL_UA_CODE_GROUP, conn)
+        if c["code"]
+    ]
+
 
 # tool 호출 공통 집계식
 _TOOL_CALL_STATS_COLUMNS = """
@@ -55,19 +96,23 @@ def _tool_call_stats(row: dict) -> dict:
     }
 
 
-def _fetch_summary(conn, frm: datetime, to: datetime) -> dict:
+def _fetch_summary(conn, scope: _UsageScope) -> dict:
     tool_row = conn.execute(
         f"SELECT {_TOOL_CALL_STATS_COLUMNS} FROM mcp_call_log WHERE {_TOOL_CALL_WHERE}",
-        [frm, to, PROTOCOL_PATTERN],
+        [*scope.params, PROTOCOL_PATTERN],
     ).fetchone()
     overall_row = conn.execute(
         f"""
         SELECT COUNT(*) FILTER (WHERE tool_name = %s) AS count_connections,
                COUNT(DISTINCT client_ip) AS count_ip_prefixes
         FROM mcp_call_log
-        WHERE {_RANGE_WHERE}
+        WHERE {_SCOPE_WHERE}
         """,
-        [CONNECTION_TOOL_NAME, frm, to],
+        [CONNECTION_TOOL_NAME, *scope.params],
+    ).fetchone()
+    excluded_row = conn.execute(
+        f"SELECT COUNT(*) AS c FROM mcp_call_log WHERE {_RANGE_WHERE} AND {_INTERNAL_MATCH}",
+        scope.params,
     ).fetchone()
     return {
         "count_tool_calls": tool_row["count_calls"],
@@ -78,10 +123,12 @@ def _fetch_summary(conn, frm: datetime, to: datetime) -> dict:
         "count_ip_prefixes": overall_row["count_ip_prefixes"],
         "avg_duration_ms": tool_row["avg_duration_ms"],
         "p95_duration_ms": tool_row["p95_duration_ms"],
+        # 내부 점검으로 판별돼 위 집계에서 빠진 행 수 (tool 호출 + 프로토콜)
+        "count_excluded_internal": excluded_row["c"],
     }
 
 
-def _fetch_daily(conn, frm: datetime, to: datetime) -> list[dict]:
+def _fetch_daily(conn, scope: _UsageScope) -> list[dict]:
     """KST 일별 집계. 호출이 없는 날도 0 으로 채워 차트가 날짜를 건너뛰지 않게 한다."""
     rows = conn.execute(
         f"""
@@ -99,7 +146,7 @@ def _fetch_daily(conn, frm: datetime, to: datetime) -> list[dict]:
                    COUNT(*) FILTER (WHERE tool_name NOT LIKE %s AND NOT success) AS count_errors,
                    COUNT(DISTINCT client_ip) AS count_ip_prefixes
             FROM mcp_call_log
-            WHERE {_RANGE_WHERE}
+            WHERE {_SCOPE_WHERE}
             GROUP BY 1
         )
         SELECT days.day,
@@ -111,16 +158,15 @@ def _fetch_daily(conn, frm: datetime, to: datetime) -> list[dict]:
         ORDER BY days.day
         """,
         [
-            frm,
+            scope.frm,
             USAGE_TIMEZONE,
-            to,
+            scope.to,
             USAGE_TIMEZONE,
             USAGE_TIMEZONE,
             PROTOCOL_PATTERN,
             CONNECTION_TOOL_NAME,
             PROTOCOL_PATTERN,
-            frm,
-            to,
+            *scope.params,
         ],
     ).fetchall()
     return [
@@ -135,7 +181,7 @@ def _fetch_daily(conn, frm: datetime, to: datetime) -> list[dict]:
     ]
 
 
-def _fetch_by_tool(conn, frm: datetime, to: datetime) -> list[dict]:
+def _fetch_by_tool(conn, scope: _UsageScope) -> list[dict]:
     rows = conn.execute(
         f"""
         SELECT tool_name AS name, {_TOOL_CALL_STATS_COLUMNS}
@@ -144,12 +190,12 @@ def _fetch_by_tool(conn, frm: datetime, to: datetime) -> list[dict]:
         GROUP BY tool_name
         ORDER BY count_calls DESC
         """,
-        [frm, to, PROTOCOL_PATTERN],
+        [*scope.params, PROTOCOL_PATTERN],
     ).fetchall()
     return [{"name": r["name"], **_tool_call_stats(r)} for r in rows]
 
 
-def _fetch_by_client_kind(conn, frm: datetime, to: datetime) -> list[dict]:
+def _fetch_by_client_kind(conn, scope: _UsageScope) -> list[dict]:
     """User-Agent 로 분류한 client_kind 별 tool 호출 통계."""
     rows = conn.execute(
         f"""
@@ -159,12 +205,12 @@ def _fetch_by_client_kind(conn, frm: datetime, to: datetime) -> list[dict]:
         GROUP BY 1
         ORDER BY count_calls DESC
         """,
-        [UNNAMED_CLIENT, frm, to, PROTOCOL_PATTERN],
+        [UNNAMED_CLIENT, *scope.params, PROTOCOL_PATTERN],
     ).fetchall()
     return [{"name": r["name"], **_tool_call_stats(r)} for r in rows]
 
 
-def _fetch_by_client_name(conn, frm: datetime, to: datetime) -> list[dict]:
+def _fetch_by_client_name(conn, scope: _UsageScope) -> list[dict]:
     """initialize 시 클라이언트가 밝힌 clientInfo.name 별 연결 수."""
     rows = conn.execute(
         f"""
@@ -173,11 +219,11 @@ def _fetch_by_client_name(conn, frm: datetime, to: datetime) -> list[dict]:
                COUNT(DISTINCT client_ip) AS count_ip_prefixes,
                MAX(created_at) AS last_connected_at
         FROM mcp_call_log
-        WHERE {_RANGE_WHERE} AND tool_name = %s
+        WHERE {_SCOPE_WHERE} AND tool_name = %s
         GROUP BY 1
         ORDER BY count_connections DESC
         """,
-        [UNNAMED_CLIENT, frm, to, CONNECTION_TOOL_NAME],
+        [UNNAMED_CLIENT, *scope.params, CONNECTION_TOOL_NAME],
     ).fetchall()
     return [
         {
@@ -190,17 +236,17 @@ def _fetch_by_client_name(conn, frm: datetime, to: datetime) -> list[dict]:
     ]
 
 
-def _fetch_recent_errors(conn, frm: datetime, to: datetime) -> list[dict]:
+def _fetch_recent_errors(conn, scope: _UsageScope) -> list[dict]:
     rows = conn.execute(
         f"""
         SELECT id, tool_name, client_kind, arguments, error_message,
                duration_ms, created_at
         FROM mcp_call_log
-        WHERE {_RANGE_WHERE} AND NOT success
+        WHERE {_SCOPE_WHERE} AND NOT success
         ORDER BY created_at DESC
         LIMIT %s
         """,
-        [frm, to, RECENT_ERROR_LIMIT],
+        [*scope.params, RECENT_ERROR_LIMIT],
     ).fetchall()
     return [
         {
@@ -217,13 +263,14 @@ def _fetch_recent_errors(conn, frm: datetime, to: datetime) -> list[dict]:
 
 
 def get_mcp_usage(conn, frm: datetime, to: datetime) -> dict:
-    """기간 [frm, to] 의 MCP 사용량 집계."""
+    """기간 [frm, to] 의 MCP 사용량 집계 (내부 점검 호출 제외)."""
+    scope = _UsageScope(frm, to, load_internal_ua_patterns(conn))
     return {
         "range": {"from": frm.isoformat(), "to": to.isoformat()},
-        "summary": _fetch_summary(conn, frm, to),
-        "daily": _fetch_daily(conn, frm, to),
-        "by_tool": _fetch_by_tool(conn, frm, to),
-        "by_client_kind": _fetch_by_client_kind(conn, frm, to),
-        "by_client_name": _fetch_by_client_name(conn, frm, to),
-        "recent_errors": _fetch_recent_errors(conn, frm, to),
+        "summary": _fetch_summary(conn, scope),
+        "daily": _fetch_daily(conn, scope),
+        "by_tool": _fetch_by_tool(conn, scope),
+        "by_client_kind": _fetch_by_client_kind(conn, scope),
+        "by_client_name": _fetch_by_client_name(conn, scope),
+        "recent_errors": _fetch_recent_errors(conn, scope),
     }
