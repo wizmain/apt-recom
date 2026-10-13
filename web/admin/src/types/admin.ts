@@ -237,3 +237,60 @@ export interface ChatLogDetail {
   terminated_early: boolean;
   created_at: string | null;
 }
+
+// ── MCP Usage ─────────────────────────────────────────────
+
+export interface McpUsageSummary {
+  count_tool_calls: number;
+  count_connections: number;
+  count_errors: number;
+  error_rate: number;
+  count_ip_prefixes: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+}
+
+export interface McpUsageDailyPoint {
+  day: string; // YYYY-MM-DD (KST)
+  count_tool_calls: number;
+  count_connections: number;
+  count_errors: number;
+  count_ip_prefixes: number;
+}
+
+export interface McpToolCallStats {
+  name: string;
+  count_calls: number;
+  count_errors: number;
+  error_rate: number;
+  count_ip_prefixes: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+}
+
+export interface McpClientNameStats {
+  name: string;
+  count_connections: number;
+  count_ip_prefixes: number;
+  last_connected_at: string;
+}
+
+export interface McpErrorRow {
+  id: number;
+  tool_name: string;
+  client_kind: string | null;
+  arguments: unknown;
+  error_message: string | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+export interface McpUsage {
+  range: { from: string; to: string };
+  summary: McpUsageSummary;
+  daily: McpUsageDailyPoint[];
+  by_tool: McpToolCallStats[];
+  by_client_kind: McpToolCallStats[];
+  by_client_name: McpClientNameStats[];
+  recent_errors: McpErrorRow[];
+}

@@ -10,6 +10,7 @@ import { Logs } from "./pages/Logs";
 import { Scoring } from "./pages/Scoring";
 import { CommonCode } from "./pages/CommonCode";
 import { MgmtCost } from "./pages/MgmtCost";
+import { McpUsage } from "./pages/McpUsage";
 
 function App() {
   const { setToken, clearToken, isAuthenticated } = useAuth();
@@ -29,6 +30,7 @@ function App() {
             <Route path="/batch" element={<BatchMonitor />} />
             <Route path="/feedback" element={<Feedback />} />
             <Route path="/logs" element={<Logs />} />
+            <Route path="/mcp" element={<McpUsage />} />
             <Route path="/scoring" element={<Scoring />} />
             <Route path="/codes" element={<CommonCode />} />
             <Route path="/mgmt-cost" element={<MgmtCost />} />

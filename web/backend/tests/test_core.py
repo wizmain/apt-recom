@@ -1071,6 +1071,69 @@ def test_admin_scoring_weights():
     assert "max_distances" in data, "max_distances 필드 없음"
 
 
+@test("관리자: mcp-usage 토큰 없이 401")
+def test_admin_mcp_usage_no_token():
+    import requests
+
+    resp = requests.get(f"{ADMIN_BASE}/mcp-usage", timeout=5)
+    assert resp.status_code in (401, 503), (
+        f"예상: 401 또는 503, 실제: {resp.status_code}"
+    )
+
+
+@test("관리자: mcp-usage 200 + 섹션 키")
+def test_admin_mcp_usage():
+    import requests
+
+    if not ADMIN_TOKEN:
+        return
+    resp = requests.get(
+        f"{ADMIN_BASE}/mcp-usage",
+        params={"days": 90},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+        timeout=10,
+    )
+    assert resp.status_code == 200, f"예상: 200, 실제: {resp.status_code}"
+    data = resp.json()
+    for key in (
+        "range", "summary", "daily", "by_tool",
+        "by_client_kind", "by_client_name", "recent_errors",
+    ):
+        assert key in data, f"{key} 필드 없음"
+
+
+@test("MCP 사용량: tool 호출과 프로토콜(연결) 행 분리 집계")
+def test_mcp_usage_separates_protocol_rows():
+    from datetime import datetime, timedelta, timezone
+
+    from database import DictConnection
+    from services.mcp_usage import PROTOCOL_PATTERN, get_mcp_usage
+
+    to = datetime.now(timezone.utc)
+    frm = to - timedelta(days=365)
+    conn = DictConnection()
+    try:
+        data = get_mcp_usage(conn, frm, to)
+        raw = conn.execute(
+            "SELECT COUNT(*) FILTER (WHERE tool_name NOT LIKE %s) AS tool_calls, "
+            "       COUNT(*) FILTER (WHERE tool_name = 'protocol:initialize') AS connections "
+            "FROM mcp_call_log WHERE created_at BETWEEN %s AND %s",
+            [PROTOCOL_PATTERN, frm, to],
+        ).fetchone()
+    finally:
+        conn.close()
+
+    summary = data["summary"]
+    assert summary["count_tool_calls"] == raw["tool_calls"], "tool 호출 수 불일치"
+    assert summary["count_connections"] == raw["connections"], "연결 수 불일치"
+    assert all(not t["name"].startswith("protocol:") for t in data["by_tool"]), (
+        "by_tool 에 프로토콜 행 포함"
+    )
+    assert sum(t["count_calls"] for t in data["by_tool"]) == raw["tool_calls"]
+    assert sum(c["count_connections"] for c in data["by_client_name"]) == raw["connections"]
+    assert sum(d["count_tool_calls"] for d in data["daily"]) == raw["tool_calls"]
+
+
 # ============================================================
 # 12. 이벤트 수집 API 테스트 (POST /api/events)
 # ============================================================

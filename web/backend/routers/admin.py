@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from database import DictConnection, get_connection
 from services.admin_auth import require_local_env, verify_admin_token
+from services.mcp_usage import get_mcp_usage
 from services.mgmt_cost_parser import (
     insert_mgmt_costs,
     parse_cost_excel,
@@ -1493,5 +1494,23 @@ def log_analytics_chat_detail(chat_id: int):
             "terminated_early": row["terminated_early"],
             "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         }
+    finally:
+        conn.close()
+
+
+# ── MCP 사용량 ────────────────────────────────────────────────
+
+
+@router.get("/mcp-usage")
+def mcp_usage(
+    days: int | None = Query(None, ge=1, le=365),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    """외부 MCP 클라이언트 호출 사용량 — 요약·일별·tool/클라이언트별·최근 오류."""
+    frm, to = _resolve_range(days, date_from, date_to)
+    conn = DictConnection()
+    try:
+        return get_mcp_usage(conn, frm, to)
     finally:
         conn.close()
