@@ -1107,18 +1107,24 @@ def test_mcp_usage_separates_protocol_rows():
     from datetime import datetime, timedelta, timezone
 
     from database import DictConnection
-    from services.mcp_usage import PROTOCOL_PATTERN, get_mcp_usage
+    from services.mcp_usage import (
+        PROTOCOL_PATTERN,
+        get_mcp_usage,
+        load_internal_ua_patterns,
+    )
 
     to = datetime.now(timezone.utc)
     frm = to - timedelta(days=365)
     conn = DictConnection()
     try:
         data = get_mcp_usage(conn, frm, to)
+        patterns = load_internal_ua_patterns(conn)
         raw = conn.execute(
             "SELECT COUNT(*) FILTER (WHERE tool_name NOT LIKE %s) AS tool_calls, "
             "       COUNT(*) FILTER (WHERE tool_name = 'protocol:initialize') AS connections "
-            "FROM mcp_call_log WHERE created_at BETWEEN %s AND %s",
-            [PROTOCOL_PATTERN, frm, to],
+            "FROM mcp_call_log WHERE created_at BETWEEN %s AND %s "
+            "  AND NOT COALESCE(user_agent, '') LIKE ANY(%s::text[])",
+            [PROTOCOL_PATTERN, frm, to, patterns],
         ).fetchone()
     finally:
         conn.close()
@@ -1132,6 +1138,37 @@ def test_mcp_usage_separates_protocol_rows():
     assert sum(t["count_calls"] for t in data["by_tool"]) == raw["tool_calls"]
     assert sum(c["count_connections"] for c in data["by_client_name"]) == raw["connections"]
     assert sum(d["count_tool_calls"] for d in data["daily"]) == raw["tool_calls"]
+
+
+@test("MCP 사용량: 내부 점검 UA(common_code mcp_internal_ua) 제외 + 제외 건수")
+def test_mcp_usage_excludes_internal():
+    from datetime import datetime, timedelta, timezone
+
+    from database import DictConnection
+    from services.mcp_usage import get_mcp_usage, load_internal_ua_patterns
+
+    to = datetime.now(timezone.utc)
+    frm = to - timedelta(days=365)
+    conn = DictConnection()
+    try:
+        patterns = load_internal_ua_patterns(conn)
+        data = get_mcp_usage(conn, frm, to)
+        raw = conn.execute(
+            "SELECT COUNT(*) FILTER (WHERE COALESCE(user_agent, '') LIKE ANY(%s::text[])) AS internal, "
+            "       COUNT(*) AS total "
+            "FROM mcp_call_log WHERE created_at BETWEEN %s AND %s",
+            [patterns, frm, to],
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert all(p.endswith("%") for p in patterns), f"접두어 패턴 아님: {patterns}"
+    summary = data["summary"]
+    assert summary["count_excluded_internal"] == raw["internal"], "제외 건수 불일치"
+    counted = summary["count_tool_calls"] + sum(
+        d["count_connections"] for d in data["daily"]
+    )
+    assert counted <= raw["total"] - raw["internal"], "내부 점검 행이 집계에 포함됨"
 
 
 # ============================================================
