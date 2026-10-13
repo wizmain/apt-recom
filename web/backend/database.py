@@ -436,6 +436,12 @@ def create_tables(conn) -> None:
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS min_supply_area DOUBLE PRECISION;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS max_supply_area DOUBLE PRECISION;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS avg_supply_area DOUBLE PRECISION;
+        -- ADR-015 거래 키 전환: 이름 키 보존·키 결정 방법·전월세 준공연도
+        ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS legacy_apt_seq TEXT;
+        ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS apt_seq_method TEXT;
+        ALTER TABLE rent_history ADD COLUMN IF NOT EXISTS legacy_apt_seq TEXT;
+        ALTER TABLE rent_history ADD COLUMN IF NOT EXISTS apt_seq_method TEXT;
+        ALTER TABLE rent_history ADD COLUMN IF NOT EXISTS build_year INTEGER;
 
         -- apt_kapt_info 보충 컬럼 (K-APT 20260417 엑셀 재적재용)
         ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS joined_date TEXT;
