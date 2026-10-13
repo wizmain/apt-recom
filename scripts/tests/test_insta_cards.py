@@ -1309,6 +1309,16 @@ class TestValueSeries(unittest.TestCase):
         self.assertGreater(value.BAND_OUTLIER_MAX_DEVIATION, 0)
         self.assertLess(value.BAND_OUTLIER_MAX_DEVIATION, 1)
 
+    def test_methodology_discloses_outlier_rule(self):
+        """이상 거래 제외 규칙은 카드 방법론에 공시한다 — 직거래 제외와 같은 원칙."""
+        import inspect
+
+        from scripts.insta_cards.series import value
+
+        source = inspect.getsource(value.run)
+        self.assertIn("BAND_OUTLIER_MAX_DEVIATION:.0%", source)
+        self.assertEqual(f"{value.BAND_OUTLIER_MAX_DEVIATION:.0%}", "25%")
+
     def test_select_candidates_sorts_by_price(self):
         from scripts.insta_cards.series import value
 
