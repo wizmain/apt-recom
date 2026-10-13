@@ -12,6 +12,7 @@ const MENU_ITEMS: MenuItem[] = [
   { path: "/batch", icon: "⚙", label: "배치" },
   { path: "/feedback", icon: "💬", label: "피드백" },
   { path: "/logs", icon: "📈", label: "로그 분석" },
+  { path: "/mcp", icon: "🔌", label: "MCP 사용량" },
   { path: "/scoring", icon: "🎯", label: "스코어링" },
   { path: "/codes", icon: "🏷", label: "공통코드" },
   { path: "/mgmt-cost", icon: "💰", label: "관리비 등록" },
