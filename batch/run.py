@@ -20,9 +20,18 @@ def run_trade(args, logger, result):
     from batch.trade.recalc_price import recalc_price
     from batch.trade.enrich_apartments import enrich_new_apartments
     from batch.ml.build_undervalue import build_undervalue
+    from batch.trade.trade_keys import try_trade_write_lock
+    from batch.trade.trade_key_mapping import map_api_keys
 
     conn = get_connection()
     try:
+        # 키 변경(batch.rekey_trades)과 동시에 거래 테이블을 쓰지 않는다 (ADR-015).
+        # 조용히 진행하면 같은 행을 두 쪽이 바꾼다 — 실패로 기록하고 멈춘다.
+        if not try_trade_write_lock(conn):
+            logger.error("거래 쓰기 잠금 점유 중(키 변경 실행 중) — 이번 회차 중단")
+            result.record("거래 쓰기 잠금", "critical", error="rekey_trades 실행 중")
+            return
+
         # 1. 수집
         t0 = time.time()
         trade_rows, rent_rows, stats = collect_trades(
@@ -61,6 +70,14 @@ def run_trade(args, logger, result):
         inserted = load_trades(conn, trade_rows, rent_rows, logger)
         result.record(
             "거래 데이터 적재", "success", rows=inserted, duration=time.time() - t0
+        )
+
+        # 2.5. 고유번호 키 매핑 — recalc_price 의 이름 매핑보다 먼저 (ADR-015)
+        t0 = time.time()
+        mapped = map_api_keys(conn, logger)
+        conn.commit()
+        result.record(
+            "고유번호 키 매핑", "success", rows=mapped, duration=time.time() - t0
         )
 
         # 3. 가격 점수 재계산
