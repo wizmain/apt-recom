@@ -27,5 +27,24 @@ class RunTradeLockTest(unittest.TestCase):
         conn.close.assert_called_once()
 
 
+class RunBackfillLockTest(unittest.TestCase):
+    """최종 리뷰 #4 — 백필도 키 변경 실행 중이면 실패로 기록하고 멈춘다."""
+
+    def test_busy_lock_records_critical_and_skips_backfill(self):
+        result = MagicMock()
+        conn = MagicMock()
+        with (
+            patch.object(mod, "get_connection", return_value=conn),
+            patch("batch.trade.trade_keys.try_trade_write_lock", return_value=False),
+            patch("batch.trade.backfill_trades.backfill_trades") as backfill,
+        ):
+            mod.run_backfill(
+                SimpleNamespace(dry_run=False, max_calls=None), MagicMock(), result
+            )
+        backfill.assert_not_called()
+        self.assertEqual(result.record.call_args[0][1], "critical")
+        conn.close.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -479,9 +479,15 @@ def run_kapt_refresh(args, logger, result):
 
 def run_backfill(args, logger, result):
     from batch.trade.backfill_trades import backfill_trades
+    from batch.trade.trade_keys import try_trade_write_lock
 
     conn = get_connection()
     try:
+        # 키 변경(batch.rekey_trades)과 동시에 거래 테이블을 쓰지 않는다 (ADR-015, run_trade 와 동일).
+        if not try_trade_write_lock(conn):
+            logger.error("거래 쓰기 잠금 점유 중(키 변경 실행 중) — 백필 중단")
+            result.record("거래 쓰기 잠금", "critical", error="rekey_trades 실행 중")
+            return
         t0 = time.time()
         max_calls = args.max_calls if args.max_calls is not None else 900
         updated = backfill_trades(

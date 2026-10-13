@@ -29,7 +29,7 @@ from batch.db import query_all, vacuum_tables
 from batch.logger import setup_logger
 from batch.trade.audit_mappings import audit
 from batch.trade.trade_key_inference import KnownRow, TargetRow, infer_keys
-from batch.trade.trade_key_mapping import map_api_keys
+from batch.trade.trade_key_mapping import MATCH_INHERIT_LEGACY, map_api_keys
 from batch.trade.trade_keys import KEY_METHOD_API, try_trade_write_lock
 
 CHECKPOINT_GROUP = "rekey_trades_checkpoint"
@@ -87,6 +87,21 @@ def check_invariants(
     return errors
 
 
+def created_mapping_pnus(pre_existing_keys: set[str], mappings_after) -> set[str]:
+    """이번 실행에서 새로 생긴 비상속 매핑의 PNU — 귀속 변화 허용 목록에 더한다.
+
+    이미 있던 매핑은 제외한다: 실행 전부터 잘못 붙어 있던 매핑이 허용 목록을 넓혀
+    엉뚱한 귀속 변화를 검증에서 통과시키지 않게 한다 (최종 리뷰 #1c).
+    mappings_after: apt_seq·pnu·match_method 를 가진 행들.
+    """
+    return {
+        m["pnu"]
+        for m in mappings_after
+        if m["apt_seq"] not in pre_existing_keys
+        and m["match_method"] != MATCH_INHERIT_LEGACY
+    }
+
+
 # ── DB ──
 
 
@@ -116,7 +131,7 @@ def _known(conn, sgg, table, with_year):
         for r in query_all(
             conn,
             f"""
-            SELECT COALESCE(legacy_apt_seq, apt_seq) AS lk, api_apt_seq, {year} AS by,
+            SELECT COALESCE(legacy_apt_seq, apt_seq) AS lk, btrim(api_apt_seq) AS api_apt_seq, {year} AS by,
                    exclu_use_ar AS area
             FROM {table} WHERE sgg_cd = %s AND api_apt_seq IS NOT NULL AND btrim(api_apt_seq) <> ''""",
             [sgg],
@@ -181,6 +196,14 @@ def _allowed_pnus(conn, sgg, trade_known, rent_known) -> set[str]:
             conn, "SELECT pnu FROM trade_apt_mapping WHERE apt_seq = ANY(%s)", [mixed]
         )
     }
+
+
+def _mappings(conn, keys: list[str]) -> list[dict]:
+    return query_all(
+        conn,
+        "SELECT apt_seq, pnu, match_method FROM trade_apt_mapping WHERE apt_seq = ANY(%s)",
+        [keys],
+    )
 
 
 def _current_keys(conn, plan) -> list[str]:
@@ -255,19 +278,11 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
             _apply(conn, table, items)
     new_keys = sorted({k for items in plan.values() for _, k, _ in items})
     if new_keys:
+        pre_existing = {r["apt_seq"] for r in _mappings(conn, new_keys)}
         map_api_keys(conn, logger, apt_seqs=new_keys)
-        # 상속(api_inherit_legacy)이 아닌 새 매핑은 귀속이 바뀌는 게 정상이다 — 예: 매핑이 없던
-        # 상도1동대림이 주소 PNU 로 처음 거래를 갖는다. 혼입 키 기존 PNU 와 함께 허용 목록에 넣는다.
-        allowed |= {
-            r["pnu"]
-            for r in query_all(
-                conn,
-                """
-            SELECT pnu FROM trade_apt_mapping
-            WHERE apt_seq = ANY(%s) AND match_method <> 'api_inherit_legacy'""",
-                [new_keys],
-            )
-        }
+        # 이번에 만든 상속(api_inherit_legacy) 아닌 매핑은 귀속이 바뀌는 게 정상이다 — 예: 매핑이
+        # 없던 상도1동대림이 주소 PNU 로 처음 거래를 갖는다. 혼입 키 기존 PNU 와 함께 허용 목록에 넣는다.
+        allowed |= created_mapping_pnus(pre_existing, _mappings(conn, new_keys))
     after = _snapshot(conn, sgg)
     audit_after = len(audit(conn, logger, apt_seqs=new_keys)) if new_keys else 0
     errors = check_invariants(before, after, allowed, audit_before, audit_after)

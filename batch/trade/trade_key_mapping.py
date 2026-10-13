@@ -19,6 +19,8 @@ from batch.trade.recalc_price import _core_name, _normalize_name
 from batch.trade.trade_keys import address_pnu
 
 MIN_CONTAINS_LEN = 3  # recalc_price 포함 매칭과 같은 하한
+MATCH_INHERIT_LEGACY = "api_inherit_legacy"
+FROZEN_INHERIT_LOG_SAMPLE = 50
 MIN_CORE_LEN = 2
 
 
@@ -31,7 +33,7 @@ class MappingInput(NamedTuple):
 
 def decide_mapping(inp: MappingInput) -> tuple[str, str] | None:
     if len(inp.legacy_pnus) == 1:
-        return next(iter(inp.legacy_pnus)), "api_inherit_legacy"
+        return next(iter(inp.legacy_pnus)), MATCH_INHERIT_LEGACY
     if inp.address_pnu:
         return inp.address_pnu, "api_address_pnu"
     return _match_name(inp.apt_nm, inp.name_candidates)
@@ -60,6 +62,11 @@ def _match_name(apt_nm: str, candidates) -> tuple[str, str] | None:
         if len(found) == 1:
             return found[0], "api_name_core"
     return None
+
+
+def mixed_legacy_ids(ids_by_legacy: dict[str, set[str]]) -> list[str]:
+    """고유번호가 2개 이상 관측된(혼입) 이름 키들에 속한 고유번호."""
+    return sorted({i for ids in ids_by_legacy.values() if len(ids) > 1 for i in ids})
 
 
 # ── DB 래퍼 ──
@@ -200,4 +207,32 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
     logger.info(f"  고유번호 키 매핑 {len(new_rows):,}건, 미매핑 {len(unmapped):,}건")
     if unmapped:
         logger.warning(f"  미매핑 고유번호 키(최대 50): {unmapped[:50]}")
+    _warn_frozen_inherits(conn, logger, ids_by_legacy)
     return len(new_rows)
+
+
+def _warn_frozen_inherits(conn, logger, ids_by_legacy: dict[str, set[str]]) -> None:
+    """상속 매핑의 근거(이름 키 안 고유번호가 하나뿐)가 깨진 키를 알린다 — 재매핑하지 않는다.
+
+    상속 당시엔 단일이던 이름 키에 이후 다른 고유번호가 나타나면, 상속한 PNU 가 혼입 시절
+    대표 단지일 수 있다. 자동 재귀속은 하지 않는다(audit_mappings 원칙) — 사람 검토 대상으로
+    로그만 남긴다 (최종 리뷰 #3). 이번 호출이 다룬 키의 이름 키만 보므로 추가 비용은
+    trade_apt_mapping PK 조회 한 번이고, 새 고유번호가 처음 매핑될 때(그 회차) 한 번 경고된다.
+    """
+    mixed_ids = mixed_legacy_ids(ids_by_legacy)
+    if not mixed_ids:
+        return
+    frozen = [
+        r["apt_seq"]
+        for r in query_all(
+            conn,
+            "SELECT apt_seq FROM trade_apt_mapping "
+            "WHERE apt_seq = ANY(%s) AND match_method = %s ORDER BY apt_seq",
+            [mixed_ids, MATCH_INHERIT_LEGACY],
+        )
+    ]
+    if frozen:
+        logger.warning(
+            f"  상속 매핑 재검토 필요 — 이름 키가 혼입으로 바뀐 고유번호 키 {len(frozen):,}건 "
+            f"(최대 {FROZEN_INHERIT_LOG_SAMPLE}): {frozen[:FROZEN_INHERIT_LOG_SAMPLE]}"
+        )

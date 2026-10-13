@@ -96,5 +96,81 @@ class CheckpointAndGuardTest(unittest.TestCase):
         self.assertEqual([tg.row_id for tg in targets], [2, 3, 4])
 
 
+class CreatedMappingPnusTest(unittest.TestCase):
+    """최종 리뷰 #1c — 허용 목록 확장은 이번 실행에서 새로 생긴 비상속 매핑만."""
+
+    def test_pre_existing_and_inherited_mappings_are_excluded(self):
+        after = [
+            {"apt_seq": "11590-57", "pnu": "P_OLD", "match_method": "api_address_pnu"},
+            {"apt_seq": "11590-85", "pnu": "P_NEW", "match_method": "api_address_pnu"},
+            {
+                "apt_seq": "11590-90",
+                "pnu": "P_INH",
+                "match_method": "api_inherit_legacy",
+            },
+        ]
+        self.assertEqual(
+            rekey_trades.created_mapping_pnus({"11590-57"}, after), {"P_NEW"}
+        )
+
+    def test_rekey_sgg_snapshots_mappings_before_map_api_keys(self):
+        calls = []
+        before_rows = [
+            {"apt_seq": "11590-57", "pnu": "P_OLD", "match_method": "api_name_exact"}
+        ]
+        after_rows = before_rows + [
+            {"apt_seq": "11590-85", "pnu": "P_NEW", "match_method": "api_address_pnu"}
+        ]
+        snaps = iter([before_rows, after_rows])
+
+        def fake_mappings(conn, keys):
+            calls.append("mappings")
+            return next(snaps)
+
+        def fake_map(conn, logger, apt_seqs):
+            calls.append("map_api_keys")
+
+        captured = {}
+
+        def fake_check(before, after, allowed, ab, aa):
+            captured["allowed"] = allowed
+            return []
+
+        known = [KnownRow(L, "11590-57", 1993, 84.92)]
+        snap = Snapshot({"trade_history": 1}, 0, {})
+        with (
+            mock.patch.object(rekey_trades, "_known", return_value=known),
+            mock.patch.object(
+                rekey_trades,
+                "_targets",
+                return_value=([(1, "11590-57"), (2, "11590-85")], []),
+            ),
+            mock.patch.object(rekey_trades, "_allowed_pnus", return_value=set()),
+            mock.patch.object(rekey_trades, "_snapshot", return_value=snap),
+            mock.patch.object(rekey_trades, "_current_keys", return_value=[L]),
+            mock.patch.object(rekey_trades, "audit", return_value=[]),
+            mock.patch.object(rekey_trades, "_apply"),
+            mock.patch.object(rekey_trades, "_mappings", side_effect=fake_mappings),
+            mock.patch.object(rekey_trades, "map_api_keys", side_effect=fake_map),
+            mock.patch.object(rekey_trades, "check_invariants", side_effect=fake_check),
+            mock.patch.object(rekey_trades, "_save_checkpoint"),
+        ):
+            status = rekey_trades.rekey_sgg(
+                mock.MagicMock(), "11590", mock.MagicMock(), apply=True
+            )
+        self.assertEqual(status, "done")
+        self.assertEqual(calls, ["mappings", "map_api_keys", "mappings"])
+        self.assertEqual(captured["allowed"], {"P_NEW"})
+
+
+class KnownTrimsApiIdTest(unittest.TestCase):
+    """최종 리뷰 #6 — _known 의 고유번호는 공백 제거 값(적재·대상 행과 같은 기준)."""
+
+    def test_select_uses_btrim(self):
+        with mock.patch.object(rekey_trades, "query_all", return_value=[]) as q:
+            rekey_trades._known(None, "11590", "trade_history", True)
+        self.assertIn("btrim(api_apt_seq) AS api_apt_seq", q.call_args[0][1])
+
+
 if __name__ == "__main__":
     unittest.main()

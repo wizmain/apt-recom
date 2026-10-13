@@ -6,7 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from batch.trade.trade_key_mapping import MappingInput, decide_mapping
+from unittest.mock import MagicMock, patch
+
+from batch.trade import trade_key_mapping
+from batch.trade.trade_key_mapping import MappingInput, decide_mapping, mixed_legacy_ids
 
 DAEBANG = "1159010800005010000"
 SANGDO = "1159010200004110000"
@@ -63,6 +66,36 @@ class DecideMappingTest(unittest.TestCase):
 
     def test_rank4_nothing_is_unmapped(self):
         self.assertIsNone(decide_mapping(inp()))
+
+
+class FrozenInheritWarningTest(unittest.TestCase):
+    """최종 리뷰 #3 — 이름 키가 혼입으로 바뀐 상속 매핑은 재매핑 없이 경고만."""
+
+    def test_mixed_legacy_ids_only_from_multi_id_keys(self):
+        ids = {"11590_대림": {"11590-57", "11590-85"}, "11590_현대": {"11590-10"}}
+        self.assertEqual(mixed_legacy_ids(ids), ["11590-57", "11590-85"])
+
+    def test_warns_inherited_keys_under_mixed_legacy_without_writing(self):
+        conn, logger = MagicMock(), MagicMock()
+        with patch.object(
+            trade_key_mapping, "query_all", return_value=[{"apt_seq": "11590-57"}]
+        ) as q:
+            trade_key_mapping._warn_frozen_inherits(
+                conn, logger, {"11590_대림": {"11590-57", "11590-85"}}
+            )
+        sql, params = q.call_args[0][1], q.call_args[0][2]
+        self.assertIn("SELECT", sql)
+        self.assertEqual(params, [["11590-57", "11590-85"], "api_inherit_legacy"])
+        logger.warning.assert_called_once()
+        self.assertIn("11590-57", logger.warning.call_args[0][0])
+        conn.cursor.assert_not_called()
+
+    def test_no_query_when_nothing_mixed(self):
+        with patch.object(trade_key_mapping, "query_all") as q:
+            trade_key_mapping._warn_frozen_inherits(
+                MagicMock(), MagicMock(), {"11590_현대": {"11590-10"}}
+            )
+        q.assert_not_called()
 
 
 if __name__ == "__main__":
