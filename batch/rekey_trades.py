@@ -7,6 +7,10 @@
     python -m batch.rekey_trades --target local --apply              # 로컬 적용
     python -m batch.rekey_trades --target railway --apply --limit 20 # 운영(사용자 실행)
     python -m batch.rekey_trades --target local --rollback --sgg 11590
+
+전체 실행(--sgg 생략)은 체크포인트가 done/failed/rolled_back 인 구를 건너뛴다(롤백한 구를
+다음 --apply 가 되살리지 않는다). --sgg 로 명시한 구는 상태와 무관하게 다시 실행한다.
+감사(audit) 위반은 **같은 행**을 변경 전 키(old_keys)와 변경 후 키(new_keys)로 각각 세어 비교한다.
 """
 
 from __future__ import annotations
@@ -30,6 +34,11 @@ from batch.trade.trade_keys import KEY_METHOD_API, try_trade_write_lock
 
 CHECKPOINT_GROUP = "rekey_trades_checkpoint"
 TABLES = ("trade_history", "rent_history")
+SKIP_STATUSES = (
+    "done",
+    "failed",
+    "rolled_back",
+)  # 전체 실행에서 건너뛰는 체크포인트 상태
 DEFAULT_VACUUM_EVERY = 20  # 구 N개마다 VACUUM (ANALYZE) — 운영 1GB 캡 bloat 완화
 
 
@@ -109,7 +118,7 @@ def _known(conn, sgg, table, with_year):
             f"""
             SELECT COALESCE(legacy_apt_seq, apt_seq) AS lk, api_apt_seq, {year} AS by,
                    exclu_use_ar AS area
-            FROM {table} WHERE sgg_cd = %s AND api_apt_seq IS NOT NULL""",
+            FROM {table} WHERE sgg_cd = %s AND api_apt_seq IS NOT NULL AND btrim(api_apt_seq) <> ''""",
             [sgg],
         )
     ]
@@ -124,11 +133,16 @@ def _targets(conn, sgg, table, with_year):
         FROM {table} WHERE sgg_cd = %s AND apt_seq_method IS NULL""",
         [sgg],
     )
-    api_rows = [(r["id"], r["api_apt_seq"]) for r in rows if r["api_apt_seq"]]
+    # 공백뿐인 aptSeq 는 없는 것으로 본다 (빈 키 금지)
+    api_rows = [
+        (r["id"], r["api_apt_seq"].strip())
+        for r in rows
+        if (r["api_apt_seq"] or "").strip()
+    ]
     targets = [
         TargetRow(r["id"], r["apt_seq"], r["by"], r["area"])
         for r in rows
-        if not r["api_apt_seq"]
+        if not (r["api_apt_seq"] or "").strip()
     ]
     return api_rows, targets
 
@@ -169,6 +183,22 @@ def _allowed_pnus(conn, sgg, trade_known, rent_known) -> set[str]:
     }
 
 
+def _current_keys(conn, plan) -> list[str]:
+    """계획 대상 행들의 현재(변경 전) apt_seq."""
+    keys = set()
+    for table, items in plan.items():
+        if items:
+            keys |= {
+                r["apt_seq"]
+                for r in query_all(
+                    conn,
+                    f"SELECT DISTINCT apt_seq FROM {table} WHERE id = ANY(%s)",
+                    [[rid for rid, _, _ in items]],
+                )
+            }
+    return sorted(keys)
+
+
 def _apply(conn, table, items):
     psycopg2.extras.execute_values(
         conn.cursor(),
@@ -196,8 +226,8 @@ def _done(conn) -> set[str]:
         r["code"]
         for r in query_all(
             conn,
-            "SELECT code FROM common_code WHERE group_id = %s AND name IN ('done', 'failed')",
-            [CHECKPOINT_GROUP],
+            "SELECT code FROM common_code WHERE group_id = %s AND name = ANY(%s)",
+            [CHECKPOINT_GROUP, list(SKIP_STATUSES)],
         )
     }
 
@@ -217,7 +247,9 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
 
     allowed = _allowed_pnus(conn, sgg, tk, rk)
     before = _snapshot(conn, sgg)
-    audit_before = len(audit(conn, logger, pnus=sorted(allowed))) if allowed else 0
+    # 같은 행을 변경 전 키로 감사 → 변경 후 키로 감사 (PNU 집합이 달라 생기는 오탐 방지)
+    old_keys = _current_keys(conn, plan)
+    audit_before = len(audit(conn, logger, apt_seqs=old_keys)) if old_keys else 0
     for table, items in plan.items():
         if items:
             _apply(conn, table, items)
@@ -237,7 +269,7 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
             )
         }
     after = _snapshot(conn, sgg)
-    audit_after = len(audit(conn, logger, pnus=sorted(allowed))) if allowed else 0
+    audit_after = len(audit(conn, logger, apt_seqs=new_keys)) if new_keys else 0
     errors = check_invariants(before, after, allowed, audit_before, audit_after)
     if errors:
         conn.rollback()
@@ -298,7 +330,11 @@ def main():
             for sgg in args.sgg:
                 rollback_sgg(conn, sgg, logger)
             return
-        todo = args.sgg or [s for s in _sggs(conn) if s not in _done(conn)]
+        if args.sgg:
+            todo = args.sgg
+        else:
+            done = _done(conn)
+            todo = [s for s in _sggs(conn) if s not in done]
         if args.limit:
             todo = todo[: args.limit]
         summary = Counter()

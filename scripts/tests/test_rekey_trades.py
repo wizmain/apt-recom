@@ -3,10 +3,12 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from batch.rekey_trades import Snapshot, check_invariants, plan_sgg
+from batch import rekey_trades
+from batch.rekey_trades import SKIP_STATUSES, Snapshot, check_invariants, plan_sgg
 from batch.trade.trade_key_inference import KnownRow, TargetRow
 
 L = "11590_대림아파트"
@@ -60,6 +62,38 @@ class CheckInvariantsTest(unittest.TestCase):
 
     def test_audit_increase_fails(self):
         self.assertTrue(check_invariants(self.snap(), self.snap(), set(), 1, 2))
+
+
+class CheckpointAndGuardTest(unittest.TestCase):
+    def test_rolled_back_is_skipped_on_full_run(self):
+        self.assertEqual(set(SKIP_STATUSES), {"done", "failed", "rolled_back"})
+
+    def test_done_queries_skip_statuses(self):
+        with mock.patch.object(
+            rekey_trades, "query_all", return_value=[{"code": "11590"}]
+        ) as q:
+            self.assertEqual(rekey_trades._done(None), {"11590"})
+        self.assertEqual(q.call_args[0][2][1], list(SKIP_STATUSES))
+
+    def test_blank_api_seq_is_not_an_api_row(self):
+        rows = [
+            {
+                "id": 1,
+                "apt_seq": L,
+                "api_apt_seq": " 11590-57 ",
+                "by": 1993,
+                "area": 84.9,
+            },
+            {"id": 2, "apt_seq": L, "api_apt_seq": "   ", "by": 1993, "area": 84.9},
+            {"id": 3, "apt_seq": L, "api_apt_seq": "", "by": 1993, "area": 84.9},
+            {"id": 4, "apt_seq": L, "api_apt_seq": None, "by": 1993, "area": 84.9},
+        ]
+        with mock.patch.object(rekey_trades, "query_all", return_value=rows):
+            api_rows, targets = rekey_trades._targets(
+                None, "11590", "trade_history", True
+            )
+        self.assertEqual(api_rows, [(1, "11590-57")])
+        self.assertEqual([tg.row_id for tg in targets], [2, 3, 4])
 
 
 if __name__ == "__main__":
