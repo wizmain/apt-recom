@@ -1,5 +1,7 @@
 """배치용 DB 연결 유틸리티."""
 
+import time
+
 import psycopg2
 import psycopg2.extras
 from batch.config import DATABASE_URL
@@ -59,3 +61,29 @@ def get_district_codes(conn):
         "SELECT DISTINCT LEFT(sigungu_code, 5) as code FROM apartments WHERE sigungu_code IS NOT NULL",
     )
     return sorted(r["code"] for r in rows)
+
+
+def vacuum_tables(url: str, tables: list[str], logger, full: bool = False) -> None:
+    """VACUUM 은 transaction 안에서 못 돌리므로 별도 autocommit connection.
+
+    full=True 면 ``VACUUM (FULL, ANALYZE)`` — 테이블을 rewrite 해 디스크 공간을
+    OS 로 반환한다. ACCESS EXCLUSIVE 락 + 잔존 데이터 크기만큼의 임시 디스크가
+    필요하므로 트래픽 적은 시간대에 실행. 한 테이블이 실패(예: 디스크 부족)해도
+    이미 회수한 앞 테이블 효과는 유지되도록 테이블별로 에러를 잡고 계속 진행한다.
+    """
+    mode = "FULL, ANALYZE" if full else "ANALYZE"
+    conn = psycopg2.connect(url)
+    conn.autocommit = True
+    try:
+        cur = conn.cursor()
+        for t in tables:
+            logger.info(f"  VACUUM ({mode}) {t} 시작")
+            start = time.time()
+            try:
+                cur.execute(f"VACUUM ({mode}) {t}")
+            except psycopg2.Error as e:
+                logger.error(f"  VACUUM ({mode}) {t} 실패: {e}")
+                continue
+            logger.info(f"  VACUUM ({mode}) {t} 완료 ({time.time() - start:.1f}s)")
+    finally:
+        conn.close()
