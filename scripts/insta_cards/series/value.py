@@ -301,6 +301,7 @@ def run(args, *, slug, status, published_at, copy_overrides) -> Publication:
             f"가성비 넛지 상위 {CANDIDATE_POOL_SIZE}개 후보 중 ㎡당 가격 오름차순 {LIST_SIZE}곳",
             f"㎡당 가격은 전용 {args.min_area:g}~{args.max_area:g}㎡ 거래만으로 계산 "
             f"(최근 {BAND_TRADE_DAYS}일 · {EXCLUDED_DEALING_GBN} 제외 · "
+            f"단지 중앙값 대비 ±{BAND_OUTLIER_MAX_DEVIATION:.0%} 초과 거래 제외 · "
             f"밴드 내 {MIN_BAND_TRADES}건 이상)",
             f"모든 주택형이 전용 {args.min_smallest_area:g}㎡ 이상 · "
             f"{args.min_hhld}세대 이상인 단지만 후보",
