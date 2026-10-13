@@ -245,6 +245,17 @@ def _compose_pnu_from_trade(cur, apt_seq: str, sgg_cd: str) -> tuple[str, dict, 
     return pnu, bld_params, jibun
 
 
+def _sgg_of(cur, apt_seq: str) -> str | None:
+    """거래 키의 시군구 — 키는 불투명 문자열이라 문자열로 해석하지 않는다 (ADR-015)."""
+    cur.execute(
+        "SELECT sgg_cd FROM trade_history WHERE apt_seq = %s "
+        "UNION SELECT sgg_cd FROM rent_history WHERE apt_seq = %s LIMIT 1",
+        [apt_seq, apt_seq],
+    )
+    row = cur.fetchone()
+    return row["sgg_cd"] if row else None
+
+
 def _jibun_from_rent(cur, apt_seq: str) -> str | None:
     """전월세 원본의 텍스트 지번을 최빈값으로 돌려준다 ("오치동 985-1")."""
     cur.execute(RENT_JIBUN_SQL, [apt_seq])
@@ -545,7 +556,7 @@ def main() -> int:
             if r.get("status") == "NO_TARGET" and r["apt_seq"] not in seen:
                 targets.append({
                     "apt_seq": r["apt_seq"], "apt_nm": r["apt_nm"],
-                    "sgg_cd": r["apt_seq"].split("_", 1)[0],
+                    "sgg_cd": _sgg_of(cur, r["apt_seq"]),
                     "current_pnu": r["current_pnu"], "current_nm": r.get("current_nm"),
                 })
 

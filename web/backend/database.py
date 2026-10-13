@@ -442,6 +442,9 @@ def create_tables(conn) -> None:
         ALTER TABLE rent_history ADD COLUMN IF NOT EXISTS legacy_apt_seq TEXT;
         ALTER TABLE rent_history ADD COLUMN IF NOT EXISTS apt_seq_method TEXT;
         ALTER TABLE rent_history ADD COLUMN IF NOT EXISTS build_year INTEGER;
+        -- trade_key_mapping 의 legacy-ID 조회용 (배치마다 ~10M행 seq scan 방지)
+        CREATE INDEX IF NOT EXISTS idx_trade_legacy_seq ON trade_history(legacy_apt_seq) WHERE legacy_apt_seq IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_rent_legacy_seq ON rent_history(legacy_apt_seq) WHERE legacy_apt_seq IS NOT NULL;
 
         -- apt_kapt_info 보충 컬럼 (K-APT 20260417 엑셀 재적재용)
         ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS joined_date TEXT;

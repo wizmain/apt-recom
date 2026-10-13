@@ -24,14 +24,17 @@ from batch.logger import setup_logger
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 SYNC_CHECKPOINT_GROUP = "sync_checkpoint"
+# ADR-015 칼럼과 dealing_gbn 은 2026-10-13 추가 — 이전 행은 full sync 전까지 로컬에 NULL.
 SYNC_TABLES = [
     (
         "trade_history",
-        "apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year, created_at",
+        "apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year,"
+        " dealing_gbn, api_apt_seq, legacy_apt_seq, apt_seq_method, created_at",
     ),
     (
         "rent_history",
-        "apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day, created_at",
+        "apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day,"
+        " build_year, api_apt_seq, legacy_apt_seq, apt_seq_method, created_at",
     ),
 ]
 
