@@ -775,6 +775,10 @@ def _ensure_trade_key_columns(conn) -> None:
     다시 그 뒤에 줄 선다. 그래서 information_schema 로 없는 칼럼만 ALTER 하고, 잠금 대기는
     lock_timeout 으로 자른다. SET LOCAL 이 create_tables 본문에 번지지 않도록 별도
     트랜잭션으로 실행한다. 시간 초과 시 이 트랜잭션만 롤백하고 경고 후 계속한다(다음 기동에 재시도).
+
+    분기 안의 ALTER 에도 IF NOT EXISTS 를 둔다 — 서버 프로세스 여러 개가 동시에 기동하면 둘 다
+    "없음"을 확인한 뒤 ALTER 하므로, 늦은 쪽이 "already exists" 로 기동 마이그레이션 전체를
+    롤백했다(2026-10-14 배포, workers 2개). 잠금을 잡은 뒤 다시 확인하는 IF NOT EXISTS 가 경쟁을 흡수한다.
     """
     specs = ",\n".join(f"('{t}', '{c}', '{ty}')" for t, c, ty in _TRADE_KEY_COLUMNS)
     cur = conn.cursor()
@@ -791,7 +795,7 @@ def _ensure_trade_key_columns(conn) -> None:
                         WHERE table_schema = current_schema()
                           AND table_name = spec.tbl AND column_name = spec.col
                     ) THEN
-                        EXECUTE format('ALTER TABLE %I ADD COLUMN %I %s', spec.tbl, spec.col, spec.typ);
+                        EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s', spec.tbl, spec.col, spec.typ);
                     END IF;
                 END LOOP;
             END $$;
