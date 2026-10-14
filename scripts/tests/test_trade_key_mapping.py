@@ -15,6 +15,7 @@ from batch.trade.trade_key_mapping import (
     mapping_inputs_by_key,
     mixed_legacy_ids,
     most_frequent_value,
+    warn_weak_address_choices,
 )
 
 DAEBANG = "1159010800005010000"
@@ -189,6 +190,27 @@ class MostFrequentNameTest(unittest.TestCase):
 
     def test_empty_is_blank(self):
         self.assertEqual(most_frequent_value({}), "")
+
+
+class WarnWeakAddressChoicesTest(unittest.TestCase):
+    def test_logs_only_weak_choices(self):
+        logger = MagicMock()
+        a, a_old = "2826011300010030001", "2826010300010030001"
+        msgs = warn_weak_address_choices(
+            logger,
+            {"K1": {a: 6, a_old: 4}, "K2": {a: 1, a_old: 3}},
+            {"K1": a, "K2": a},
+        )
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("K2", msgs[0])
+        logger.warning.assert_called_once()
+
+    def test_silent_when_all_strong(self):
+        logger = MagicMock()
+        self.assertEqual(
+            warn_weak_address_choices(logger, {"K": {DAEBANG: 3}}, {"K": DAEBANG}), []
+        )
+        logger.warning.assert_not_called()
 
 
 if __name__ == "__main__":

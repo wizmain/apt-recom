@@ -9,7 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from batch.trade.trade_keys import (
     KEY_METHOD_API,
     TradeKey,
+    address_choice_warning,
     address_pnu,
+    address_pnu_counts,
     address_rows_by_key,
     name_key,
     resolve_trade_key,
@@ -149,6 +151,57 @@ class UniqueExistingPnuTest(unittest.TestCase):
     def test_none_exists(self):
         self.assertIsNone(unique_existing_pnu({self.A, self.B}, set()))
         self.assertIsNone(unique_existing_pnu(set(), {self.A}))
+
+
+class AddressChoiceWarningTest(unittest.TestCase):
+    """Fix round 1 #3 — 근거 약한 주소 선택 경고 (동작 변경 없음)."""
+
+    A = "2826011300010030001"  # 마전동아
+    A_OLD = "2826010300010030001"  # 같은 지번, 개편 전 법정동
+    B = "2826011300010290002"  # 다른 지번
+
+    def test_counts_weighted_by_n(self):
+        rows = [
+            {
+                "apt_seq": "K",
+                "sgg_cd": "28260",
+                "umd_cd": "11300",
+                "land_cd": "1",
+                "bonbun": "1003",
+                "bubun": "0001",
+                "n": 6,
+            },
+            {
+                "apt_seq": "K",
+                "sgg_cd": "28260",
+                "umd_cd": "10300",
+                "land_cd": "1",
+                "bonbun": "1003",
+                "bubun": "0001",
+                "n": 4,
+            },
+            {"apt_seq": "K", "sgg_cd": "28260", "umd_cd": None, "n": 865},
+        ]
+        self.assertEqual(address_pnu_counts(rows), {"K": {self.A: 6, self.A_OLD: 4}})
+
+    def test_majority_same_jibun_is_quiet(self):
+        self.assertIsNone(
+            address_choice_warning("K", {self.A: 6, self.A_OLD: 4}, self.A)
+        )
+
+    def test_minority_warns_with_shares(self):
+        msg = address_choice_warning("K", {self.A: 4, self.A_OLD: 6}, self.A)
+        self.assertIn("K → " + self.A, msg)
+        self.assertIn("4/10", msg)
+        self.assertIn("소수파=True", msg)
+
+    def test_other_jibun_than_majority_warns_even_at_half(self):
+        msg = address_choice_warning("K", {self.A: 5, self.B: 5}, self.B)
+        self.assertIn("지번 다름=True", msg)
+
+    def test_unknown_or_empty_is_quiet(self):
+        self.assertIsNone(address_choice_warning("K", {}, self.A))
+        self.assertIsNone(address_choice_warning("K", {self.B: 3}, self.A))
 
 
 if __name__ == "__main__":

@@ -62,7 +62,13 @@ from batch.trade.name_matching import (  # noqa: E402,F401
     _normalize_name,
     _timeline_consistent,
 )
-from batch.trade.trade_keys import address_rows_by_key, unique_existing_pnu
+from batch.trade.trade_key_mapping import warn_weak_address_choices
+from batch.trade.trade_keys import (
+    address_pnu_counts,
+    address_rows_by_key,
+    most_frequent_value,
+    unique_existing_pnu,
+)
 
 # 고유번호 키(ADR-015)를 주소 PNU 로 매핑·등록할 때의 match_method — trade_key_mapping 2순위와 같다.
 OFFICIAL_KEY_ADDRESS_METHOD = "api_address_pnu"
@@ -122,6 +128,25 @@ def plan_official_keys(official_rows: list[dict], existing_pnus: set) -> Officia
             register.setdefault(pnu, []).append(key)
             address_rows.setdefault(pnu, row)
     return OfficialKeyPlan(map_existing, register, unresolved, ambiguous, address_rows)
+
+
+def official_key_names(official_rows: list[dict]) -> dict[str, str]:
+    """고유번호 키별 단지명 — 행 수 최빈값(동률이면 사전순), trade_key_mapping 과 같은 규칙.
+
+    행 수(n)가 있는 집계 주소 행이 있으면 그것만 센다(대표 행이 한 번 더 세지지 않게).
+    """
+    counted = [r for r in official_rows if "n" in r]
+    counts: dict[str, dict[str, int]] = {}
+    for r in official_rows:
+        counts.setdefault(r["apt_seq"], {})
+    for r in counted or official_rows:
+        by_nm = counts[r["apt_seq"]]
+        nm = str(r.get("apt_nm") or "")
+        by_nm[nm] = by_nm.get(nm, 0) + int(r.get("n") or 1)
+    for r in official_rows:  # 집계 행이 없는 키는 대표 행 이름
+        if not counts[r["apt_seq"]]:
+            counts[r["apt_seq"]][str(r.get("apt_nm") or "")] = 1
+    return {k: most_frequent_value(c) for k, c in counts.items()}
 
 
 def _jibun_address(region: str, row: dict, pnu: str) -> str:
@@ -692,9 +717,16 @@ def _enrich_official_keys(
             f"(최대 {UNRESOLVED_LOG_SAMPLE}): {plan.unresolved[:UNRESOLVED_LOG_SAMPLE]}"
         )
 
+    # 근거가 약한 주소 매핑 경고(동작 변경 없음) — 집계 행(n 있음)으로 행 비율을 센다
+    warn_weak_address_choices(
+        logger,
+        address_pnu_counts([r for r in official_rows if "n" in r]),
+        plan.map_existing,
+    )
     rows_by_seq: dict[str, dict] = {}
     for r in official_rows:
         rows_by_seq.setdefault(r["apt_seq"], r)
+    names = official_key_names(official_rows)
     mappings = list(plan.map_existing.items())
     registered: dict[str, str] = {}
     failed: list[str] = []
@@ -734,7 +766,7 @@ def _enrich_official_keys(
         cur.execute(
             "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
             "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
-            [seq, pnu, row["apt_nm"], str(row["sgg_cd"])[:5], OFFICIAL_KEY_ADDRESS_METHOD],
+            [seq, pnu, names[seq], str(row["sgg_cd"])[:5], OFFICIAL_KEY_ADDRESS_METHOD],
         )
     conn.commit()
     logger.info(f"  고유번호 키 주소 매핑 {len(mappings)}건 (신규 등록 {len(registered)}개)")
@@ -749,11 +781,12 @@ def _enrich_official_keys(
 def _official_address_rows(conn, apt_seqs: list[str]) -> list[dict]:
     """고유번호 키들의 서로 다른 거래 주소 행 — 주소 PNU 후보를 모두 모으기 위해."""
     return query_all(conn, """
-        SELECT DISTINCT apt_seq, sgg_cd, apt_nm, umd_cd, bonbun, bubun, land_cd, umd_nm,
-               TRUE AS official_key
+        SELECT apt_seq, sgg_cd, apt_nm, umd_cd, bonbun, bubun, land_cd, umd_nm,
+               TRUE AS official_key, COUNT(*) AS n
         FROM trade_history
         WHERE apt_seq = ANY(%s) AND umd_cd IS NOT NULL AND apt_seq_method IS NOT NULL
-        ORDER BY apt_seq, umd_cd, bonbun, bubun
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+        ORDER BY apt_seq, umd_cd, bonbun, bubun, apt_nm
     """, [apt_seqs])
 
 

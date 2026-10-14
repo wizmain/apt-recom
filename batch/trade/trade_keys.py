@@ -88,6 +88,55 @@ def unique_existing_pnu(candidates, existing) -> str | None:
     return next(iter(hits)) if len(hits) == 1 else None
 
 
+def most_frequent_value(counts: dict[str, int]) -> str:
+    """가장 많이 나온 값. 동률이면 사전순 첫 값(결정적). 비어 있으면 빈 문자열."""
+    if not counts:
+        return ""
+    return min(counts, key=lambda v: (-counts[v], v))
+
+
+def _row_count(r) -> int:
+    return int(r.get("n") or 1)
+
+
+def address_pnu_counts(rows) -> dict[str, dict[str, int]]:
+    """키 → {주소 PNU: 행 수}. 집계 행이면 n(행 수)으로 가중, n 이 없으면 1."""
+    out: dict[str, dict[str, int]] = {}
+    for key, by_pnu in address_rows_by_key(rows).items():
+        out[key] = dict.fromkeys(by_pnu, 0)
+    for r in rows:
+        pnu = address_pnu(
+            str(r["sgg_cd"])[:5],
+            r.get("umd_cd"),
+            r.get("land_cd"),
+            _blank_to_none(r.get("bonbun")),
+            _blank_to_none(r.get("bubun")),
+        )
+        if pnu:
+            out[r["apt_seq"]][pnu] += _row_count(r)
+    return out
+
+
+_JIBUN_SLICE = slice(10, PNU_LENGTH)  # 산 여부 + 본번 4 + 부번 4
+
+
+def address_choice_warning(key: str, counts: dict[str, int], chosen: str) -> str | None:
+    """고른 주소 PNU 가 키 주소 행의 소수파이거나 다수파와 지번이 다르면 경고 문구 (동작 변경 없음).
+
+    개편 전후 법정동 코드만 다른 경우(지번 같음)는 소수파일 때만 경고한다.
+    """
+    total = sum(counts.values())
+    if not total or chosen not in counts:
+        return None
+    majority = most_frequent_value(counts)
+    minority = counts[chosen] * 2 < total
+    other_jibun = chosen[_JIBUN_SLICE] != majority[_JIBUN_SLICE]
+    if not (minority or other_jibun):
+        return None
+    shares = {p: f"{c}/{total}" for p, c in sorted(counts.items())}
+    return f"{key} → {chosen} (소수파={minority}, 다수파와 지번 다름={other_jibun}) 행 비율 {shares}"
+
+
 def try_trade_write_lock(conn) -> bool:
     """세션 advisory lock. 다른 세션이 잡고 있으면 즉시 False."""
     cur = conn.cursor()

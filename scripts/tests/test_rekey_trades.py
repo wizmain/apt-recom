@@ -194,9 +194,9 @@ class RowsToRevertTest(unittest.TestCase):
             rekey_trades.rows_to_revert(plan, set()), {"trade_history": []}
         )
 
-    def test_apply_and_verify_reverts_unmapped_planned_rows_and_drops_key_from_audit(
-        self,
-    ):
+    L2 = "11590_대림"  # 계획 행이 전부 되돌려지는 이름 키
+
+    def run_apply_and_verify(self, before_violations, after_violations):
         known = [KnownRow(L, "11590-57", 1993, 84.92)]
         snap = Snapshot({"trade_history": 1}, 0, {})
         mapped = [
@@ -207,32 +207,98 @@ class RowsToRevertTest(unittest.TestCase):
             "rent_history": [(5, "11590-85", "infer_area")],
         }
         audited = []
+        audit_results = iter([before_violations, after_violations])
+
+        def fake_audit(c, lg, apt_seqs):
+            audited.append(apt_seqs)
+            return next(audit_results)
+
+        moved_queries = []
+
+        def fake_query_all(c, sql, params):
+            moved_queries.append((sql.split("FROM ")[1].split()[0], params[0]))
+            return [{"legacy_apt_seq": L}]
+
         with (
             mock.patch.object(rekey_trades, "_allowed_pnus", return_value=set()),
             mock.patch.object(rekey_trades, "_snapshot", return_value=snap),
-            mock.patch.object(rekey_trades, "_current_keys", return_value=[L]),
-            mock.patch.object(
-                rekey_trades,
-                "audit",
-                side_effect=lambda c, lg, apt_seqs: audited.append(apt_seqs) or [],
-            ),
+            mock.patch.object(rekey_trades, "_current_keys", return_value=[self.L2, L]),
+            mock.patch.object(rekey_trades, "audit", side_effect=fake_audit),
             mock.patch.object(rekey_trades, "_apply"),
             mock.patch.object(rekey_trades, "_mappings", side_effect=[[], mapped]),
             mock.patch.object(rekey_trades, "map_api_keys"),
+            mock.patch.object(
+                rekey_trades,
+                "_key_pairs",
+                side_effect=lambda c, t, ids: [("11590-85", self.L2)],
+            ),
+            mock.patch.object(rekey_trades, "query_all", side_effect=fake_query_all),
             mock.patch.object(rekey_trades, "_revert") as revert,
         ):
             errors, reverted = rekey_trades.apply_and_verify(
                 mock.MagicMock(), "11590", mock.MagicMock(), plan, known, []
             )
+        return errors, reverted, audited, revert, moved_queries
+
+    def test_apply_and_verify_reverts_unmapped_planned_rows_and_drops_key_from_audit(
+        self,
+    ):
+        errors, reverted, audited, revert, moved_queries = self.run_apply_and_verify(
+            [], []
+        )
         self.assertEqual(errors, [])
         self.assertEqual(
             sorted((c[0][1], c[0][2]) for c in revert.call_args_list),
             [("rent_history", [5]), ("trade_history", [2])],
         )
+        # 체크포인트용 전체 {새 키: [이름 키]} 를 담는다
         self.assertEqual(
-            reverted, {"keys": 1, "rows": {"trade_history": 1, "rent_history": 1}}
+            reverted,
+            {
+                "keys": 1,
+                "rows": {"trade_history": 1, "rent_history": 1},
+                "map": {"11590-85": [self.L2]},
+            },
         )
-        self.assertEqual(audited, [[L], ["11590-57"]])
+        # 변경 전 감사는 계획 전체 이름 키, 변경 후 감사는 매핑된 새 키만
+        self.assertEqual(audited, [[self.L2, L], ["11590-57"]])
+        # 남은(되돌리지 않은) 계획 행으로만 옮겨진 이름 키를 찾는다
+        self.assertEqual(moved_queries, [("trade_history", [1])])
+
+    def test_fully_reverted_old_key_violation_does_not_mask_new_violation(self):
+        # L2 의 기존 위반은 L2 행이 전부 되돌려져 기준선에서 빠진다 → 새 키 위반 1건이 드러난다
+        errors, *_ = self.run_apply_and_verify(
+            [{"apt_seq": self.L2}], [{"apt_seq": "11590-57"}]
+        )
+        self.assertEqual(errors, ["감사 위반 증가 0 → 1"])
+
+    def test_violation_of_still_moved_old_key_stays_in_baseline(self):
+        errors, *_ = self.run_apply_and_verify(
+            [{"apt_seq": L}, {"apt_seq": self.L2}], [{"apt_seq": "11590-57"}]
+        )
+        self.assertEqual(errors, [])
+
+
+class BaselineViolationCountTest(unittest.TestCase):
+    def test_counts_only_violations_of_old_keys_with_moved_rows(self):
+        violations = [{"apt_seq": "A"}, {"apt_seq": "B"}, {"apt_seq": "C"}]
+        self.assertEqual(
+            rekey_trades.baseline_violation_count(violations, {"A", "C", "Z"}), 2
+        )
+
+    def test_nothing_moved_is_zero(self):
+        self.assertEqual(
+            rekey_trades.baseline_violation_count([{"apt_seq": "A"}], set()), 0
+        )
+
+
+class RevertedKeyMapTest(unittest.TestCase):
+    def test_lists_all_legacy_keys_per_new_key(self):
+        pairs = [("K1", "L_b"), ("K1", "L_a"), ("K2", "L_a"), ("K1", "L_a")]
+        self.assertEqual(
+            rekey_trades.reverted_key_map(pairs),
+            {"K1": ["L_a", "L_b"], "K2": ["L_a"]},
+        )
 
 
 class KnownTrimsApiIdTest(unittest.TestCase):

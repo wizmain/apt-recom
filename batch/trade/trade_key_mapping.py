@@ -20,10 +20,18 @@ import psycopg2.extras
 
 from batch.db import query_all
 from batch.trade.recalc_price import _core_name, _normalize_name
-from batch.trade.trade_keys import address_rows_by_key, unique_existing_pnu
+from batch.trade.trade_keys import (
+    address_choice_warning,
+    address_pnu_counts,
+    address_rows_by_key,
+    most_frequent_value,
+    unique_existing_pnu,
+)
 
 MIN_CONTAINS_LEN = 3  # recalc_price 포함 매칭과 같은 하한
 MATCH_INHERIT_LEGACY = "api_inherit_legacy"
+MATCH_ADDRESS_PNU = "api_address_pnu"
+WEAK_ADDRESS_LOG_SAMPLE = 50
 FROZEN_INHERIT_LOG_SAMPLE = 50
 MIN_CORE_LEN = 2
 
@@ -39,7 +47,7 @@ def decide_mapping(inp: MappingInput) -> tuple[str, str] | None:
     if len(inp.legacy_pnus) == 1:
         return next(iter(inp.legacy_pnus)), MATCH_INHERIT_LEGACY
     if inp.address_pnu:
-        return inp.address_pnu, "api_address_pnu"
+        return inp.address_pnu, MATCH_ADDRESS_PNU
     return _match_name(inp.apt_nm, inp.name_candidates)
 
 
@@ -66,13 +74,6 @@ def _match_name(apt_nm: str, candidates) -> tuple[str, str] | None:
         if len(found) == 1:
             return found[0], "api_name_core"
     return None
-
-
-def most_frequent_value(counts: dict[str, int]) -> str:
-    """가장 많이 나온 값. 동률이면 사전순 첫 값(결정적). 비어 있으면 빈 문자열."""
-    if not counts:
-        return ""
-    return min(counts, key=lambda v: (-counts[v], v))
 
 
 def mapping_inputs_by_key(
@@ -116,6 +117,23 @@ def mapping_inputs_by_key(
             most_frequent_value(sggs[key]),
         )
     return out
+
+
+def warn_weak_address_choices(
+    logger, counts_by_key: dict[str, dict[str, int]], chosen_by_key: dict[str, str]
+) -> list[str]:
+    """주소 PNU 매핑 중 근거가 약한 것(소수파 행·다수파와 다른 지번)을 경고한다 — 매핑은 그대로."""
+    msgs = [
+        m
+        for key, pnu in sorted(chosen_by_key.items())
+        if (m := address_choice_warning(key, counts_by_key.get(key, {}), pnu))
+    ]
+    if msgs:
+        logger.warning(
+            f"  주소 PNU 근거 약함(검토 대상) {len(msgs):,}건 "
+            f"(최대 {WEAK_ADDRESS_LOG_SAMPLE}): {msgs[:WEAK_ADDRESS_LOG_SAMPLE]}"
+        )
+    return msgs
 
 
 def mixed_legacy_ids(ids_by_legacy: dict[str, set[str]]) -> list[str]:
@@ -241,6 +259,11 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
             new_rows.append((key, decision[0], inp.apt_nm, sgg_cd, decision[1]))
         else:
             unmapped.append(key)
+    warn_weak_address_choices(
+        logger,
+        address_pnu_counts(rows),
+        {k: pnu for k, pnu, _, _, m in new_rows if m == MATCH_ADDRESS_PNU},
+    )
 
     if new_rows:
         psycopg2.extras.execute_values(
