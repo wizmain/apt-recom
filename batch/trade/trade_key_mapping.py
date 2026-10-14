@@ -6,6 +6,10 @@ manual_fix·ADR-011·ADR-014 교정을 잃지 않기 위해서다. 판정 실패
 
 순위: 1 상속(이름 키 안 고유번호가 이 키 하나뿐이고 PNU 하나) → 2 주소 PNU →
 3 같은 법정동 이름 매칭(정확·포함·핵심명, 유일할 때만) → 4 미매핑.
+
+주소·법정동 판정은 키의 **모든** 거래 행으로 한다(대표 행 하나가 아니다) — 행정구역 개편
+전후 umd_cd 가 섞인 키가 개편 전 코드로 없는 PNU 를 만들어 미매핑되던 문제(2026-10-14
+로컬 적용 28260-138 마전동아). 주소 PNU 는 apartments 에 있는 것이 정확히 하나일 때만 쓴다.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ import psycopg2.extras
 
 from batch.db import query_all
 from batch.trade.recalc_price import _core_name, _normalize_name
-from batch.trade.trade_keys import address_pnu
+from batch.trade.trade_keys import address_rows_by_key, unique_existing_pnu
 
 MIN_CONTAINS_LEN = 3  # recalc_price 포함 매칭과 같은 하한
 MATCH_INHERIT_LEGACY = "api_inherit_legacy"
@@ -64,6 +68,56 @@ def _match_name(apt_nm: str, candidates) -> tuple[str, str] | None:
     return None
 
 
+def most_frequent_value(counts: dict[str, int]) -> str:
+    """가장 많이 나온 값. 동률이면 사전순 첫 값(결정적). 비어 있으면 빈 문자열."""
+    if not counts:
+        return ""
+    return min(counts, key=lambda v: (-counts[v], v))
+
+
+def mapping_inputs_by_key(
+    rows,
+    existing_pnus: set[str],
+    cands_by_bjd: dict[str, list[tuple[str, str]]],
+    legacy_pnus_by_key: dict[str, set[str]],
+) -> dict[str, tuple[MappingInput, str]]:
+    """키별 decide_mapping 입력과 시군구 — 키의 모든 행(집계 행, n = 행 수)으로 만든다.
+
+    - 주소 PNU: 주소 필드가 있는 행들의 서로 다른 주소 PNU 중 apartments 에 있는 것이
+      정확히 하나면 그것, 아니면 None(3순위로 넘어간다).
+    - 이름 후보: 행들의 서로 다른 법정동(sgg_cd||umd_cd) 후보의 합집합.
+    - 이름·시군구: 행 수 기준 최빈값(동률이면 사전순 첫 값).
+    """
+    names: dict[str, dict[str, int]] = {}
+    sggs: dict[str, dict[str, int]] = {}
+    bjds: dict[str, set[str]] = {}
+    for r in rows:
+        key, n = r["apt_seq"], int(r.get("n") or 1)
+        nm, sgg = r.get("apt_nm") or "", str(r["sgg_cd"])[:5]
+        names.setdefault(key, {})[nm] = names.get(key, {}).get(nm, 0) + n
+        sggs.setdefault(key, {})[sgg] = sggs.get(key, {}).get(sgg, 0) + n
+        bjds.setdefault(key, set())
+        if r.get("umd_cd"):
+            bjds[key].add(f"{sgg}{r['umd_cd']}")
+    addr_by_key = address_rows_by_key(rows)
+    out = {}
+    for key, name_counts in names.items():
+        out[key] = (
+            MappingInput(
+                apt_nm=most_frequent_value(name_counts),
+                legacy_pnus=frozenset(legacy_pnus_by_key.get(key, ())),
+                address_pnu=unique_existing_pnu(
+                    addr_by_key.get(key, {}), existing_pnus
+                ),
+                name_candidates=tuple(
+                    c for bjd in sorted(bjds[key]) for c in cands_by_bjd.get(bjd, ())
+                ),
+            ),
+            most_frequent_value(sggs[key]),
+        )
+    return out
+
+
 def mixed_legacy_ids(ids_by_legacy: dict[str, set[str]]) -> list[str]:
     """고유번호가 2개 이상 관측된(혼입) 이름 키들에 속한 고유번호."""
     return sorted({i for ids in ids_by_legacy.values() if len(ids) > 1 for i in ids})
@@ -71,21 +125,24 @@ def mixed_legacy_ids(ids_by_legacy: dict[str, set[str]]) -> list[str]:
 
 # ── DB 래퍼 ──
 
+# 키의 모든 행을 (이름·주소) 단위로 집계해 가져온다 — 대표 행 하나(DISTINCT ON)가 아니다.
 _UNMAPPED_SQL = """
-    SELECT DISTINCT ON (apt_seq) apt_seq, legacy_apt_seq, sgg_cd, apt_nm,
-           umd_cd, land_cd, bonbun, bubun
+    SELECT apt_seq, sgg_cd, apt_nm, umd_cd, land_cd, bonbun, bubun, SUM(n) AS n
     FROM (
-        SELECT apt_seq, legacy_apt_seq, sgg_cd, apt_nm, umd_cd, land_cd, bonbun, bubun
+        SELECT apt_seq, sgg_cd, apt_nm, umd_cd, land_cd, bonbun, bubun, COUNT(*) AS n
         FROM trade_history t
         WHERE apt_seq_method IS NOT NULL {seq_filter}
           AND NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
+        GROUP BY 1, 2, 3, 4, 5, 6, 7
         UNION ALL
-        SELECT apt_seq, legacy_apt_seq, sgg_cd, apt_nm, NULL, NULL, NULL, NULL
+        SELECT apt_seq, sgg_cd, apt_nm, NULL, NULL, NULL, NULL, COUNT(*)
         FROM rent_history r
         WHERE apt_seq_method IS NOT NULL {seq_filter}
           AND NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
+        GROUP BY 1, 2, 3
     ) u
-    ORDER BY apt_seq, umd_cd NULLS LAST
+    GROUP BY 1, 2, 3, 4, 5, 6, 7
+    ORDER BY 1
 """
 
 # 이름 키별 관측된 고유번호(API 원본만) — 상속 조건 "고유번호가 이 키 하나뿐" 판정용
@@ -117,7 +174,7 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         "WHERE apt_seq = ANY(%(s)s) AND legacy_apt_seq IS NOT NULL "
         "UNION SELECT DISTINCT apt_seq, legacy_apt_seq FROM rent_history "
         "WHERE apt_seq = ANY(%(s)s) AND legacy_apt_seq IS NOT NULL",
-        {"s": [r["apt_seq"] for r in rows]},
+        {"s": sorted({r["apt_seq"] for r in rows})},
     ):
         lks_by_key.setdefault(r["apt_seq"], set()).add(r["legacy_apt_seq"])
     legacy_keys = sorted(set().union(*lks_by_key.values())) if lks_by_key else []
@@ -142,13 +199,9 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         else {}
     )
 
-    addr = {
-        r["apt_seq"]: address_pnu(
-            r["sgg_cd"], r["umd_cd"], r["land_cd"], r["bonbun"], r["bubun"]
-        )
-        for r in rows
-    }
-    addr_values = sorted({p for p in addr.values() if p})
+    addr_values = sorted(
+        {p for by_pnu in address_rows_by_key(rows).values() for p in by_pnu}
+    )
     existing_pnus = (
         {
             r["pnu"]
@@ -160,7 +213,7 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         else set()
     )
 
-    bjds = sorted({f"{r['sgg_cd']}{r['umd_cd']}" for r in rows if r["umd_cd"]})
+    bjds = sorted({f"{str(r['sgg_cd'])[:5]}{r['umd_cd']}" for r in rows if r["umd_cd"]})
     cands_by_bjd: dict[str, list[tuple[str, str]]] = {}
     if bjds:
         for a in query_all(
@@ -171,29 +224,21 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         ):
             cands_by_bjd.setdefault(a["bjd_code"], []).append((a["pnu"], a["nm"] or ""))
 
-    new_rows, unmapped = [], []
-    for r in rows:
-        key = r["apt_seq"]
-        inherit = {
+    inherit_by_key = {
+        key: {
             legacy_pnu[lk]
-            for lk in lks_by_key.get(key, ())
+            for lk in lks
             if ids_by_legacy.get(lk) == {key} and lk in legacy_pnu
         }
-        a_pnu = addr.get(key)
-        decision = decide_mapping(
-            MappingInput(
-                apt_nm=r["apt_nm"] or "",
-                legacy_pnus=frozenset(inherit),
-                address_pnu=a_pnu if a_pnu in existing_pnus else None,
-                name_candidates=tuple(
-                    cands_by_bjd.get(f"{r['sgg_cd']}{r['umd_cd']}", ())
-                )
-                if r["umd_cd"]
-                else (),
-            )
-        )
+        for key, lks in lks_by_key.items()
+    }
+    new_rows, unmapped = [], []
+    for key, (inp, sgg_cd) in mapping_inputs_by_key(
+        rows, existing_pnus, cands_by_bjd, inherit_by_key
+    ).items():
+        decision = decide_mapping(inp)
         if decision:
-            new_rows.append((key, decision[0], r["apt_nm"], r["sgg_cd"], decision[1]))
+            new_rows.append((key, decision[0], inp.apt_nm, sgg_cd, decision[1]))
         else:
             unmapped.append(key)
 

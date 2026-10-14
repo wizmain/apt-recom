@@ -163,6 +163,78 @@ class CreatedMappingPnusTest(unittest.TestCase):
         self.assertEqual(captured["allowed"], {"P_NEW"})
 
 
+class RowsToRevertTest(unittest.TestCase):
+    """Fix B — 새 키가 매핑되지 못하면 계획 행만 이름 키로 되돌린다(현상 유지)."""
+
+    def test_only_planned_rows_of_unmapped_keys(self):
+        plan = {
+            "trade_history": [
+                (1, "11590-57", "api"),
+                (2, "11590-99", "infer_single"),
+                (3, "11590-99", "api"),
+            ],
+            "rent_history": [(7, "11590-99", "infer_area"), (8, "11590-57", "api")],
+        }
+        self.assertEqual(
+            rekey_trades.rows_to_revert(plan, {"11590-99"}),
+            {"trade_history": [2, 3], "rent_history": [7]},
+        )
+
+    def test_unmapped_key_not_in_plan_touches_nothing(self):
+        # 적재기가 쓴 'api' 행만 가진 키 — 계획에 없으므로 되돌릴 행이 없다
+        plan = {"trade_history": [(1, "11590-57", "api")], "rent_history": []}
+        self.assertEqual(
+            rekey_trades.rows_to_revert(plan, {"11590-77"}),
+            {"trade_history": [], "rent_history": []},
+        )
+
+    def test_nothing_unmapped(self):
+        plan = {"trade_history": [(1, "11590-57", "api")]}
+        self.assertEqual(
+            rekey_trades.rows_to_revert(plan, set()), {"trade_history": []}
+        )
+
+    def test_apply_and_verify_reverts_unmapped_planned_rows_and_drops_key_from_audit(
+        self,
+    ):
+        known = [KnownRow(L, "11590-57", 1993, 84.92)]
+        snap = Snapshot({"trade_history": 1}, 0, {})
+        mapped = [
+            {"apt_seq": "11590-57", "pnu": "P", "match_method": "api_address_pnu"}
+        ]
+        plan = {
+            "trade_history": [(1, "11590-57", "api"), (2, "11590-85", "api")],
+            "rent_history": [(5, "11590-85", "infer_area")],
+        }
+        audited = []
+        with (
+            mock.patch.object(rekey_trades, "_allowed_pnus", return_value=set()),
+            mock.patch.object(rekey_trades, "_snapshot", return_value=snap),
+            mock.patch.object(rekey_trades, "_current_keys", return_value=[L]),
+            mock.patch.object(
+                rekey_trades,
+                "audit",
+                side_effect=lambda c, lg, apt_seqs: audited.append(apt_seqs) or [],
+            ),
+            mock.patch.object(rekey_trades, "_apply"),
+            mock.patch.object(rekey_trades, "_mappings", side_effect=[[], mapped]),
+            mock.patch.object(rekey_trades, "map_api_keys"),
+            mock.patch.object(rekey_trades, "_revert") as revert,
+        ):
+            errors, reverted = rekey_trades.apply_and_verify(
+                mock.MagicMock(), "11590", mock.MagicMock(), plan, known, []
+            )
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            sorted((c[0][1], c[0][2]) for c in revert.call_args_list),
+            [("rent_history", [5]), ("trade_history", [2])],
+        )
+        self.assertEqual(
+            reverted, {"keys": 1, "rows": {"trade_history": 1, "rent_history": 1}}
+        )
+        self.assertEqual(audited, [[L], ["11590-57"]])
+
+
 class KnownTrimsApiIdTest(unittest.TestCase):
     """최종 리뷰 #6 — _known 의 고유번호는 공백 제거 값(적재·대상 행과 같은 기준)."""
 

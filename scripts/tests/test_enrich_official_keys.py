@@ -63,6 +63,37 @@ class PlanOfficialKeysTest(unittest.TestCase):
         self.assertEqual(plan.unresolved, ["11590-99"])
         self.assertEqual((plan.map_existing, plan.register), ({}, {}))
 
+    # Fix A — 키의 모든 주소 행으로 판정한다 (대표 행 하나가 아니다)
+    def test_stale_umd_row_maps_to_the_one_existing_address(self):
+        plan = plan_official_keys(
+            [row("11590-57", True, umd_cd="10200"), row("11590-57", True)], {DAEBANG}
+        )
+        self.assertEqual(plan.map_existing, {"11590-57": DAEBANG})
+        self.assertEqual((plan.register, plan.ambiguous), ({}, []))
+
+    def test_several_new_addresses_are_ambiguous_not_registered(self):
+        plan = plan_official_keys(
+            [row("11590-57", True, umd_cd="10200"), row("11590-57", True)], set()
+        )
+        self.assertEqual(plan.ambiguous, ["11590-57"])
+        self.assertEqual((plan.map_existing, plan.register), ({}, {}))
+
+    def test_several_existing_addresses_are_ambiguous(self):
+        plan = plan_official_keys(
+            [row("11590-57", True, umd_cd="10200"), row("11590-57", True)],
+            {DAEBANG, "1159010200005010000"},
+        )
+        self.assertEqual(plan.ambiguous, ["11590-57"])
+        self.assertEqual(plan.map_existing, {})
+
+    def test_address_row_kept_for_registration(self):
+        rent_like = row("11590-57", True, umd_cd=None, bonbun=None, bubun=None)
+        addr_row = row("11590-57", True)
+        plan = plan_official_keys([rent_like, addr_row], set())
+        self.assertEqual(plan.register, {DAEBANG: ["11590-57"]})
+        self.assertIs(plan.address_rows[DAEBANG], addr_row)
+        self.assertEqual(plan.unresolved, [])
+
 
 class EnrichOfficialKeysTest(unittest.TestCase):
     def test_uses_address_only_and_never_name_search_or_trade_fallback(self):

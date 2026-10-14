@@ -56,6 +56,38 @@ def address_pnu(sgg, umd_cd, land_cd, bonbun, bubun) -> str | None:
     return pnu
 
 
+def _blank_to_none(v):
+    s = str(v).strip() if v is not None else ""
+    return s or None
+
+
+def address_rows_by_key(rows) -> dict[str, dict[str, dict]]:
+    """키 → {주소 PNU: 그 PNU 를 만든 첫 행}. 주소 필드가 있는 **모든** 행을 본다.
+
+    대표 행 하나만 보면 행정구역 개편 전후 umd_cd 가 섞인 키(예: 28260-138 마전동아
+    11300/10300)가 존재하지 않는 PNU 를 골라 미매핑된다. 주소 필드가 없는 행(전월세)은 무시한다.
+    rows: apt_seq·sgg_cd·umd_cd·land_cd·bonbun·bubun 을 가진 dict.
+    """
+    out: dict[str, dict[str, dict]] = {}
+    for r in rows:
+        pnu = address_pnu(
+            str(r["sgg_cd"])[:5],
+            r.get("umd_cd"),
+            r.get("land_cd"),
+            _blank_to_none(r.get("bonbun")),
+            _blank_to_none(r.get("bubun")),
+        )
+        if pnu:
+            out.setdefault(r["apt_seq"], {}).setdefault(pnu, r)
+    return out
+
+
+def unique_existing_pnu(candidates, existing) -> str | None:
+    """후보 주소 PNU 중 apartments 에 있는 것이 정확히 하나일 때만 그것. 0개·2개 이상이면 None."""
+    hits = set(candidates) & set(existing)
+    return next(iter(hits)) if len(hits) == 1 else None
+
+
 def try_trade_write_lock(conn) -> bool:
     """세션 advisory lock. 다른 세션이 잡고 있으면 즉시 False."""
     cur = conn.cursor()

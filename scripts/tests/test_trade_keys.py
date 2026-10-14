@@ -10,9 +10,11 @@ from batch.trade.trade_keys import (
     KEY_METHOD_API,
     TradeKey,
     address_pnu,
+    address_rows_by_key,
     name_key,
     resolve_trade_key,
     try_trade_write_lock,
+    unique_existing_pnu,
 )
 
 
@@ -93,6 +95,60 @@ class TradeWriteLockTest(unittest.TestCase):
         busy = Conn(False)
         self.assertFalse(try_trade_write_lock(busy))
         self.assertIn("pg_try_advisory_lock", busy.cur.sql)
+
+
+class AddressRowsByKeyTest(unittest.TestCase):
+    """Fix A — 키의 주소 PNU 는 대표 행 하나가 아니라 주소 필드가 있는 모든 행에서 모은다."""
+
+    @staticmethod
+    def row(key, umd_cd, bonbun="1003", bubun="0001", land_cd="1"):
+        return {
+            "apt_seq": key,
+            "sgg_cd": "28260",
+            "umd_cd": umd_cd,
+            "land_cd": land_cd,
+            "bonbun": bonbun,
+            "bubun": bubun,
+        }
+
+    def test_collects_distinct_pnus_over_all_rows_and_ignores_rows_without_address(
+        self,
+    ):
+        # 28260-138 마전동아: 행정구역 개편 전후 umd_cd 11300/10300 이 섞여 있다
+        rows = [
+            self.row("28260-138", "11300"),
+            self.row("28260-138", "10300"),
+            self.row("28260-138", "11300"),
+            self.row(
+                "28260-138", None, bonbun=None, bubun=None
+            ),  # 전월세 행 — 주소 없음
+            self.row("28260-999", None, bonbun=None, bubun=None),
+        ]
+        got = address_rows_by_key(rows)
+        self.assertEqual(
+            set(got["28260-138"]),
+            {"2826011300010030001", "2826010300010030001"},
+        )
+        self.assertNotIn("28260-999", got)
+        # 대표 행은 그 PNU 를 만든 첫 행
+        self.assertIs(got["28260-138"]["2826011300010030001"], rows[0])
+
+    def test_blank_bonbun_is_no_address(self):
+        self.assertEqual(address_rows_by_key([self.row("K", "11300", bonbun="  ")]), {})
+
+
+class UniqueExistingPnuTest(unittest.TestCase):
+    A, B = "2826011300010030001", "2826010300010030001"
+
+    def test_only_one_exists(self):
+        self.assertEqual(unique_existing_pnu({self.A, self.B}, {self.A}), self.A)
+
+    def test_both_exist_is_ambiguous(self):
+        self.assertIsNone(unique_existing_pnu({self.A, self.B}, {self.A, self.B}))
+
+    def test_none_exists(self):
+        self.assertIsNone(unique_existing_pnu({self.A, self.B}, set()))
+        self.assertIsNone(unique_existing_pnu(set(), {self.A}))
 
 
 if __name__ == "__main__":
