@@ -166,7 +166,8 @@ routers/ → services/ → database.py (raw SQL)
 - rm -rf, DROP DATABASE, DROP TABLE 등 파괴적 명령
 - pip install / pip3 install (uv pip install 사용)
 - 하위 디렉토리에 별도 .venv 생성
-- production DB 직접 접속 (Railway)
+- 사용자 허락 없는 production DB 직접 접속 (Railway) — 접속 전에 목적·실행할 SQL·영향 범위를 제시하고
+  사용자의 명시적 허락을 받은 뒤에만 진행한다. 허락은 그 작업 한 건에만 유효하다(다음 작업은 다시 허락).
 - any 타입 사용 (TypeScript)
 - useEffect 내 직접 API 호출 (hooks 패턴 사용)
 - 문서/코드에 "Generated with Claude Code" 문구 삽입 금지
