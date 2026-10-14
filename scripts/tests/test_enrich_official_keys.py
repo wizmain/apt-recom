@@ -91,12 +91,14 @@ class EnrichOfficialKeysTest(unittest.TestCase):
             patch.object(
                 mod, "_resolve_official_one", return_value=resolved
             ) as by_addr,
-            patch.object(mod, "_enrich_kapt_targeted", return_value=0),
+            patch.object(mod, "_enrich_kapt_targeted", return_value=0) as kapt_by_name,
         ):
             mapped, registered = mod._enrich_official_keys(
                 conn, MagicMock(), rows, {DAEBANG}, {}, {}
             )
         name_search.assert_not_called()
+        # 동명 이웃 오매칭 방지: 고유번호 신규 등록 단지에는 이름 기반 K-APT 매칭을 하지 않는다
+        kapt_by_name.assert_not_called()
         by_addr.assert_called_once()
         self.assertEqual(by_addr.call_args[0][1], SANGDO)
         self.assertEqual((mapped, registered), (2, {SANGDO: "대림아파트"}))

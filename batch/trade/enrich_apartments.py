@@ -715,9 +715,10 @@ def _enrich_official_keys(
     conn.commit()
     logger.info(f"  고유번호 키 주소 매핑 {len(mappings)}건 (신규 등록 {len(registered)}개)")
 
-    if registered:
-        kapt_cnt = _enrich_kapt_targeted(conn, logger, list(registered))
-        logger.info(f"  고유번호 키 신규 단지 K-APT 보완: {kapt_cnt}건")
+    # K-APT 이름 매칭(_enrich_kapt_targeted)은 의도적으로 호출하지 않는다.
+    # 고유번호 키로 새로 등록되는 단지는 동명 이웃과 분리된 단지(예: 상도동 대림 vs 대방동 대림)라
+    # 시군구+이름 첫 매칭이 이웃의 kapt_code/세대수를 가져올 위험이 있다.
+    # 후속: 법정동 범위 매처가 생기면 연결한다(백로그).
     return len(mappings), registered
 
 
