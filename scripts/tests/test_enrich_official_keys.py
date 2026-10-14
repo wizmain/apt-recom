@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from batch.trade import enrich_apartments as mod
 from batch.trade.enrich_apartments import (
     OFFICIAL_KEY_ADDRESS_METHOD,
+    official_key_names,
     partition_unmapped,
     plan_official_keys,
 )
@@ -62,6 +63,37 @@ class PlanOfficialKeysTest(unittest.TestCase):
         )
         self.assertEqual(plan.unresolved, ["11590-99"])
         self.assertEqual((plan.map_existing, plan.register), ({}, {}))
+
+    # Fix A — 키의 모든 주소 행으로 판정한다 (대표 행 하나가 아니다)
+    def test_stale_umd_row_maps_to_the_one_existing_address(self):
+        plan = plan_official_keys(
+            [row("11590-57", True, umd_cd="10200"), row("11590-57", True)], {DAEBANG}
+        )
+        self.assertEqual(plan.map_existing, {"11590-57": DAEBANG})
+        self.assertEqual((plan.register, plan.ambiguous), ({}, []))
+
+    def test_several_new_addresses_are_ambiguous_not_registered(self):
+        plan = plan_official_keys(
+            [row("11590-57", True, umd_cd="10200"), row("11590-57", True)], set()
+        )
+        self.assertEqual(plan.ambiguous, ["11590-57"])
+        self.assertEqual((plan.map_existing, plan.register), ({}, {}))
+
+    def test_several_existing_addresses_are_ambiguous(self):
+        plan = plan_official_keys(
+            [row("11590-57", True, umd_cd="10200"), row("11590-57", True)],
+            {DAEBANG, "1159010200005010000"},
+        )
+        self.assertEqual(plan.ambiguous, ["11590-57"])
+        self.assertEqual(plan.map_existing, {})
+
+    def test_address_row_kept_for_registration(self):
+        rent_like = row("11590-57", True, umd_cd=None, bonbun=None, bubun=None)
+        addr_row = row("11590-57", True)
+        plan = plan_official_keys([rent_like, addr_row], set())
+        self.assertEqual(plan.register, {DAEBANG: ["11590-57"]})
+        self.assertIs(plan.address_rows[DAEBANG], addr_row)
+        self.assertEqual(plan.unresolved, [])
 
 
 class EnrichOfficialKeysTest(unittest.TestCase):
@@ -117,6 +149,43 @@ class EnrichOfficialKeysTest(unittest.TestCase):
                 ("11590-58", SANGDO, OFFICIAL_KEY_ADDRESS_METHOD),
             ],
         )
+
+
+class OfficialKeyNamesTest(unittest.TestCase):
+    """Fix round 1 #4 — 매핑 행 단지명은 최빈값 (trade_key_mapping 과 같은 규칙)."""
+
+    def test_most_frequent_over_counted_rows_ignoring_representative(self):
+        rep = dict(row("K", True), apt_nm="동아")  # DISTINCT ON 대표 행 — n 없음
+        rows = [
+            rep,
+            dict(row("K", True), apt_nm="마전동아", n=7),
+            dict(row("K", True), apt_nm="동아", n=3),
+        ]
+        self.assertEqual(official_key_names(rows), {"K": "마전동아"})
+
+    def test_tie_is_lexicographic_and_rep_only_key_uses_rep_name(self):
+        rows = [
+            dict(row("K", True), apt_nm="마전동아", n=2),
+            dict(row("K", True), apt_nm="동아", n=2),
+            dict(row("R", True, umd_cd=None), apt_nm="전월세만"),
+        ]
+        self.assertEqual(official_key_names(rows), {"K": "동아", "R": "전월세만"})
+
+    def test_mapping_row_uses_most_frequent_name(self):
+        conn = MagicMock()
+        cur = conn.cursor.return_value
+        rows = [
+            dict(row("11590-57", True), apt_nm="대림"),
+            dict(row("11590-57", True), apt_nm="대방대림", n=5),
+            dict(row("11590-57", True), apt_nm="대림", n=1),
+        ]
+        mod._enrich_official_keys(conn, MagicMock(), rows, {DAEBANG}, {}, {})
+        ins = [
+            c[0][1]
+            for c in cur.execute.call_args_list
+            if c[0][0].startswith("INSERT INTO trade_apt_mapping")
+        ]
+        self.assertEqual([(p[0], p[2]) for p in ins], [("11590-57", "대방대림")])
 
 
 if __name__ == "__main__":

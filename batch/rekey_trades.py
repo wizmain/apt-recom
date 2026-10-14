@@ -40,6 +40,7 @@ SKIP_STATUSES = (
     "rolled_back",
 )  # 전체 실행에서 건너뛰는 체크포인트 상태
 DEFAULT_VACUUM_EVERY = 20  # 구 N개마다 VACUUM (ANALYZE) — 운영 1GB 캡 bloat 완화
+REVERTED_KEY_LOG_SAMPLE = 20
 
 
 class Snapshot(NamedTuple):
@@ -85,6 +86,35 @@ def check_invariants(
     if audit_after > audit_before:
         errors.append(f"감사 위반 증가 {audit_before} → {audit_after}")
     return errors
+
+
+def rows_to_revert(plan, unmapped_keys: set[str]) -> dict[str, list[int]]:
+    """테이블별 되돌릴 행 id — 이번 계획 행 중 새 키가 매핑되지 못한 것만.
+
+    계획에 없는 행(적재기가 쓴 'api' 행 등)은 건드리지 않는다. 되돌린 행은 이름 키 매핑을
+    그대로 쓰므로 현상 유지다(혼입이면 혼입 그대로 — Task 10·단지 등록 후 다시 키 변경).
+    """
+    return {
+        table: [rid for rid, key, _ in items if key in unmapped_keys]
+        for table, items in plan.items()
+    }
+
+
+def baseline_violation_count(before_violations, moved_old_keys: set[str]) -> int:
+    """변경 전 감사 위반 중 아직 옮겨진 행이 남은 이름 키의 것만 센다.
+
+    계획 행이 전부 되돌려진 이름 키는 변경 후 감사(새 키)에 대응하는 행이 없다 — 그 키의
+    기존 위반을 기준선에 남기면 새 키의 신규 위반을 가리는 여유가 된다(리뷰 Fix round 1).
+    """
+    return sum(1 for v in before_violations if v["apt_seq"] in moved_old_keys)
+
+
+def reverted_key_map(pairs) -> dict[str, list[str]]:
+    """(새 키, 이름 키) 쌍 → {새 키: [이름 키…]}. 한 고유번호가 이름 변형 키 여럿에 걸칠 수 있어 목록."""
+    out: dict[str, set[str]] = {}
+    for new_key, legacy_key in pairs:
+        out.setdefault(new_key, set()).add(legacy_key)
+    return {k: sorted(v) for k, v in sorted(out.items())}
 
 
 def created_mapping_pnus(pre_existing_keys: set[str], mappings_after) -> set[str]:
@@ -234,6 +264,46 @@ def _apply(conn, table, items):
     )
 
 
+def _key_pairs(conn, table, ids) -> list[tuple[str, str]]:
+    return [
+        (r["apt_seq"], r["legacy_apt_seq"])
+        for r in query_all(
+            conn,
+            f"SELECT DISTINCT apt_seq, legacy_apt_seq FROM {table} "
+            "WHERE id = ANY(%s) AND legacy_apt_seq IS NOT NULL",
+            [ids],
+        )
+    ]
+
+
+def _moved_old_keys(conn, plan, reverted_ids: dict[str, list[int]]) -> set[str]:
+    """되돌리지 않은 계획 행들의 변경 전 이름 키."""
+    keys = set()
+    for table, items in plan.items():
+        skip = set(reverted_ids.get(table, ()))
+        ids = [rid for rid, _, _ in items if rid not in skip]
+        if ids:
+            keys |= {
+                r["legacy_apt_seq"]
+                for r in query_all(
+                    conn,
+                    f"SELECT DISTINCT legacy_apt_seq FROM {table} WHERE id = ANY(%s)",
+                    [ids],
+                )
+            }
+    return keys
+
+
+def _revert(conn, table, ids):
+    """_apply 의 역 — 이름 키로 되돌린다(legacy_apt_seq 는 _apply 가 채운 변경 전 키)."""
+    conn.cursor().execute(
+        f"""
+        UPDATE {table} SET apt_seq = legacy_apt_seq, legacy_apt_seq = NULL, apt_seq_method = NULL
+        WHERE id = ANY(%s) AND legacy_apt_seq IS NOT NULL""",
+        [ids],
+    )
+
+
 def _save_checkpoint(conn, sgg, status, detail):
     conn.cursor().execute(
         """
@@ -268,32 +338,82 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
     if not apply:
         return "planned"
 
+    errors, reverted = apply_and_verify(conn, sgg, logger, plan, tk, rk)
+    detail = {"plan": counts, "reverted": reverted}
+    if errors:
+        conn.rollback()
+        logger.error(f"[{sgg}] 검증 실패 → 롤백: {errors}")
+        _save_checkpoint(conn, sgg, "failed", {"errors": errors, **detail})
+        return "failed"
+    conn.commit()
+    _save_checkpoint(conn, sgg, "done", detail)
+    return "done"
+
+
+def apply_and_verify(conn, sgg, logger, plan, tk, rk) -> tuple[list[str], dict]:
+    """계획 적용 → 새 키 매핑 → 매핑 못 한 키의 계획 행 되돌림 → 불변식 검사.
+
+    커밋·롤백하지 않는다(호출자 몫). 반환: (불변식 위반 목록, 되돌림 요약).
+    """
     allowed = _allowed_pnus(conn, sgg, tk, rk)
     before = _snapshot(conn, sgg)
     # 같은 행을 변경 전 키로 감사 → 변경 후 키로 감사 (PNU 집합이 달라 생기는 오탐 방지)
     old_keys = _current_keys(conn, plan)
-    audit_before = len(audit(conn, logger, apt_seqs=old_keys)) if old_keys else 0
+    before_violations = audit(conn, logger, apt_seqs=old_keys) if old_keys else []
     for table, items in plan.items():
         if items:
             _apply(conn, table, items)
     new_keys = sorted({k for items in plan.values() for _, k, _ in items})
+    reverted = {"keys": 0, "rows": {t: 0 for t in plan}, "map": {}}
+    moved_old_keys = set(old_keys)
     if new_keys:
         pre_existing = {r["apt_seq"] for r in _mappings(conn, new_keys)}
         map_api_keys(conn, logger, apt_seqs=new_keys)
+        mappings_after = _mappings(conn, new_keys)
+        # 매핑 못 한 새 키는 계획 행만 이름 키로 되돌린다 — 미매핑 행을 늘리지 않고 현상 유지
+        unmapped_keys = set(new_keys) - {m["apt_seq"] for m in mappings_after}
+        if unmapped_keys:
+            reverted, reverted_ids = _revert_unmapped(
+                conn, sgg, logger, plan, unmapped_keys
+            )
+            new_keys = [k for k in new_keys if k not in unmapped_keys]
+            # 감사 기준선은 아직 옮겨진 행이 남은 이름 키로 좁힌다 (되돌린 키의 위반은 비교 대상 아님)
+            moved_old_keys = _moved_old_keys(conn, plan, reverted_ids)
         # 이번에 만든 상속(api_inherit_legacy) 아닌 매핑은 귀속이 바뀌는 게 정상이다 — 예: 매핑이
         # 없던 상도1동대림이 주소 PNU 로 처음 거래를 갖는다. 혼입 키 기존 PNU 와 함께 허용 목록에 넣는다.
-        allowed |= created_mapping_pnus(pre_existing, _mappings(conn, new_keys))
+        allowed |= created_mapping_pnus(pre_existing, mappings_after)
     after = _snapshot(conn, sgg)
+    audit_before = baseline_violation_count(before_violations, moved_old_keys)
     audit_after = len(audit(conn, logger, apt_seqs=new_keys)) if new_keys else 0
+    logger.info(
+        f"[{sgg}] 감사 위반 기준선 {audit_before} (변경 전 전체 {len(before_violations)}) "
+        f"→ 변경 후 {audit_after}"
+    )
     errors = check_invariants(before, after, allowed, audit_before, audit_after)
-    if errors:
-        conn.rollback()
-        logger.error(f"[{sgg}] 검증 실패 → 롤백: {errors}")
-        _save_checkpoint(conn, sgg, "failed", {"errors": errors, "plan": counts})
-        return "failed"
-    conn.commit()
-    _save_checkpoint(conn, sgg, "done", {"plan": counts})
-    return "done"
+    return errors, reverted
+
+
+def _revert_unmapped(
+    conn, sgg, logger, plan, unmapped_keys: set[str]
+) -> tuple[dict, dict[str, list[int]]]:
+    """반환: (체크포인트용 요약 — 전체 {새 키: [이름 키]} 포함, 테이블별 되돌린 id)."""
+    ids_by_table = rows_to_revert(plan, unmapped_keys)
+    pairs = []
+    for table, ids in ids_by_table.items():
+        if ids:
+            pairs += _key_pairs(conn, table, ids)
+            _revert(conn, table, ids)
+    keys = sorted(unmapped_keys)
+    rows = {t: len(ids) for t, ids in ids_by_table.items()}
+    logger.warning(
+        f"[{sgg}] 매핑 못 한 새 키 {len(keys):,}개 — 계획 행 되돌림 {rows} "
+        f"(최대 {REVERTED_KEY_LOG_SAMPLE}): {keys[:REVERTED_KEY_LOG_SAMPLE]}"
+    )
+    return {
+        "keys": len(keys),
+        "rows": rows,
+        "map": reverted_key_map(pairs),
+    }, ids_by_table
 
 
 def rollback_sgg(conn, sgg, logger):

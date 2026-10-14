@@ -62,7 +62,13 @@ from batch.trade.name_matching import (  # noqa: E402,F401
     _normalize_name,
     _timeline_consistent,
 )
-from batch.trade.trade_keys import address_pnu
+from batch.trade.trade_key_mapping import warn_weak_address_choices
+from batch.trade.trade_keys import (
+    address_pnu_counts,
+    address_rows_by_key,
+    most_frequent_value,
+    unique_existing_pnu,
+)
 
 # 고유번호 키(ADR-015)를 주소 PNU 로 매핑·등록할 때의 match_method — trade_key_mapping 2순위와 같다.
 OFFICIAL_KEY_ADDRESS_METHOD = "api_address_pnu"
@@ -81,6 +87,8 @@ class OfficialKeyPlan(NamedTuple):
     map_existing: dict[str, str]  # apt_seq → 이미 apartments 에 있는 주소 PNU
     register: dict[str, list[str]]  # 새로 등록할 주소 PNU → 그 PNU 의 apt_seq 들
     unresolved: list[str]  # 주소 PNU 를 만들 수 없는 apt_seq
+    ambiguous: list[str]  # 서로 다른 주소 PNU 가 여럿이라 고르지 않은 apt_seq
+    address_rows: dict[str, dict]  # 등록할 주소 PNU → 그 PNU 를 만든 거래 행(지번 주소 검색용)
 
 
 def partition_unmapped(rows: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -91,22 +99,54 @@ def partition_unmapped(rows: list[dict]) -> tuple[list[dict], list[dict]]:
 
 
 def plan_official_keys(official_rows: list[dict], existing_pnus: set) -> OfficialKeyPlan:
-    """고유번호 키의 주소 PNU 판정 — 이름은 쓰지 않는다."""
+    """고유번호 키의 주소 PNU 판정 — 이름은 쓰지 않는다.
+
+    키의 **모든** 행(주소 필드가 있는 행)으로 판정한다 — 대표 행 하나만 보면 행정구역 개편 전후
+    umd_cd 가 섞인 키가 없는 PNU 를 골라 엉뚱한 신규 등록을 만든다 (2026-10-14 28260-138).
+    - 주소 PNU 중 apartments 에 있는 것이 정확히 하나 → 그 PNU 에 매핑 (trade_key_mapping 2순위와 같은 규칙)
+    - 있는 것이 둘 이상이거나, 없는데 후보가 둘 이상 → 모호: 매핑·등록하지 않는다
+    - 있는 것이 없고 후보가 하나 → 신규 등록
+    - 후보 없음 → 주소 미확보
+    """
     map_existing: dict[str, str] = {}
     register: dict[str, list[str]] = {}
     unresolved: list[str] = []
-    for r in official_rows:
-        pnu = address_pnu(
-            str(r["sgg_cd"])[:5], r.get("umd_cd"), r.get("land_cd"),
-            (r.get("bonbun") or "").strip() or None, (r.get("bubun") or "").strip() or None,
-        )
-        if not pnu:
-            unresolved.append(r["apt_seq"])
-        elif pnu in existing_pnus:
-            map_existing[r["apt_seq"]] = pnu
+    ambiguous: list[str] = []
+    address_rows: dict[str, dict] = {}
+    rows_by_key = address_rows_by_key(official_rows)
+    for key in dict.fromkeys(r["apt_seq"] for r in official_rows):
+        cands = rows_by_key.get(key, {})
+        hit = unique_existing_pnu(cands, existing_pnus)
+        if hit:
+            map_existing[key] = hit
+        elif not cands:
+            unresolved.append(key)
+        elif len(cands) > 1:
+            ambiguous.append(key)
         else:
-            register.setdefault(pnu, []).append(r["apt_seq"])
-    return OfficialKeyPlan(map_existing, register, unresolved)
+            pnu, row = next(iter(cands.items()))
+            register.setdefault(pnu, []).append(key)
+            address_rows.setdefault(pnu, row)
+    return OfficialKeyPlan(map_existing, register, unresolved, ambiguous, address_rows)
+
+
+def official_key_names(official_rows: list[dict]) -> dict[str, str]:
+    """고유번호 키별 단지명 — 행 수 최빈값(동률이면 사전순), trade_key_mapping 과 같은 규칙.
+
+    행 수(n)가 있는 집계 주소 행이 있으면 그것만 센다(대표 행이 한 번 더 세지지 않게).
+    """
+    counted = [r for r in official_rows if "n" in r]
+    counts: dict[str, dict[str, int]] = {}
+    for r in official_rows:
+        counts.setdefault(r["apt_seq"], {})
+    for r in counted or official_rows:
+        by_nm = counts[r["apt_seq"]]
+        nm = str(r.get("apt_nm") or "")
+        by_nm[nm] = by_nm.get(nm, 0) + int(r.get("n") or 1)
+    for r in official_rows:  # 집계 행이 없는 키는 대표 행 이름
+        if not counts[r["apt_seq"]]:
+            counts[r["apt_seq"]][str(r.get("apt_nm") or "")] = 1
+    return {k: most_frequent_value(c) for k, c in counts.items()}
 
 
 def _jibun_address(region: str, row: dict, pnu: str) -> str:
@@ -660,17 +700,33 @@ def _enrich_official_keys(
     실패한 키는 미매핑으로 남기고 로그한다 — 다음 회차에 다시 시도된다.
     """
     plan = plan_official_keys(official_rows, existing_pnus)
+    key_count = len({r["apt_seq"] for r in official_rows})
     logger.info(
-        f"  고유번호 키 {len(official_rows)}건: 기존 주소 PNU {len(plan.map_existing)}건, "
-        f"신규 등록 PNU {len(plan.register)}개, 주소 미확보 {len(plan.unresolved)}건"
+        f"  고유번호 키 {key_count}건: 기존 주소 PNU {len(plan.map_existing)}건, "
+        f"신규 등록 PNU {len(plan.register)}개, 주소 미확보 {len(plan.unresolved)}건, "
+        f"주소 모호 {len(plan.ambiguous)}건"
     )
+    if plan.ambiguous:
+        logger.warning(
+            f"  거래 주소 PNU 가 여럿이라 고르지 않은 고유번호 키 — 미매핑 유지 {len(plan.ambiguous)}건 "
+            f"(최대 {UNRESOLVED_LOG_SAMPLE}): {plan.ambiguous[:UNRESOLVED_LOG_SAMPLE]}"
+        )
     if plan.unresolved:
         logger.warning(
             f"  주소로 풀리지 않은 고유번호 키 — 미매핑 유지 {len(plan.unresolved)}건 "
             f"(최대 {UNRESOLVED_LOG_SAMPLE}): {plan.unresolved[:UNRESOLVED_LOG_SAMPLE]}"
         )
 
-    rows_by_seq = {r["apt_seq"]: r for r in official_rows}
+    # 근거가 약한 주소 매핑 경고(동작 변경 없음) — 집계 행(n 있음)으로 행 비율을 센다
+    warn_weak_address_choices(
+        logger,
+        address_pnu_counts([r for r in official_rows if "n" in r]),
+        plan.map_existing,
+    )
+    rows_by_seq: dict[str, dict] = {}
+    for r in official_rows:
+        rows_by_seq.setdefault(r["apt_seq"], r)
+    names = official_key_names(official_rows)
     mappings = list(plan.map_existing.items())
     registered: dict[str, str] = {}
     failed: list[str] = []
@@ -681,7 +737,7 @@ def _enrich_official_keys(
         with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as executor:
             futures = {
                 executor.submit(
-                    _resolve_official_one, rows_by_seq[seqs[0]], pnu, headers, sgg_map,
+                    _resolve_official_one, plan.address_rows[pnu], pnu, headers, sgg_map,
                     kakao_limiter, data_go_limiter,
                 ): seqs
                 for pnu, seqs in plan.register.items()
@@ -710,7 +766,7 @@ def _enrich_official_keys(
         cur.execute(
             "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
             "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
-            [seq, pnu, row["apt_nm"], str(row["sgg_cd"])[:5], OFFICIAL_KEY_ADDRESS_METHOD],
+            [seq, pnu, names[seq], str(row["sgg_cd"])[:5], OFFICIAL_KEY_ADDRESS_METHOD],
         )
     conn.commit()
     logger.info(f"  고유번호 키 주소 매핑 {len(mappings)}건 (신규 등록 {len(registered)}개)")
@@ -720,6 +776,18 @@ def _enrich_official_keys(
     # 시군구+이름 첫 매칭이 이웃의 kapt_code/세대수를 가져올 위험이 있다.
     # 후속: 법정동 범위 매처가 생기면 연결한다(백로그).
     return len(mappings), registered
+
+
+def _official_address_rows(conn, apt_seqs: list[str]) -> list[dict]:
+    """고유번호 키들의 서로 다른 거래 주소 행 — 주소 PNU 후보를 모두 모으기 위해."""
+    return query_all(conn, """
+        SELECT apt_seq, sgg_cd, apt_nm, umd_cd, bonbun, bubun, land_cd, umd_nm,
+               TRUE AS official_key, COUNT(*) AS n
+        FROM trade_history
+        WHERE apt_seq = ANY(%s) AND umd_cd IS NOT NULL AND apt_seq_method IS NOT NULL
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+        ORDER BY apt_seq, umd_cd, bonbun, bubun, apt_nm
+    """, [apt_seqs])
 
 
 # ── 메인 ──
@@ -784,6 +852,9 @@ def enrich_new_apartments(conn, logger):
     # 고유번호 키는 이름 경로(K-APT 이름 진본·Kakao 이름 검색·TRADE_ fallback)에 넣지 않는다 —
     # 거래 주소 PNU 로만 매핑·등록한다 (ADR-015, 최종 리뷰 #1). 아래 흐름은 이름 키 전용이다.
     unmapped, official_rows = partition_unmapped(unmapped)
+    if official_rows:
+        # 대표 행(DISTINCT ON) 하나가 아니라 키의 모든 주소 행으로 판정한다 (plan_official_keys)
+        official_rows += _official_address_rows(conn, [r["apt_seq"] for r in official_rows])
     official_mapped, official_registered = (
         _enrich_official_keys(conn, logger, official_rows, existing_pnus, headers, sgg_map)
         if official_rows
