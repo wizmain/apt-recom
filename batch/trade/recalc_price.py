@@ -25,14 +25,18 @@ def _update_mapping(conn, logger):
     매핑 순서: 이름 매칭(1~3순위) → PNU 직접 조합(4순위, 주소 필드 있을 때만).
     """
     # 미매핑 apt_seq 조회
+    # 새 키(apt_seq_method 가 있는 행)는 trade_key_mapping.map_api_keys 가 담당한다 —
+    # 여기서 이름으로 매칭하면 동명 단지 혼입이 되살아난다 (ADR-015).
     unmapped = query_all(conn, """
         SELECT DISTINCT t.apt_seq, t.sgg_cd, t.apt_nm
         FROM trade_history t
-        WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
+        WHERE t.apt_seq_method IS NULL
+          AND NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
         UNION
         SELECT DISTINCT r.apt_seq, r.sgg_cd, r.apt_nm
         FROM rent_history r
-        WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
+        WHERE r.apt_seq_method IS NULL
+          AND NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
     """)
 
     if not unmapped:

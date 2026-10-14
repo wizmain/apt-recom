@@ -3,6 +3,7 @@
 import re
 from batch.db import execute_values_chunked, query_all
 from batch.region_codes import load_aliases, normalize_sigungu_code
+from batch.trade.trade_keys import resolve_trade_key
 
 
 def _clean_amount(val):
@@ -37,8 +38,9 @@ def load_trades(conn, trade_rows, rent_rows, logger):
     # ADR-013: 내부 표준은 구코드. 질의는 구코드(LAWD_CD)로 하지만 응답
     # sggCd 는 신코드로 올 수 있어(2026-08-29 실측: 광주·전남 12xxx,
     # 인천 28275/28290 로 2,706건 원코드 유입) 적재 경계에서 접는다.
-    # apt_seq 가 "{sgg}_{apt_nm}" 조합이라 여기서 접어야 하류(매핑·등록)까지
-    # 구코드로 일관된다. 미지의 코드는 그대로 두고 audit_unknown_codes 가 감시.
+    # 이름 키 "{sgg}_{apt_nm}"(aptSeq 없을 때의 키, legacy_apt_seq)가 시군구 코드를
+    # 포함하므로 여기서 접어야 하류(매핑·등록)까지 구코드로 일관된다.
+    # 미지의 코드는 그대로 두고 audit_unknown_codes 가 감시.
     aliases = load_aliases(conn)
 
     # ── 매매 ──
@@ -87,14 +89,14 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             if not dy or not dm or not amount:
                 continue
 
-            key = (sgg, apt_nm, exclu, floor, dy, dm, dd, amount)
-            if key in existing_keys:
+            dedup_key = (sgg, apt_nm, exclu, floor, dy, dm, dd, amount)
+            if dedup_key in existing_keys:
                 continue
 
-            apt_seq = f"{sgg}_{apt_nm}"
+            key = resolve_trade_key(sgg, apt_nm, r.get("aptSeq"))
             new_rows.append(
                 (
-                    apt_seq,
+                    key.apt_seq,
                     sgg,
                     apt_nm,
                     amount,
@@ -118,6 +120,8 @@ def load_trades(conn, trade_rows, rent_rows, logger):
                     r.get("dealingGbn") or None,
                     r.get("rgstDate") or None,
                     r.get("aptSeq") or None,
+                    key.legacy_apt_seq,
+                    key.apt_seq_method,
                 )
             )
 
@@ -125,7 +129,8 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             cnt = execute_values_chunked(
                 conn,
                 "INSERT INTO trade_history (apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year,"
-                " umd_nm, umd_cd, jibun, bonbun, bubun, land_cd, road_nm, road_nm_bonbun, road_nm_bubun, apt_dong, buyer_gbn, dealing_gbn, rgst_date, api_apt_seq) VALUES %s"
+                " umd_nm, umd_cd, jibun, bonbun, bubun, land_cd, road_nm, road_nm_bonbun, road_nm_bubun, apt_dong, buyer_gbn, dealing_gbn, rgst_date, api_apt_seq,"
+                " legacy_apt_seq, apt_seq_method) VALUES %s"
                 " ON CONFLICT (sgg_cd, apt_nm, exclu_use_ar, floor, deal_year, deal_month, deal_day, deal_amount) DO NOTHING",
                 new_rows,
             )
@@ -179,15 +184,15 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             if not dy or not dm:
                 continue
 
-            key = (sgg, apt_nm, exclu, floor, dy, dm, dd, deposit)
-            if key in existing_keys:
+            dedup_key = (sgg, apt_nm, exclu, floor, dy, dm, dd, deposit)
+            if dedup_key in existing_keys:
                 continue
 
-            apt_seq = f"{sgg}_{apt_nm}"
+            key = resolve_trade_key(sgg, apt_nm, r.get("aptSeq"))
             monthly_rent = _clean_amount(r.get("monthlyRent")) or 0
             new_rows.append(
                 (
-                    apt_seq,
+                    key.apt_seq,
                     sgg,
                     apt_nm,
                     deposit,
@@ -208,6 +213,9 @@ def load_trades(conn, trade_rows, rent_rows, logger):
                     _clean_amount(r.get("preMonthlyRent")),
                     r.get("useRRRight") or None,
                     r.get("aptSeq") or None,
+                    _to_int(r.get("buildYear")),
+                    key.legacy_apt_seq,
+                    key.apt_seq_method,
                 )
             )
 
@@ -215,7 +223,8 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             cnt = execute_values_chunked(
                 conn,
                 "INSERT INTO rent_history (apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day,"
-                " umd_nm, jibun, road_nm, road_nm_bonbun, road_nm_bubun, contract_type, contract_term, pre_deposit, pre_monthly_rent, use_rr_right, api_apt_seq) VALUES %s"
+                " umd_nm, jibun, road_nm, road_nm_bonbun, road_nm_bubun, contract_type, contract_term, pre_deposit, pre_monthly_rent, use_rr_right, api_apt_seq,"
+                " build_year, legacy_apt_seq, apt_seq_method) VALUES %s"
                 " ON CONFLICT (sgg_cd, apt_nm, exclu_use_ar, floor, deal_year, deal_month, deal_day, deposit) DO NOTHING",
                 new_rows,
             )

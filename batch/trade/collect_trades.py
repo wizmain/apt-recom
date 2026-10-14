@@ -112,6 +112,7 @@ RENT_COL_MAP = {
     "preDeposit": "preDeposit",
     "preMonthlyRent": "preMonthlyRent",
     "useRRRight": "useRRRight",
+    "buildYear": "buildYear",
     "aptSeq": "aptSeq",
 }
 

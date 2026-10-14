@@ -15,6 +15,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import NamedTuple
 
 import requests
 
@@ -61,6 +62,59 @@ from batch.trade.name_matching import (  # noqa: E402,F401
     _normalize_name,
     _timeline_consistent,
 )
+from batch.trade.trade_keys import address_pnu
+
+# 고유번호 키(ADR-015)를 주소 PNU 로 매핑·등록할 때의 match_method — trade_key_mapping 2순위와 같다.
+OFFICIAL_KEY_ADDRESS_METHOD = "api_address_pnu"
+UNRESOLVED_LOG_SAMPLE = 50
+_MOUNTAIN_PNU_FLAG = "1"
+
+
+# ── 고유번호 키 분리 (ADR-015, 최종 리뷰 #1) ──
+# 고유번호 키는 같은 구 동명 단지를 이미 구분한 키다. 이름 기반 경로(K-APT 이름 진본,
+# Kakao 이름 검색 결과, TRADE_{sgg}_{apt_nm} fallback)로 매핑하면 키 전환으로 갈라놓은
+# 단지를 다시 합친다. 그래서 고유번호 키는 거래 주소로 만든 PNU 로만 매핑·등록하고,
+# 주소로 풀리지 않으면 미매핑으로 남겨 로그한다(fallback 매핑 금지).
+
+
+class OfficialKeyPlan(NamedTuple):
+    map_existing: dict[str, str]  # apt_seq → 이미 apartments 에 있는 주소 PNU
+    register: dict[str, list[str]]  # 새로 등록할 주소 PNU → 그 PNU 의 apt_seq 들
+    unresolved: list[str]  # 주소 PNU 를 만들 수 없는 apt_seq
+
+
+def partition_unmapped(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """미매핑 행을 (이름 키, 고유번호 키)로 나눈다. 고유번호 키 = apt_seq_method 가 있는 행."""
+    name_rows = [r for r in rows if not r.get("official_key")]
+    official_rows = [r for r in rows if r.get("official_key")]
+    return name_rows, official_rows
+
+
+def plan_official_keys(official_rows: list[dict], existing_pnus: set) -> OfficialKeyPlan:
+    """고유번호 키의 주소 PNU 판정 — 이름은 쓰지 않는다."""
+    map_existing: dict[str, str] = {}
+    register: dict[str, list[str]] = {}
+    unresolved: list[str] = []
+    for r in official_rows:
+        pnu = address_pnu(
+            str(r["sgg_cd"])[:5], r.get("umd_cd"), r.get("land_cd"),
+            (r.get("bonbun") or "").strip() or None, (r.get("bubun") or "").strip() or None,
+        )
+        if not pnu:
+            unresolved.append(r["apt_seq"])
+        elif pnu in existing_pnus:
+            map_existing[r["apt_seq"]] = pnu
+        else:
+            register.setdefault(pnu, []).append(r["apt_seq"])
+    return OfficialKeyPlan(map_existing, register, unresolved)
+
+
+def _jibun_address(region: str, row: dict, pnu: str) -> str:
+    """거래 주소 필드로 만든 지번 주소 — Kakao 주소 검색(좌표 확보)용."""
+    bun, ji = int(pnu[11:15]), int(pnu[15:19])
+    mountain = "산 " if pnu[10] == _MOUNTAIN_PNU_FLAG else ""
+    lot = f"{bun}-{ji}" if ji else f"{bun}"
+    return " ".join(p for p in (region, row.get("umd_nm") or "", f"{mountain}{lot}") if p)
 
 
 # ── Rate Limiter ──
@@ -245,6 +299,43 @@ def _resolve_one(
     if real_pnu not in existing_pnus:
         result["bld_info"] = _fetch_building_info(bld_params, data_go_limiter)
 
+    return result
+
+
+def _resolve_official_one(
+    row: dict,
+    pnu: str,
+    headers: dict,
+    sgg_map: dict,
+    kakao_limiter: RateLimiter,
+    data_go_limiter: RateLimiter,
+) -> dict:
+    """고유번호 키의 주소 PNU 등록 준비 — 좌표는 지번 주소 검색으로만 얻는다. DB 접근 없음.
+
+    단지명 검색(_resolve_one)은 쓰지 않는다: 이름 검색 좌표는 동명 다른 단지를 가리킬 수 있다.
+    주소 검색이 실패하면 좌표 없이 등록한다(PNU 는 국토부 거래 주소 기준이라 그대로 유효).
+    """
+    sgg_cd = str(row["sgg_cd"])[:5]
+    bld_params = pnu_to_bld_params(pnu)
+    result = {
+        "apt_seq": row["apt_seq"], "sgg_cd": sgg_cd, "apt_nm": str(row["apt_nm"]),
+        "pnu": pnu, "lat": None, "lng": None, "new_plat": None, "plat": None,
+        "bjd_code": pnu[:10], "bld_params": bld_params, "bld_info": None,
+    }
+    resp = _api_get_with_retry(
+        KAKAO_ADDRESS_URL, kakao_limiter, headers=headers,
+        params={"query": _jibun_address(sgg_map.get(sgg_cd, ""), row, pnu), "size": 1},
+        timeout=5,
+    )
+    docs = resp.json().get("documents", []) if resp and resp.ok else []
+    if docs:
+        doc = docs[0]
+        road = doc.get("road_address")
+        result["new_plat"] = road["address_name"] if road else None
+        result["plat"] = doc.get("address_name") or None
+        result["lat"] = float(doc["y"]) if doc.get("y") else None
+        result["lng"] = float(doc["x"]) if doc.get("x") else None
+    result["bld_info"] = _fetch_building_info(bld_params, data_go_limiter)
     return result
 
 
@@ -518,6 +609,119 @@ def _fill_apartments_from_kapt_basic(cur, pnu: str, basic: dict):
         """, [hhld, dong, top_flr, pnu, hhld, dong, top_flr])
 
 
+def _insert_registered_apartment(conn, cur, logger, r: dict, pnu: str) -> None:
+    """확정된 정규 PNU 로 단지 등록 + 건축물대장(표제부·전유부) 정보 반영."""
+    apt_nm, sgg_cd = r["apt_nm"], r["sgg_cd"]
+    cur.execute(
+        "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, bjd_code, lat, lng, new_plat_plc, plat_plc) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
+        [pnu, apt_nm, sgg_cd, pnu, r["bjd_code"], r["lat"], r["lng"], r["new_plat"], r["plat"]],
+    )
+
+    # 건축물대장 정보 업데이트
+    bld_info = r.get("bld_info") or {}
+    if bld_info:
+        updates = []
+        params = []
+        for col in ("total_hhld_cnt", "dong_count", "max_floor"):
+            if bld_info.get(col):
+                updates.append(f"{col} = %s")
+                params.append(bld_info[col])
+        if bld_info.get("use_apr_day"):
+            updates.append("use_apr_day = COALESCE(NULLIF(use_apr_day, ''), %s)")
+            params.append(bld_info["use_apr_day"])
+        if updates:
+            params.append(pnu)
+            cur.execute(f"UPDATE apartments SET {', '.join(updates)} WHERE pnu = %s", params)
+
+    # 건축물대장 전유부 → apt_area_info 적재 (호별 전용면적 ground truth)
+    bld_params = r.get("bld_params")
+    if bld_params:
+        try:
+            area_info = fetch_area_info(
+                bld_params["sigungu_cd"],
+                bld_params["bjdong_cd"],
+                bld_params.get("plat_gb_cd", "0"),
+                bld_params["bun"],
+                bld_params["ji"],
+            )
+            if area_info:
+                upsert_area_info(conn, pnu, area_info)
+        except Exception as e:
+            logger.warning(f"  area_info 실패 ({pnu}): {e}")
+
+
+def _enrich_official_keys(
+    conn, logger, official_rows: list[dict], existing_pnus: set, headers: dict, sgg_map: dict
+) -> tuple[int, dict[str, str]]:
+    """고유번호 키 — 거래 주소 PNU 로만 매핑·등록한다(이름 경로 없음, 최종 리뷰 #1).
+
+    반환: (매핑한 키 수, {새로 등록한 PNU: 단지명}). 주소로 풀리지 않거나 등록 준비(API)가
+    실패한 키는 미매핑으로 남기고 로그한다 — 다음 회차에 다시 시도된다.
+    """
+    plan = plan_official_keys(official_rows, existing_pnus)
+    logger.info(
+        f"  고유번호 키 {len(official_rows)}건: 기존 주소 PNU {len(plan.map_existing)}건, "
+        f"신규 등록 PNU {len(plan.register)}개, 주소 미확보 {len(plan.unresolved)}건"
+    )
+    if plan.unresolved:
+        logger.warning(
+            f"  주소로 풀리지 않은 고유번호 키 — 미매핑 유지 {len(plan.unresolved)}건 "
+            f"(최대 {UNRESOLVED_LOG_SAMPLE}): {plan.unresolved[:UNRESOLVED_LOG_SAMPLE]}"
+        )
+
+    rows_by_seq = {r["apt_seq"]: r for r in official_rows}
+    mappings = list(plan.map_existing.items())
+    registered: dict[str, str] = {}
+    failed: list[str] = []
+    if plan.register:
+        kakao_limiter = RateLimiter(KAKAO_RATE)
+        data_go_limiter = RateLimiter(DATA_GO_KR_RATE)
+        results = []
+        with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as executor:
+            futures = {
+                executor.submit(
+                    _resolve_official_one, rows_by_seq[seqs[0]], pnu, headers, sgg_map,
+                    kakao_limiter, data_go_limiter,
+                ): seqs
+                for pnu, seqs in plan.register.items()
+            }
+            for future in as_completed(futures):
+                seqs = futures[future]
+                try:
+                    results.append((future.result(), seqs))
+                except Exception as e:
+                    logger.warning(f"  고유번호 키 등록 준비 실패 {seqs[0]} — 미매핑 유지: {e}")
+                    failed.extend(seqs)
+        cur = conn.cursor()
+        for r, seqs in results:
+            _insert_registered_apartment(conn, cur, logger, r, r["pnu"])
+            registered[r["pnu"]] = r["apt_nm"]
+            mappings += [(seq, r["pnu"]) for seq in seqs]
+    if failed:
+        logger.warning(
+            f"  등록 준비 실패 고유번호 키 {len(failed)}건 (최대 {UNRESOLVED_LOG_SAMPLE}): "
+            f"{failed[:UNRESOLVED_LOG_SAMPLE]}"
+        )
+
+    cur = conn.cursor()
+    for seq, pnu in mappings:
+        row = rows_by_seq[seq]
+        cur.execute(
+            "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
+            [seq, pnu, row["apt_nm"], str(row["sgg_cd"])[:5], OFFICIAL_KEY_ADDRESS_METHOD],
+        )
+    conn.commit()
+    logger.info(f"  고유번호 키 주소 매핑 {len(mappings)}건 (신규 등록 {len(registered)}개)")
+
+    # K-APT 이름 매칭(_enrich_kapt_targeted)은 의도적으로 호출하지 않는다.
+    # 고유번호 키로 새로 등록되는 단지는 동명 이웃과 분리된 단지(예: 상도동 대림 vs 대방동 대림)라
+    # 시군구+이름 첫 매칭이 이웃의 kapt_code/세대수를 가져올 위험이 있다.
+    # 후속: 법정동 범위 매처가 생기면 연결한다(백로그).
+    return len(mappings), registered
+
+
 # ── 메인 ──
 
 def enrich_new_apartments(conn, logger):
@@ -542,19 +746,23 @@ def enrich_new_apartments(conn, logger):
 
     # 미매핑 apt_seq 조회 (PNU 조합용 필드 포함)
     unmapped = query_all(conn, """
-        SELECT DISTINCT ON (apt_seq) apt_seq, sgg_cd, apt_nm, umd_cd, bonbun, bubun, land_cd, umd_nm
+        SELECT DISTINCT ON (apt_seq) apt_seq, sgg_cd, apt_nm, umd_cd, bonbun, bubun, land_cd, umd_nm,
+               official_key
         FROM (
-            SELECT t.apt_seq, t.sgg_cd, t.apt_nm, t.umd_cd, t.bonbun, t.bubun, t.land_cd, t.umd_nm
+            SELECT t.apt_seq, t.sgg_cd, t.apt_nm, t.umd_cd, t.bonbun, t.bubun, t.land_cd, t.umd_nm,
+                   t.apt_seq_method IS NOT NULL AS official_key
             FROM trade_history t
             WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
               AND t.umd_cd IS NOT NULL
             UNION ALL
-            SELECT t.apt_seq, t.sgg_cd, t.apt_nm, t.umd_cd, t.bonbun, t.bubun, t.land_cd, t.umd_nm
+            SELECT t.apt_seq, t.sgg_cd, t.apt_nm, t.umd_cd, t.bonbun, t.bubun, t.land_cd, t.umd_nm,
+                   t.apt_seq_method IS NOT NULL
             FROM trade_history t
             WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
               AND t.umd_cd IS NULL
             UNION ALL
-            SELECT r.apt_seq, r.sgg_cd, r.apt_nm, NULL, NULL, NULL, NULL, r.umd_nm
+            SELECT r.apt_seq, r.sgg_cd, r.apt_nm, NULL, NULL, NULL, NULL, r.umd_nm,
+                   r.apt_seq_method IS NOT NULL
             FROM rent_history r
             WHERE NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
         ) sub
@@ -572,6 +780,20 @@ def enrich_new_apartments(conn, logger):
     existing_pnus = set(r["pnu"] for r in apt_rows)
     existing_names = {r["pnu"]: r["bld_nm"] or "" for r in apt_rows}
     existing_use_apr_index = {r["pnu"]: r["use_apr_day"] for r in apt_rows if r.get("use_apr_day")}
+
+    # 고유번호 키는 이름 경로(K-APT 이름 진본·Kakao 이름 검색·TRADE_ fallback)에 넣지 않는다 —
+    # 거래 주소 PNU 로만 매핑·등록한다 (ADR-015, 최종 리뷰 #1). 아래 흐름은 이름 키 전용이다.
+    unmapped, official_rows = partition_unmapped(unmapped)
+    official_mapped, official_registered = (
+        _enrich_official_keys(conn, logger, official_rows, existing_pnus, headers, sgg_map)
+        if official_rows
+        else (0, {})
+    )
+    official_new_pnus = list(official_registered)
+    existing_pnus |= set(official_registered)
+    existing_names.update(official_registered)
+    if not unmapped:
+        return official_mapped, official_new_pnus
 
     # K-APT 연동된 "진본" 아파트 (sigungu_code, normalized_name) → pnu 인덱스
     # 동일 시군구·동일 이름의 Kakao 오매칭을 사전에 진본으로 리다이렉트한다.
@@ -656,7 +878,7 @@ def enrich_new_apartments(conn, logger):
 
     if not unmapped:
         logger.info("  보충 대상 없음")
-        return 0, new_pnus
+        return official_mapped, official_new_pnus
 
     # Rate limiters
     kakao_limiter = RateLimiter(KAKAO_RATE)
@@ -834,42 +1056,7 @@ def enrich_new_apartments(conn, logger):
                 else:
                     pnu = real_pnu
                     method = "kakao_pnu_new"
-                    cur.execute(
-                        "INSERT INTO apartments (pnu, bld_nm, sigungu_code, group_pnu, bjd_code, lat, lng, new_plat_plc, plat_plc) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (pnu) DO NOTHING",
-                        [pnu, apt_nm, sgg_cd, pnu, r["bjd_code"], r["lat"], r["lng"], r["new_plat"], r["plat"]],
-                    )
-
-                    # 건축물대장 정보 업데이트
-                    if bld_info:
-                        updates = []
-                        params = []
-                        for col in ("total_hhld_cnt", "dong_count", "max_floor"):
-                            if bld_info.get(col):
-                                updates.append(f"{col} = %s")
-                                params.append(bld_info[col])
-                        if bld_info.get("use_apr_day"):
-                            updates.append("use_apr_day = COALESCE(NULLIF(use_apr_day, ''), %s)")
-                            params.append(bld_info["use_apr_day"])
-                        if updates:
-                            params.append(pnu)
-                            cur.execute(f"UPDATE apartments SET {', '.join(updates)} WHERE pnu = %s", params)
-
-                    # 건축물대장 전유부 → apt_area_info 적재 (호별 전용면적 ground truth)
-                    bld_params = r.get("bld_params")
-                    if bld_params:
-                        try:
-                            area_info = fetch_area_info(
-                                bld_params["sigungu_cd"],
-                                bld_params["bjdong_cd"],
-                                bld_params.get("plat_gb_cd", "0"),
-                                bld_params["bun"],
-                                bld_params["ji"],
-                            )
-                            if area_info:
-                                upsert_area_info(conn, pnu, area_info)
-                        except Exception as e:
-                            logger.warning(f"  area_info 실패 ({pnu}): {e}")
+                    _insert_registered_apartment(conn, cur, logger, r, pnu)
 
                     created += 1
                     new_pnus.append(pnu)
@@ -900,7 +1087,7 @@ def enrich_new_apartments(conn, logger):
         kapt_cnt = _enrich_kapt_targeted(conn, logger, new_pnus)
         logger.info(f"  K-APT 보완: {kapt_cnt}건")
 
-    return created + matched, new_pnus
+    return created + matched + official_mapped, new_pnus + official_new_pnus
 
 
 # ── CLI 진입점 ──
@@ -918,6 +1105,13 @@ def main():
     conn = get_connection()
     try:
         logger.info("신규 아파트 보충 시작 (독립 실행)")
+        # 고유번호 키는 매핑 순위(상속→주소→법정동 이름)를 먼저 거친다 (ADR-015).
+        # enrich 는 남은 고유번호 키를 주소 PNU 로만 처리한다.
+        from batch.trade.trade_key_mapping import map_api_keys
+
+        mapped = map_api_keys(conn, logger)
+        conn.commit()
+        logger.info(f"고유번호 키 매핑: {mapped}건")
         enriched, new_pnus = enrich_new_apartments(conn, logger)
         logger.info(f"신규 아파트 등록: {enriched}건 (신규 PNU {len(new_pnus)})")
 

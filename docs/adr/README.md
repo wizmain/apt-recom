@@ -30,3 +30,4 @@
 | [012](012-display-name-override.md) | 사용자 친화 단지명 컬럼(display_name) 도입 | Accepted | 2026-04-28 |
 | [013](013-region-code-canonicalization.md) | 행정구역 코드 표준화 — 내부는 구코드, 경계에서 변환 | Accepted | 2026-08-02 |
 | [014](014-kapt-sale-rental-pnu-contention.md) | K-APT 분양·임대 레코드의 PNU 경합 — PNU 당 1건 유지, 분양 우선, 세대수는 합산 | Accepted | 2026-09-20 |
+| [015](015-trade-key-official-id.md) | 거래 키를 국토부 단지 고유번호(aptSeq)로 전환 | Proposed | 2026-10-13 |

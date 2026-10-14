@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 
 import psycopg2
+import psycopg2.errors
 import psycopg2.extras
 from psycopg2 import pool as psycopg2_pool
 from dotenv import load_dotenv
@@ -436,6 +437,7 @@ def create_tables(conn) -> None:
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS min_supply_area DOUBLE PRECISION;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS max_supply_area DOUBLE PRECISION;
         ALTER TABLE apt_area_info ADD COLUMN IF NOT EXISTS avg_supply_area DOUBLE PRECISION;
+        -- ADR-015 거래 키 칼럼은 _ensure_trade_key_columns() 가 별도 트랜잭션에서 추가한다.
 
         -- apt_kapt_info 보충 컬럼 (K-APT 20260417 엑셀 재적재용)
         ALTER TABLE apt_kapt_info ADD COLUMN IF NOT EXISTS joined_date TEXT;
@@ -746,7 +748,58 @@ def create_tables(conn) -> None:
         EXECUTE FUNCTION apartments_fill_display_name();
     """)
     conn.commit()
+    _ensure_trade_key_columns(conn)
     print("Tables created.")
+
+
+# ADR-015 거래 키 전환 칼럼 (테이블, 칼럼, 타입). 타입은 로컬 DB 실측과 같게 맞췄다
+# (api_apt_seq VARCHAR(30), dealing_gbn VARCHAR(20) 은 적재 코드가 이미 쓰던 칼럼의 선언 누락분).
+_TRADE_KEY_COLUMNS = (
+    ("trade_history", "legacy_apt_seq", "TEXT"),
+    ("trade_history", "apt_seq_method", "TEXT"),
+    ("trade_history", "api_apt_seq", "VARCHAR(30)"),
+    ("trade_history", "dealing_gbn", "VARCHAR(20)"),
+    ("rent_history", "legacy_apt_seq", "TEXT"),
+    ("rent_history", "apt_seq_method", "TEXT"),
+    ("rent_history", "api_apt_seq", "VARCHAR(30)"),
+    ("rent_history", "build_year", "INTEGER"),
+)
+_DDL_LOCK_TIMEOUT = "5s"
+
+
+def _ensure_trade_key_columns(conn) -> None:
+    """거래 테이블(수백만 행) 칼럼을 없을 때만 추가한다 — 기동 DDL 잠금 대기 방지.
+
+    `ADD COLUMN IF NOT EXISTS` 도 칼럼이 있든 없든 ACCESS EXCLUSIVE 잠금을 먼저 요청한다.
+    거래 배치·키 변경이 테이블을 쓰는 중이면 기동이 그 뒤에 줄 서고, 이어지는 모든 조회가
+    다시 그 뒤에 줄 선다. 그래서 information_schema 로 없는 칼럼만 ALTER 하고, 잠금 대기는
+    lock_timeout 으로 자른다. SET LOCAL 이 create_tables 본문에 번지지 않도록 별도
+    트랜잭션으로 실행한다. 시간 초과 시 이 트랜잭션만 롤백하고 경고 후 계속한다(다음 기동에 재시도).
+    """
+    specs = ",\n".join(f"('{t}', '{c}', '{ty}')" for t, c, ty in _TRADE_KEY_COLUMNS)
+    cur = conn.cursor()
+    try:
+        cur.execute(f"""
+            SET LOCAL lock_timeout = '{_DDL_LOCK_TIMEOUT}';
+            DO $$
+            DECLARE
+                spec RECORD;
+            BEGIN
+                FOR spec IN SELECT * FROM (VALUES {specs}) AS v(tbl, col, typ) LOOP
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = spec.tbl AND column_name = spec.col
+                    ) THEN
+                        EXECUTE format('ALTER TABLE %I ADD COLUMN %I %s', spec.tbl, spec.col, spec.typ);
+                    END IF;
+                END LOOP;
+            END $$;
+        """)
+        conn.commit()
+    except psycopg2.errors.LockNotAvailable as e:
+        conn.rollback()
+        print(f"[schema] ADR-015 거래 키 칼럼 추가 보류 — 잠금 대기 {_DDL_LOCK_TIMEOUT} 초과: {e}")
 
 
 def ensure_logging_indexes(conn) -> None:
@@ -827,6 +880,11 @@ def create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_user_event_payload_gin ON user_event USING gin(payload jsonb_path_ops)",
         "CREATE INDEX IF NOT EXISTS idx_chat_log_device_created ON chat_log(device_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_chat_log_created_brin ON chat_log USING brin(created_at)",
+        # ADR-015 legacy-ID 조회용 (trade_key_mapping·rekey_trades, 배치마다 ~10M행 seq scan 방지).
+        # 기동 DDL(create_tables)에서 뺐다 — 일반 CREATE INDEX 는 쓰기를 막는다. 운영은 머지 전
+        # 운영자가 같은 정의를 CREATE INDEX CONCURRENTLY 로 먼저 만든다(여기선 IF NOT EXISTS 로 건너뜀).
+        "CREATE INDEX IF NOT EXISTS idx_trade_legacy_seq ON trade_history(legacy_apt_seq) WHERE legacy_apt_seq IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_rent_legacy_seq ON rent_history(legacy_apt_seq) WHERE legacy_apt_seq IS NOT NULL",
     ]
     for sql in indexes:
         cur.execute(sql)

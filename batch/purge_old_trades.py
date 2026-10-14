@@ -35,6 +35,7 @@ from pathlib import Path
 import psycopg2
 from dotenv import load_dotenv
 
+from batch.db import vacuum_tables
 from batch.logger import setup_logger
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -135,32 +136,6 @@ def _delete_orphan_mappings(conn, logger) -> int:
     return deleted
 
 
-def _vacuum(url: str, tables: list[str], logger, full: bool = False) -> None:
-    """VACUUM 은 transaction 안에서 못 돌리므로 별도 autocommit connection.
-
-    full=True 면 ``VACUUM (FULL, ANALYZE)`` — 테이블을 rewrite 해 디스크 공간을
-    OS 로 반환한다. ACCESS EXCLUSIVE 락 + 잔존 데이터 크기만큼의 임시 디스크가
-    필요하므로 트래픽 적은 시간대에 실행. 한 테이블이 실패(예: 디스크 부족)해도
-    이미 회수한 앞 테이블 효과는 유지되도록 테이블별로 에러를 잡고 계속 진행한다.
-    """
-    mode = "FULL, ANALYZE" if full else "ANALYZE"
-    conn = psycopg2.connect(url)
-    conn.autocommit = True
-    try:
-        cur = conn.cursor()
-        for t in tables:
-            logger.info(f"  VACUUM ({mode}) {t} 시작")
-            start = time.time()
-            try:
-                cur.execute(f"VACUUM ({mode}) {t}")
-            except psycopg2.Error as e:
-                logger.error(f"  VACUUM ({mode}) {t} 실패: {e}")
-                continue
-            logger.info(f"  VACUUM ({mode}) {t} 완료 ({time.time() - start:.1f}s)")
-    finally:
-        conn.close()
-
-
 def _process_target(target: str, args, logger) -> None:
     cutoff = _cutoff_tuple(args.years)
     logger.info(
@@ -227,7 +202,7 @@ def _process_target(target: str, args, logger) -> None:
                 f"  [{target}] VACUUM FULL — 대상 테이블이 rewrite 동안 잠깁니다"
                 f"(ACCESS EXCLUSIVE). 잔존 데이터 크기만큼 임시 디스크 필요."
             )
-        _vacuum(url, vacuum_targets, logger, full=args.vacuum_full)
+        vacuum_tables(url, vacuum_targets, logger, full=args.vacuum_full)
 
 
 def main() -> None:

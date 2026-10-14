@@ -20,6 +20,8 @@ from batch.trade.collect_trades import (
     RENT_COL_MAP,
 )
 from batch.trade.load_trades import load_trades
+from batch.trade.trade_key_mapping import map_api_keys
+from batch.trade.trade_keys import try_trade_write_lock
 from batch.nationwide_codes import get_nonmetro_codes
 from batch.db import get_connection
 from batch.logger import setup_logger
@@ -88,6 +90,13 @@ def main():
     months = generate_months("202301")
 
     conn = get_connection()
+    # 키 변경(batch.rekey_trades)·거래 배치와 동시에 거래 테이블을 쓰지 않는다 (ADR-015).
+    if not try_trade_write_lock(conn):
+        logger.error(
+            "거래 쓰기 잠금 점유 중(키 변경 또는 거래 배치 실행 중) — 초기 수집 중단"
+        )
+        conn.close()
+        return
     completed = load_checkpoint(conn)
 
     total_pairs = len(codes) * len(months)
@@ -139,6 +148,13 @@ def main():
     logger.info(
         f"전체 진행: {len(completed)}/{total_pairs}쌍 ({len(completed) * 100 // total_pairs}%)"
     )
+
+    # ── 고유번호 키 매핑 — enrich 의 이름 경로보다 먼저 (ADR-015) ──
+    # 적재한 고유번호 키를 상속·주소·법정동 이름 순위로 매핑한다. enrich 는 남은 고유번호 키를
+    # 주소 PNU 로만 다루므로, 이 단계를 건너뛰면 상속 가능한 키까지 미매핑으로 남는다.
+    mapped = map_api_keys(conn, logger)
+    conn.commit()
+    logger.info(f"고유번호 키 매핑: {mapped}건")
 
     # ── 신규 아파트 등록 + 건축물대장/전유부(공급면적)/K-APT 보충 ──
     # CI에서는 --skip-enrich로 별도 워크플로(batch-enrich-apartments)에서 실행.

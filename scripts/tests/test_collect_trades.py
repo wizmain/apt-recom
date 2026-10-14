@@ -292,6 +292,7 @@ class TestRunTradeReportsUnreachable(unittest.TestCase):
         with (
             patch.object(run_mod, "get_connection", return_value=FakeConn()),
             patch.object(mod, "collect_trades", return_value=([], [], stats)),
+            patch("batch.trade.trade_keys.try_trade_write_lock", return_value=True),
         ):
             run_mod.run_trade(args, FakeLogger(), result)
         return result
