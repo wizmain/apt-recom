@@ -378,6 +378,21 @@ class AttributionPreservingTest(unittest.TestCase):
         )
         self.assertEqual((cmp.before, cmp.after, cmp.rematch_review), (0, 1, []))
 
+    def test_partial_preservation_does_not_hide_new_violation(self):
+        # L_A 행이 보존 키 K_INH 와 비보존 키 K_SPLIT 로 나뉘었다 → L_A 는 기준선에 남으므로
+        # K_INH 위반도 변경 후에서 빼면 안 된다 (빼면 L_A 위반이 K_SPLIT 신규 위반을 가린다)
+        preserving = rekey_trades.preserving_keys(self.PAIRS, self.OLD, self.NEW)
+        preserved_old = rekey_trades.fully_preserved_old_keys(self.PAIRS, preserving)
+        cmp = rekey_trades.compare_audits(
+            [{"apt_seq": "L_A"}],
+            [{"apt_seq": "K_INH"}, {"apt_seq": "K_SPLIT"}],
+            {"L_A", "L_B", "L_C"},
+            preserving,
+            preserved_old,
+            self.PAIRS,
+        )
+        self.assertEqual((cmp.before, cmp.after, cmp.rematch_review), (1, 2, []))
+
 
 class SourcePnusTest(unittest.TestCase):
     """F3b — 검증된 비상속 새 키로 행을 보낸 이름 키의 출발 PNU 만 허용 목록에 더한다."""

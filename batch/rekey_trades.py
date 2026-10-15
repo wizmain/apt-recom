@@ -205,9 +205,15 @@ def compare_audits(
     preserved_old: set[str],
     moved_pairs: dict[str, set[str]],
 ) -> AuditComparison:
-    """감사 위반 비교 (F3a) — 귀속 보존 키는 양쪽에서 빼고, 변경 후 위반은 재매칭 검토 목록으로."""
+    """감사 위반 비교 (F3a) — 귀속 보존 키는 양쪽에서 빼고, 변경 후 위반은 재매칭 검토 목록으로.
+
+    대칭 규칙: 보존 키의 변경 후 위반은 그 키의 이름 키가 전부 기준선에서 빠졌을 때(preserved_old)만
+    뺀다. 이름 키가 비보존 키로도 행을 보내 기준선에 남았는데 보존 키 위반만 빼면, 남은 기준선
+    위반이 비보존 키의 신규 위반을 가리는 여유가 된다 (리뷰 3a6485a..d4e551c #1).
+    """
+    excluded = {k for k in preserving if moved_pairs.get(k, set()) <= preserved_old}
     before = baseline_violation_count(before_violations, moved_old_keys - preserved_old)
-    after = sum(1 for v in after_violations if v["apt_seq"] not in preserving)
+    after = sum(1 for v in after_violations if v["apt_seq"] not in excluded)
     review = [
         {
             "apt_seq": v["apt_seq"],
@@ -219,7 +225,7 @@ def compare_audits(
             "reasons": v.get("reasons", []),
         }
         for v in sorted(after_violations, key=lambda x: x["apt_seq"])
-        if v["apt_seq"] in preserving
+        if v["apt_seq"] in excluded
     ]
     return AuditComparison(before, after, review)
 
