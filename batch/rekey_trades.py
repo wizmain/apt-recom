@@ -18,6 +18,8 @@ F3a 귀속 보존 키(옮겨진 행 전부가 이름 키 시절과 같은 PNU �
 로그·체크포인트 detail 에 남긴다. 귀속이 바뀐 키는 전부 계속 감사한다.
 F3b 이번 실행에서 만든 비상속 매핑(map_api_keys 의 물리 게이트 통과분)으로 행을 보낸 이름 키들의
 기존 PNU(출발 PNU)도 귀속 변화 허용 목록에 넣는다.
+이전부터 있던 비상속 매핑도 재판정(remap_official_keys)이 검증한 것이면 같게 취급한다
+(batch/trade/remap_verification). 그래서 --apply 는 재판정 성공 체크포인트가 있어야 실행된다(설계 4-4).
 """
 
 from __future__ import annotations
@@ -35,6 +37,11 @@ from dotenv import load_dotenv
 from batch.db import query_all, vacuum_tables
 from batch.logger import setup_logger
 from batch.trade.audit_mappings import audit
+from batch.trade.remap_verification import (
+    RemapVerification,
+    load_latest,
+    verified_existing_keys,
+)
 from batch.trade.trade_key_inference import KnownRow, TargetRow, infer_keys
 from batch.trade.trade_key_mapping import MATCH_INHERIT_LEGACY, map_api_keys
 from batch.trade.trade_keys import KEY_METHOD_API, try_trade_write_lock
@@ -417,7 +424,27 @@ def _done(conn) -> set[str]:
     }
 
 
-def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
+def require_remap_checkpoint(
+    remap: RemapVerification | None, apply: bool, logger
+) -> None:
+    """순서 강제 (설계 4-4) — 재판정(remap_official_keys --apply) 성공 체크포인트 없이 --apply 하지 않는다."""
+    if remap is not None:
+        logger.info(
+            f"재판정 체크포인트 {remap.run_at} (검증 비상속 키 {len(remap.verified):,})"
+        )
+        return
+    msg = (
+        "기존 고유번호 키 매핑 재판정 체크포인트 없음(또는 키 목록 없는 옛 형식) — "
+        "먼저 python -m batch.remap_official_keys --target <같은 대상> --apply"
+    )
+    if apply:
+        raise SystemExit(msg)
+    logger.warning(f"{msg} (dry-run 이라 계속)")
+
+
+def rekey_sgg(
+    conn, sgg, logger, apply: bool, remap: RemapVerification | None = None
+) -> str:
     tk, rk = (
         _known(conn, sgg, "trade_history", True),
         _known(conn, sgg, "rent_history", False),
@@ -430,7 +457,9 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
     if not apply:
         return "planned"
 
-    errors, reverted, rematch_review = apply_and_verify(conn, sgg, logger, plan, tk, rk)
+    errors, reverted, rematch_review = apply_and_verify(
+        conn, sgg, logger, plan, tk, rk, remap=remap
+    )
     detail = {"plan": counts, "reverted": reverted, "rematch_review": rematch_review}
     if errors:
         conn.rollback()
@@ -443,9 +472,12 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
 
 
 def apply_and_verify(
-    conn, sgg, logger, plan, tk, rk
+    conn, sgg, logger, plan, tk, rk, remap: RemapVerification | None = None
 ) -> tuple[list[str], dict, list[dict]]:
     """계획 적용 → 새 키 매핑(F1 상속·F2 물리 게이트) → 매핑 못 한 키의 계획 행 되돌림 → 불변식 검사.
+
+    remap: 최신 재판정 체크포인트 — 이전부터 있던 비상속 매핑 중 재판정이 검증한 것(remap_verification)은
+    이번 실행에서 만든 매핑과 같게 F3b 허용 목록에 넣는다. None 이면 이전부터 있던 매핑은 모두 미검증.
 
     커밋·롤백하지 않는다(호출자 몫). 반환: (불변식 위반 목록, 되돌림 요약, 재매칭 검토 목록).
     """
@@ -477,10 +509,13 @@ def apply_and_verify(
                 conn, sgg, logger, plan, unmapped_keys
             )
             new_keys = [k for k in new_keys if k not in unmapped_keys]
-        # 이번에 만든 비상속 매핑은 귀속이 바뀌는 게 정상이다 — 도착 PNU(최종 리뷰 #1c)와
-        # 그리로 행을 보낸 이름 키의 출발 PNU(F3b)를 허용 목록에 넣는다.
-        allowed |= created_mapping_pnus(pre_existing, mappings_after)
-        verified = created_non_inherit_keys(pre_existing, mappings_after)
+        # 이번에 만든(또는 재판정이 검증한) 비상속 매핑은 귀속이 바뀌는 게 정상이다 — 도착 PNU
+        # (최종 리뷰 #1c)와 그리로 행을 보낸 이름 키의 출발 PNU(F3b)를 허용 목록에 넣는다.
+        unverified = pre_existing - verified_existing_keys(
+            pre_existing, mappings_after, remap, MATCH_INHERIT_LEGACY
+        )
+        allowed |= created_mapping_pnus(unverified, mappings_after)
+        verified = created_non_inherit_keys(unverified, mappings_after)
     # 감사 기준선은 아직 옮겨진 행이 남은 이름 키로 좁힌다 (되돌린 키의 위반은 비교 대상 아님)
     moved_pairs = _moved_pairs(conn, plan, reverted_ids) if new_keys else {}
     moved_old_keys = set().union(*moved_pairs.values()) if moved_pairs else set()
@@ -582,6 +617,8 @@ def main():
             for sgg in args.sgg:
                 rollback_sgg(conn, sgg, logger)
             return
+        remap = load_latest(conn)
+        require_remap_checkpoint(remap, args.apply, logger)
         if args.sgg:
             todo = args.sgg
         else:
@@ -591,7 +628,7 @@ def main():
             todo = todo[: args.limit]
         summary = Counter()
         for i, sgg in enumerate(todo, 1):
-            summary[rekey_sgg(conn, sgg, logger, apply=args.apply)] += 1
+            summary[rekey_sgg(conn, sgg, logger, apply=args.apply, remap=remap)] += 1
             if args.apply and args.vacuum_every and i % args.vacuum_every == 0:
                 vacuum_tables(url, list(TABLES) + ["trade_apt_mapping"], logger)
         if args.apply:

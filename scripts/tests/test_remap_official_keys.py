@@ -67,6 +67,31 @@ class PlanRemapTest(unittest.TestCase):
         )
 
 
+class NonInheritVerdictsTest(unittest.TestCase):
+    def test_verified_and_judged_sets(self):
+        items = R.plan_remap(
+            {
+                "KEEP_ADDR": old(P1),
+                "KEEP_NAME": old(
+                    P1, "api_name_exact"
+                ),  # 행 그대로 — 기존 method 로 비상속
+                "REPL_TO_ADDR": old(P2, "api_inherit_legacy"),
+                "DEL_NAME": old(P1, "api_name_exact"),
+                "KEEP_INH": old(P1, "api_inherit_legacy"),
+            },
+            {
+                "KEEP_ADDR": dec(P1),
+                "KEEP_NAME": dec(P1),
+                "REPL_TO_ADDR": dec(P1),
+                "KEEP_INH": dec(P1, "api_inherit_legacy"),
+            },
+            set(),
+        )
+        verified, judged = R.non_inherit_verdicts(items)
+        self.assertEqual(verified, ["KEEP_ADDR", "KEEP_NAME", "REPL_TO_ADDR"])
+        self.assertEqual(judged, ["DEL_NAME", "KEEP_ADDR", "KEEP_NAME", "REPL_TO_ADDR"])
+
+
 class GateCandidatesTest(unittest.TestCase):
     def test_inherit_exempt_and_only_changed_pnus_rewritten(self):
         olds = {"INH": old(P2), "SAME": old(P1), "CHG": old(P2)}

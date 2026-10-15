@@ -38,6 +38,12 @@ from batch.db import query_all
 from batch.logger import setup_logger
 from batch.rekey_trades import db_url
 from batch.trade.mapping_gate import gate_keys, reject_unverified_mappings
+from batch.trade.remap_verification import (
+    CHECKPOINT_GROUP,
+    CHECKPOINT_STATUS,
+    FIELD_JUDGED,
+    FIELD_VERIFIED,
+)
 from batch.trade.trade_key_mapping import (
     MATCH_INHERIT_LEGACY,
     KeyDecision,
@@ -45,8 +51,6 @@ from batch.trade.trade_key_mapping import (
 )
 from batch.trade.trade_keys import try_trade_write_lock
 
-CHECKPOINT_GROUP = "remap_official_keys_checkpoint"
-CHECKPOINT_STATUS = "applied"
 ACTION_KEEP = "keep"
 ACTION_REPLACE = "replace"
 ACTION_DELETE = "delete"
@@ -113,6 +117,28 @@ def gate_candidates(old: dict[str, OldMapping], decided: dict[str, KeyDecision])
         {MATCH_INHERIT_LEGACY},
     )
     return keys, [k for k in keys if decided[k].pnu != old[k].pnu]
+
+
+def non_inherit_verdicts(items: list[RemapItem]) -> tuple[list[str], list[str]]:
+    """체크포인트용 (verified, judged) — rekey F3b 가 기존 비상속 매핑을 신뢰할지 판단하는 근거.
+
+    judged: 재판정 당시 비상속이던 키 + 재판정 후 비상속인 키. verified: 그중 재판정 후 비상속 매핑으로
+    남은 키(유지 — 행 그대로라 기존 method 기준, 교체 — 새 method 기준). 지운 키는 judged 에만 남는다.
+    """
+    verified, judged = set(), set()
+    for it in items:
+        after = (
+            it.old.match_method
+            if it.action == ACTION_KEEP
+            else it.new.match_method
+            if it.action == ACTION_REPLACE
+            else None
+        )
+        if after is not None and after != MATCH_INHERIT_LEGACY:
+            verified.add(it.apt_seq)
+        if it.old.match_method != MATCH_INHERIT_LEGACY:
+            judged.add(it.apt_seq)
+    return sorted(verified), sorted(judged | verified)
 
 
 def summarize(items: list[RemapItem]) -> dict[str, dict[str, int]]:
@@ -271,7 +297,10 @@ def remap(conn, logger, apply: bool, report_path: str, run_id: str) -> dict:
     logger.info(f"전체 목록: {report_path}")
     if apply:
         _apply(conn, items)
-        _save_checkpoint(conn, run_id, detail)
+        verified, judged = non_inherit_verdicts(items)
+        _save_checkpoint(
+            conn, run_id, {**detail, FIELD_VERIFIED: verified, FIELD_JUDGED: judged}
+        )
     return detail
 
 
