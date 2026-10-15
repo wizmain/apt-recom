@@ -3,6 +3,7 @@
 import sys
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -12,6 +13,7 @@ from batch.trade import trade_key_mapping
 from batch.trade.trade_key_mapping import (
     MappingInput,
     decide_mapping,
+    inheritable_pnus_by_key,
     mapping_inputs_by_key,
     mixed_legacy_ids,
     most_frequent_value,
@@ -211,6 +213,105 @@ class WarnWeakAddressChoicesTest(unittest.TestCase):
             warn_weak_address_choices(logger, {"K": {DAEBANG: 3}}, {"K": DAEBANG}), []
         )
         logger.warning.assert_not_called()
+
+
+class InheritablePnusTest(unittest.TestCase):
+    """F1 — apartments 에 실존하는 PNU 로 매핑된 이름 키에서만 상속한다."""
+
+    LKS: ClassVar = {"48123-583": {"48123_에일린의뜰"}}
+    IDS: ClassVar = {"48123_에일린의뜰": {"48123-583"}}
+
+    def test_dangling_legacy_pnu_is_not_inherited(self):
+        legacy = {"48123_에일린의뜰": "4812313700001100000"}  # apartments 에 없음
+        got = inheritable_pnus_by_key(self.LKS, self.IDS, legacy, set())
+        self.assertEqual(got, {"48123-583": set()})
+        # 상속 후보가 없으니 2·3순위로 넘어간다(여기선 아무것도 없어 미매핑)
+        self.assertIsNone(decide_mapping(inp(legacy=got["48123-583"])))
+
+    def test_existing_legacy_pnu_is_inherited(self):
+        legacy = {"48123_에일린의뜰": "P_REAL"}
+        got = inheritable_pnus_by_key(self.LKS, self.IDS, legacy, {"P_REAL"})
+        self.assertEqual(
+            decide_mapping(inp(legacy=got["48123-583"])),
+            ("P_REAL", "api_inherit_legacy"),
+        )
+
+    def test_dangling_variant_is_ignored_like_an_unmapped_name_key(self):
+        lks = {"K": {"L1", "L2"}}
+        ids = {"L1": {"K"}, "L2": {"K"}}
+        got = inheritable_pnus_by_key(lks, ids, {"L1": "P1", "L2": "GONE"}, {"P1"})
+        self.assertEqual(got, {"K": {"P1"}})
+
+    def test_mixed_legacy_key_still_not_inherited(self):
+        got = inheritable_pnus_by_key(
+            {"K": {"L"}}, {"L": {"K", "K2"}}, {"L": "P1"}, {"P1"}
+        )
+        self.assertEqual(got, {"K": set()})
+
+
+class MapApiKeysGateTest(unittest.TestCase):
+    """F2 — map_api_keys 는 이번에 넣은 비상속 매핑만 게이트에 넘기고, 거부분은 미매핑으로 센다."""
+
+    def test_only_inserted_non_inherit_keys_are_gated(self):
+        rows = [
+            {
+                "apt_seq": "K_ADDR",
+                "sgg_cd": "11590",
+                "apt_nm": "대림",
+                "umd_cd": "10800",
+                "land_cd": "1",
+                "bonbun": "0501",
+                "bubun": "0000",
+                "n": 3,
+            },
+            {
+                "apt_seq": "K_INH",
+                "sgg_cd": "11590",
+                "apt_nm": "현대",
+                "umd_cd": None,
+                "land_cd": None,
+                "bonbun": None,
+                "bubun": None,
+                "n": 2,
+            },
+        ]
+
+        def fake_query_all(conn, sql, params=None):
+            if "FROM trade_history t" in sql:
+                return rows
+            if "SELECT DISTINCT apt_seq, legacy_apt_seq" in sql:
+                return [{"apt_seq": "K_INH", "legacy_apt_seq": "11590_현대"}]
+            if "ARRAY_AGG(DISTINCT api_apt_seq)" in sql:
+                return [{"lk": "11590_현대", "ids": ["K_INH"]}]
+            if "LEFT JOIN apartments a" in sql:
+                return [{"apt_seq": "11590_현대", "pnu": "P_H", "pnu_exists": True}]
+            if "SELECT pnu FROM apartments" in sql:
+                return [{"pnu": DAEBANG}]
+            return []
+
+        gated = {}
+
+        def fake_gate(conn, logger, keys, source):
+            gated["keys"] = keys
+            return [{"apt_seq": "K_ADDR"}]
+
+        with (
+            patch.object(trade_key_mapping, "query_all", side_effect=fake_query_all),
+            patch.object(
+                trade_key_mapping.psycopg2.extras,
+                "execute_values",
+                return_value=[
+                    ("K_ADDR", "api_address_pnu"),
+                    ("K_INH", "api_inherit_legacy"),
+                ],
+            ),
+            patch.object(
+                trade_key_mapping, "reject_unverified_mappings", side_effect=fake_gate
+            ),
+        ):
+            mapped = trade_key_mapping.map_api_keys(MagicMock(), MagicMock())
+        self.assertEqual(gated["keys"], ["K_ADDR"])
+        self.assertEqual(mapped, 1)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,11 @@ manual_fix·ADR-011·ADR-014 교정을 잃지 않기 위해서다. 판정 실패
 주소·법정동 판정은 키의 **모든** 거래 행으로 한다(대표 행 하나가 아니다) — 행정구역 개편
 전후 umd_cd 가 섞인 키가 개편 전 코드로 없는 PNU 를 만들어 미매핑되던 문제(2026-10-14
 로컬 적용 28260-138 마전동아). 주소 PNU 는 apartments 에 있는 것이 정확히 하나일 때만 쓴다.
+
+F1 상속은 apartments 에 실존하는 PNU 로 매핑된 이름 키에서만 한다 — 끊긴 매핑(없는 PNU)은 미매핑
+이름 키와 같게 취급한다(48123 에일린의뜰: 없는 PNU 상속이 혼입 키의 보이던 행까지 끌어감).
+F2 상속이 아닌 판정(2·3순위)은 넣은 직후 물리 감사(mapping_gate)를 통과해야 남는다 — 위반이면
+지워 미매핑으로 둔다(2026-10-14 월계주공1·2, 신관주공2 → 주공3, 엘리시아 → 연동엘리시아).
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from typing import NamedTuple
 import psycopg2.extras
 
 from batch.db import query_all
+from batch.trade.mapping_gate import gate_keys, reject_unverified_mappings
 from batch.trade.recalc_price import _core_name, _normalize_name
 from batch.trade.trade_keys import (
     address_choice_warning,
@@ -136,6 +142,27 @@ def warn_weak_address_choices(
     return msgs
 
 
+def inheritable_pnus_by_key(
+    lks_by_key: dict[str, set[str]],
+    ids_by_legacy: dict[str, set[str]],
+    legacy_pnu: dict[str, str],
+    existing_pnus: set[str],
+) -> dict[str, set[str]]:
+    """새 키별 상속 후보 PNU — 1순위 판정 입력(decide_mapping 은 후보가 정확히 하나일 때 상속).
+
+    이름 키 L 이 후보를 내는 조건: L 안의 고유번호가 이 키 하나뿐이고, L 의 매핑 PNU 가
+    apartments 에 실존한다(F1). 끊긴 매핑은 미매핑 이름 키처럼 후보에서 빠진다.
+    """
+    return {
+        key: {
+            legacy_pnu[lk]
+            for lk in lks
+            if ids_by_legacy.get(lk) == {key} and legacy_pnu.get(lk) in existing_pnus
+        }
+        for key, lks in lks_by_key.items()
+    }
+
+
 def mixed_legacy_ids(ids_by_legacy: dict[str, set[str]]) -> list[str]:
     """고유번호가 2개 이상 관측된(혼입) 이름 키들에 속한 고유번호."""
     return sorted({i for ids in ids_by_legacy.values() if len(ids) > 1 for i in ids})
@@ -204,18 +231,19 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         if legacy_keys
         else {}
     )
-    legacy_pnu = (
-        {
-            r["apt_seq"]: r["pnu"]
-            for r in query_all(
-                conn,
-                "SELECT apt_seq, pnu FROM trade_apt_mapping WHERE apt_seq = ANY(%s)",
-                [legacy_keys],
-            )
-        }
+    legacy_rows = (
+        query_all(
+            conn,
+            "SELECT m.apt_seq, m.pnu, (a.pnu IS NOT NULL) AS pnu_exists "
+            "FROM trade_apt_mapping m LEFT JOIN apartments a ON a.pnu = m.pnu "
+            "WHERE m.apt_seq = ANY(%s)",
+            [legacy_keys],
+        )
         if legacy_keys
-        else {}
+        else []
     )
+    legacy_pnu = {r["apt_seq"]: r["pnu"] for r in legacy_rows}
+    legacy_existing = {r["pnu"] for r in legacy_rows if r["pnu_exists"]}
 
     addr_values = sorted(
         {p for by_pnu in address_rows_by_key(rows).values() for p in by_pnu}
@@ -242,14 +270,10 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         ):
             cands_by_bjd.setdefault(a["bjd_code"], []).append((a["pnu"], a["nm"] or ""))
 
-    inherit_by_key = {
-        key: {
-            legacy_pnu[lk]
-            for lk in lks
-            if ids_by_legacy.get(lk) == {key} and lk in legacy_pnu
-        }
-        for key, lks in lks_by_key.items()
-    }
+    inherit_by_key = inheritable_pnus_by_key(
+        lks_by_key, ids_by_legacy, legacy_pnu, legacy_existing
+    )
+    _warn_dangling_legacy(logger, lks_by_key, legacy_pnu, legacy_existing)
     new_rows, unmapped = [], []
     for key, (inp, sgg_cd) in mapping_inputs_by_key(
         rows, existing_pnus, cands_by_bjd, inherit_by_key
@@ -265,18 +289,50 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         {k: pnu for k, pnu, _, _, m in new_rows if m == MATCH_ADDRESS_PNU},
     )
 
+    inserted: list[tuple[str, str]] = []
     if new_rows:
-        psycopg2.extras.execute_values(
+        returned = psycopg2.extras.execute_values(
             conn.cursor(),
             "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
-            "VALUES %s ON CONFLICT (apt_seq) DO NOTHING",
+            "VALUES %s ON CONFLICT (apt_seq) DO NOTHING RETURNING apt_seq, match_method",
             new_rows,
+            fetch=True,
         )
-    logger.info(f"  고유번호 키 매핑 {len(new_rows):,}건, 미매핑 {len(unmapped):,}건")
+        inserted = [(r[0], r[1]) for r in returned]
+    # F2 — 이번에 넣은 비상속 매핑만 물리 감사한다 (상속은 이름 키 귀속 그대로라 대상 아님)
+    rejected = {
+        v["apt_seq"]
+        for v in reject_unverified_mappings(
+            conn,
+            logger,
+            gate_keys(inserted, {MATCH_INHERIT_LEGACY}),
+            source="map_api_keys",
+        )
+    }
+    unmapped += sorted(rejected)
+    mapped = len(inserted) - len(rejected)
+    logger.info(
+        f"  고유번호 키 매핑 {mapped:,}건, 미매핑 {len(unmapped):,}건 "
+        f"(물리 감사 거부 {len(rejected):,}건 포함)"
+    )
     if unmapped:
         logger.warning(f"  미매핑 고유번호 키(최대 50): {unmapped[:50]}")
     _warn_frozen_inherits(conn, logger, ids_by_legacy)
-    return len(new_rows)
+    return mapped
+
+
+def _warn_dangling_legacy(logger, lks_by_key, legacy_pnu, legacy_existing) -> None:
+    """apartments 에 없는 PNU 로 매핑된 이름 키 때문에 상속 후보에서 빠진 새 키를 알린다 (F1)."""
+    keys = sorted(
+        key
+        for key, lks in lks_by_key.items()
+        if any(lk in legacy_pnu and legacy_pnu[lk] not in legacy_existing for lk in lks)
+    )
+    if keys:
+        logger.warning(
+            f"  끊긴 이름 키 매핑(없는 PNU)은 상속하지 않음 — 해당 새 키 {len(keys):,}건 "
+            f"(최대 {FROZEN_INHERIT_LOG_SAMPLE}): {keys[:FROZEN_INHERIT_LOG_SAMPLE]}"
+        )
 
 
 def _warn_frozen_inherits(conn, logger, ids_by_legacy: dict[str, set[str]]) -> None:

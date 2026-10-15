@@ -60,12 +60,22 @@ def _as_apt(row: dict) -> dict:
     }
 
 
-def audit(conn, logger, apt_seqs: list[str] | None = None,
-          pnus: list[str] | None = None) -> list[dict]:
-    """물리적으로 성립하지 않는 매핑을 찾는다. 데이터는 바꾸지 않는다.
+def violation_of(row: dict) -> dict | None:
+    """실적 집계 행 하나(deal_stats)의 판정 — 물리적으로 성립하지 않으면 위반 dict, 아니면 None."""
+    signals = check_mapping(_as_deal(row), _as_apt(row))
+    if not mismatch_confirmed(signals):
+        return None
+    return {
+        "apt_seq": row["apt_seq"], "apt_nm": row["apt_nm"], "pnu": row["pnu"],
+        "bld_nm": row["bld_nm"], "match_method": row["match_method"],
+        "trades": row["trades"], "rents": row["rents"],
+        "reasons": [s.detail for s in signals],
+    }
 
-    apt_seqs / pnus 를 모두 생략하면 전체를 감사한다(느리다 — 모듈 주석 참조).
-    """
+
+def find_violations(conn, apt_seqs: list[str] | None = None,
+                    pnus: list[str] | None = None) -> tuple[list[dict], int]:
+    """(위반 목록, 검사한 매핑 수). 로그·변경 없음 — audit 와 매핑 게이트(mapping_gate)가 공유한다."""
     params = {}
     if apt_seqs:
         params["seqs"] = list(apt_seqs)
@@ -76,22 +86,20 @@ def audit(conn, logger, apt_seqs: list[str] | None = None,
         build_deal_stats_sql(by_seqs="seqs" in params, by_pnus="pnus" in params),
         params or None,
     )
+    return [v for r in rows if (v := violation_of(r))], len(rows)
 
-    violations = []
-    for r in rows:
-        signals = check_mapping(_as_deal(r), _as_apt(r))
-        if not mismatch_confirmed(signals):
-            continue
-        violations.append({
-            "apt_seq": r["apt_seq"], "apt_nm": r["apt_nm"], "pnu": r["pnu"],
-            "bld_nm": r["bld_nm"], "match_method": r["match_method"],
-            "trades": r["trades"], "rents": r["rents"],
-            "reasons": [s.detail for s in signals],
-        })
+
+def audit(conn, logger, apt_seqs: list[str] | None = None,
+          pnus: list[str] | None = None) -> list[dict]:
+    """물리적으로 성립하지 않는 매핑을 찾는다. 데이터는 바꾸지 않는다.
+
+    apt_seqs / pnus 를 모두 생략하면 전체를 감사한다(느리다 — 모듈 주석 참조).
+    """
+    violations, checked = find_violations(conn, apt_seqs=apt_seqs, pnus=pnus)
 
     if violations:
         logger.warning(
-            f"매핑 정합성 위반 {len(violations)}건 / 검사 {len(rows)}건 — "
+            f"매핑 정합성 위반 {len(violations)}건 / 검사 {checked}건 — "
             f"교정은 scripts/rematch_bad_mappings.py 로 검토 후 수행"
         )
         for v in sorted(violations, key=lambda x: -(x["trades"] + x["rents"]))[:10]:
@@ -101,7 +109,7 @@ def audit(conn, logger, apt_seqs: list[str] | None = None,
                 f"{', '.join(v['reasons'])}"
             )
     else:
-        logger.info(f"매핑 정합성 검사 {len(rows)}건 — 위반 없음")
+        logger.info(f"매핑 정합성 검사 {checked}건 — 위반 없음")
 
     return violations
 

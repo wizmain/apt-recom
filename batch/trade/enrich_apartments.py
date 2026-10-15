@@ -35,6 +35,7 @@ from batch.trade.registry import (
     parse_registry_response,
 )
 from batch.trade.collect_area_info import fetch_area_info, upsert_area_info, ensure_schema as ensure_area_schema
+from batch.trade.mapping_gate import reject_unverified_mappings
 
 BLD_TITLE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
@@ -761,21 +762,32 @@ def _enrich_official_keys(
         )
 
     cur = conn.cursor()
+    inserted_existing: list[str] = []
     for seq, pnu in mappings:
         row = rows_by_seq[seq]
         cur.execute(
             "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
-            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING RETURNING apt_seq",
             [seq, pnu, names[seq], str(row["sgg_cd"])[:5], OFFICIAL_KEY_ADDRESS_METHOD],
         )
+        if seq in plan.map_existing and cur.fetchone():
+            inserted_existing.append(seq)
+    # F2 — 기존 단지로 붙인 매핑은 물리 감사를 통과해야 남는다(신규 등록 단지는 비교할 진본이 없어 제외).
+    rejected = reject_unverified_mappings(
+        conn, logger, inserted_existing, source="enrich_official_keys"
+    )
     conn.commit()
-    logger.info(f"  고유번호 키 주소 매핑 {len(mappings)}건 (신규 등록 {len(registered)}개)")
+    mapped = len(mappings) - len({v["apt_seq"] for v in rejected})
+    logger.info(
+        f"  고유번호 키 주소 매핑 {mapped}건 (신규 등록 {len(registered)}개, "
+        f"물리 감사 거부 {len(rejected)}건)"
+    )
 
     # K-APT 이름 매칭(_enrich_kapt_targeted)은 의도적으로 호출하지 않는다.
     # 고유번호 키로 새로 등록되는 단지는 동명 이웃과 분리된 단지(예: 상도동 대림 vs 대방동 대림)라
     # 시군구+이름 첫 매칭이 이웃의 kapt_code/세대수를 가져올 위험이 있다.
     # 후속: 법정동 범위 매처가 생기면 연결한다(백로그).
-    return len(mappings), registered
+    return mapped, registered
 
 
 def _official_address_rows(conn, apt_seqs: list[str]) -> list[dict]:

@@ -188,5 +188,45 @@ class OfficialKeyNamesTest(unittest.TestCase):
         self.assertEqual([(p[0], p[2]) for p in ins], [("11590-57", "대방대림")])
 
 
+class EnrichOfficialKeysGateTest(unittest.TestCase):
+    """F2 — 기존 단지로 붙인 고유번호 키 매핑만 물리 게이트를 거친다(신규 등록 단지는 제외)."""
+
+    def test_existing_pnu_mapping_gated_and_rejection_not_counted(self):
+        conn = MagicMock()
+        resolved = {
+            "apt_seq": "11590-58",
+            "sgg_cd": "11590",
+            "apt_nm": "대림아파트",
+            "pnu": SANGDO,
+            "lat": None,
+            "lng": None,
+            "new_plat": None,
+            "plat": None,
+            "bjd_code": SANGDO[:10],
+            "bld_params": None,
+            "bld_info": {},
+        }
+        rows = [
+            row("11590-57", True),
+            row("11590-58", True, umd_cd="10200", bonbun="0411"),
+        ]
+        gated = {}
+
+        def fake_gate(c, lg, keys, source):
+            gated["keys"] = keys
+            return [{"apt_seq": "11590-57"}]
+
+        with (
+            patch.object(mod, "_resolve_official_one", return_value=resolved),
+            patch.object(mod, "reject_unverified_mappings", side_effect=fake_gate),
+        ):
+            mapped, registered = mod._enrich_official_keys(
+                conn, MagicMock(), rows, {DAEBANG}, {}, {}
+            )
+        self.assertEqual(gated["keys"], ["11590-57"])
+        self.assertEqual((mapped, registered), (1, {SANGDO: "대림아파트"}))
+        conn.commit.assert_called()
+
+
 if __name__ == "__main__":
     unittest.main()
