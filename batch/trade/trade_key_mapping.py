@@ -4,17 +4,19 @@
 manual_fix·ADR-011·ADR-014 교정을 잃지 않기 위해서다. 판정 실패 시 아무 단지에나
 붙이지 않는다(미매핑으로 남기고 로그 — enrich_new_apartments 가 단지 등록을 시도한다).
 
-순위: 1 상속(이름 키 안 고유번호가 이 키 하나뿐이고 PNU 하나) → 2 주소 PNU →
-3 같은 법정동 이름 매칭(정확·포함·핵심명, 유일할 때만) → 4 미매핑.
+순위: 1 상속(이름 키 안 고유번호가 이 키 하나뿐이고 PNU 하나) → 2 주소 PNU → 3 미매핑.
+법정동 이름 매칭은 두지 않는다(2026-10-15 제거) — 로컬 검증에서 이름 매칭 28건 중 절반가량이
+틀렸고(숫자 지운 정규화 신관주공2 → 주공3, 포함 매칭 엘리시아 → 연동엘리시아), apt_area_type 이
+없는 단지(38%)는 물리 게이트로도 판정하지 못했다. 이름 근거만 있는 키는 미매핑으로 둔다.
 
-주소·법정동 판정은 키의 **모든** 거래 행으로 한다(대표 행 하나가 아니다) — 행정구역 개편
+주소 판정은 키의 **모든** 거래 행으로 한다(대표 행 하나가 아니다) — 행정구역 개편
 전후 umd_cd 가 섞인 키가 개편 전 코드로 없는 PNU 를 만들어 미매핑되던 문제(2026-10-14
 로컬 적용 28260-138 마전동아). 주소 PNU 는 apartments 에 있는 것이 정확히 하나일 때만 쓴다.
 
 F1 상속은 apartments 에 실존하는 PNU 로 매핑된 이름 키에서만 한다 — 끊긴 매핑(없는 PNU)은 미매핑
 이름 키와 같게 취급한다(48123 에일린의뜰: 없는 PNU 상속이 혼입 키의 보이던 행까지 끌어감).
-F2 상속이 아닌 판정(2·3순위)은 넣은 직후 물리 감사(mapping_gate)를 통과해야 남는다 — 위반이면
-지워 미매핑으로 둔다(2026-10-14 월계주공1·2, 신관주공2 → 주공3, 엘리시아 → 연동엘리시아).
+F2 상속이 아닌 판정(2순위 주소)은 넣은 직후 물리 감사(mapping_gate)를 통과해야 남는다 — 위반이면
+지워 미매핑으로 둔다(2026-10-14 월계주공1·2 — 한 지번에 두 단지, 한쪽만 apartments 에 있음).
 """
 
 from __future__ import annotations
@@ -25,7 +27,6 @@ import psycopg2.extras
 
 from batch.db import query_all
 from batch.trade.mapping_gate import gate_keys, reject_unverified_mappings
-from batch.trade.recalc_price import _core_name, _normalize_name
 from batch.trade.trade_keys import (
     address_choice_warning,
     address_pnu_counts,
@@ -34,19 +35,16 @@ from batch.trade.trade_keys import (
     unique_existing_pnu,
 )
 
-MIN_CONTAINS_LEN = 3  # recalc_price 포함 매칭과 같은 하한
 MATCH_INHERIT_LEGACY = "api_inherit_legacy"
 MATCH_ADDRESS_PNU = "api_address_pnu"
 WEAK_ADDRESS_LOG_SAMPLE = 50
 FROZEN_INHERIT_LOG_SAMPLE = 50
-MIN_CORE_LEN = 2
 
 
 class MappingInput(NamedTuple):
     apt_nm: str
     legacy_pnus: frozenset[str]
     address_pnu: str | None
-    name_candidates: tuple[tuple[str, str], ...]
 
 
 def decide_mapping(inp: MappingInput) -> tuple[str, str] | None:
@@ -54,58 +52,27 @@ def decide_mapping(inp: MappingInput) -> tuple[str, str] | None:
         return next(iter(inp.legacy_pnus)), MATCH_INHERIT_LEGACY
     if inp.address_pnu:
         return inp.address_pnu, MATCH_ADDRESS_PNU
-    return _match_name(inp.apt_nm, inp.name_candidates)
-
-
-def _match_name(apt_nm: str, candidates) -> tuple[str, str] | None:
-    norm, core = _normalize_name(apt_nm), _core_name(apt_nm)
-    cands = [(pnu, _normalize_name(nm), _core_name(nm)) for pnu, nm in candidates]
-    # 정확 일치도 유일할 때만 — 같은 법정동 동명 단지 둘이면 고르지 않는다
-    # (recalc_price 의 이름 매칭은 첫 후보를 골라 혼입을 만들 수 있다).
-    found = [pnu for pnu, c_norm, _ in cands if c_norm and c_norm == norm]
-    if len(found) == 1:
-        return found[0], "api_name_exact"
-    if norm:
-        found = [
-            pnu
-            for pnu, c_norm, _ in cands
-            if c_norm
-            and len(min(norm, c_norm, key=len)) >= MIN_CONTAINS_LEN
-            and (norm in c_norm or c_norm in norm)
-        ]
-        if len(found) == 1:
-            return found[0], "api_name_contains"
-    if core and len(core) >= MIN_CORE_LEN:
-        found = [pnu for pnu, _, c_core in cands if c_core == core]
-        if len(found) == 1:
-            return found[0], "api_name_core"
     return None
 
 
 def mapping_inputs_by_key(
     rows,
     existing_pnus: set[str],
-    cands_by_bjd: dict[str, list[tuple[str, str]]],
     legacy_pnus_by_key: dict[str, set[str]],
 ) -> dict[str, tuple[MappingInput, str]]:
     """키별 decide_mapping 입력과 시군구 — 키의 모든 행(집계 행, n = 행 수)으로 만든다.
 
     - 주소 PNU: 주소 필드가 있는 행들의 서로 다른 주소 PNU 중 apartments 에 있는 것이
-      정확히 하나면 그것, 아니면 None(3순위로 넘어간다).
-    - 이름 후보: 행들의 서로 다른 법정동(sgg_cd||umd_cd) 후보의 합집합.
-    - 이름·시군구: 행 수 기준 최빈값(동률이면 사전순 첫 값).
+      정확히 하나면 그것, 아니면 None(미매핑).
+    - 이름(매핑 행 apt_nm)·시군구: 행 수 기준 최빈값(동률이면 사전순 첫 값).
     """
     names: dict[str, dict[str, int]] = {}
     sggs: dict[str, dict[str, int]] = {}
-    bjds: dict[str, set[str]] = {}
     for r in rows:
         key, n = r["apt_seq"], int(r.get("n") or 1)
         nm, sgg = r.get("apt_nm") or "", str(r["sgg_cd"])[:5]
         names.setdefault(key, {})[nm] = names.get(key, {}).get(nm, 0) + n
         sggs.setdefault(key, {})[sgg] = sggs.get(key, {}).get(sgg, 0) + n
-        bjds.setdefault(key, set())
-        if r.get("umd_cd"):
-            bjds[key].add(f"{sgg}{r['umd_cd']}")
     addr_by_key = address_rows_by_key(rows)
     out = {}
     for key, name_counts in names.items():
@@ -115,9 +82,6 @@ def mapping_inputs_by_key(
                 legacy_pnus=frozenset(legacy_pnus_by_key.get(key, ())),
                 address_pnu=unique_existing_pnu(
                     addr_by_key.get(key, {}), existing_pnus
-                ),
-                name_candidates=tuple(
-                    c for bjd in sorted(bjds[key]) for c in cands_by_bjd.get(bjd, ())
                 ),
             ),
             most_frequent_value(sggs[key]),
@@ -259,24 +223,13 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         else set()
     )
 
-    bjds = sorted({f"{str(r['sgg_cd'])[:5]}{r['umd_cd']}" for r in rows if r["umd_cd"]})
-    cands_by_bjd: dict[str, list[tuple[str, str]]] = {}
-    if bjds:
-        for a in query_all(
-            conn,
-            "SELECT pnu, COALESCE(display_name, bld_nm) AS nm, bjd_code FROM apartments "
-            "WHERE bjd_code = ANY(%s) AND pnu NOT LIKE 'TRADE%%'",
-            [bjds],
-        ):
-            cands_by_bjd.setdefault(a["bjd_code"], []).append((a["pnu"], a["nm"] or ""))
-
     inherit_by_key = inheritable_pnus_by_key(
         lks_by_key, ids_by_legacy, legacy_pnu, legacy_existing
     )
     _warn_dangling_legacy(logger, lks_by_key, legacy_pnu, legacy_existing)
     new_rows, unmapped = [], []
     for key, (inp, sgg_cd) in mapping_inputs_by_key(
-        rows, existing_pnus, cands_by_bjd, inherit_by_key
+        rows, existing_pnus, inherit_by_key
     ).items():
         decision = decide_mapping(inp)
         if decision:

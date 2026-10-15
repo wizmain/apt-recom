@@ -117,7 +117,7 @@ class CreatedMappingPnusTest(unittest.TestCase):
     def test_rekey_sgg_snapshots_mappings_before_map_api_keys(self):
         calls = []
         before_rows = [
-            {"apt_seq": "11590-57", "pnu": "P_OLD", "match_method": "api_name_exact"}
+            {"apt_seq": "11590-57", "pnu": "P_OLD", "match_method": "api_address_pnu"}
         ]
         after_rows = before_rows + [
             {"apt_seq": "11590-85", "pnu": "P_NEW", "match_method": "api_address_pnu"}
@@ -391,7 +391,7 @@ class SourcePnusTest(unittest.TestCase):
     def test_created_non_inherit_keys_excludes_pre_existing_and_inherit(self):
         after = [
             {"apt_seq": "K_OLD", "pnu": "P1", "match_method": "api_address_pnu"},
-            {"apt_seq": "K_NEW", "pnu": "P2", "match_method": "api_name_exact"},
+            {"apt_seq": "K_NEW", "pnu": "P2", "match_method": "api_address_pnu"},
             {"apt_seq": "K_INH", "pnu": "P3", "match_method": "api_inherit_legacy"},
         ]
         self.assertEqual(

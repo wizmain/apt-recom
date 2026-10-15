@@ -24,8 +24,8 @@ DAEBANG = "1159010800005010000"
 SANGDO = "1159010200004110000"
 
 
-def inp(legacy=(), addr=None, cands=(), apt_nm="대림아파트"):
-    return MappingInput(apt_nm, frozenset(legacy), addr, tuple(cands))
+def inp(legacy=(), addr=None, apt_nm="대림아파트"):
+    return MappingInput(apt_nm, frozenset(legacy), addr)
 
 
 class DecideMappingTest(unittest.TestCase):
@@ -45,36 +45,12 @@ class DecideMappingTest(unittest.TestCase):
     def test_rank2_address_pnu(self):
         self.assertEqual(decide_mapping(inp(addr=SANGDO)), (SANGDO, "api_address_pnu"))
 
-    # 기대값은 recalc_price._normalize_name/_core_name 실측(2026-10-13)에 맞춘 것:
-    # "상도 대림"→norm "상도대림" / "대방대림아파트"→norm 그대로·core "대방대림" / "대림아파트 "→core "대림"
-    def test_rank3_exact_name_in_dong(self):
-        cands = [(SANGDO, "상도 대림"), ("9" * 19, "현대")]
-        self.assertEqual(
-            decide_mapping(inp(cands=cands, apt_nm="상도대림")),
-            (SANGDO, "api_name_exact"),
-        )
-
-    def test_rank3_contains_unique(self):
-        cands = [(DAEBANG, "대방대림"), ("9" * 19, "현대")]
-        self.assertEqual(
-            decide_mapping(inp(cands=cands, apt_nm="대방대림아파트")),
-            (DAEBANG, "api_name_contains"),
-        )
-
-    def test_rank3_core_unique(self):
-        cands = [(SANGDO, "대림"), ("9" * 19, "현대")]
-        self.assertEqual(
-            decide_mapping(inp(cands=cands, apt_nm="대림아파트 ")),
-            (SANGDO, "api_name_core"),
-        )
-
-    def test_rank3_same_name_twice_in_dong_is_unmapped(self):
-        # 기존 이름 매칭은 정확 일치에서 첫 후보를 골랐다 — 동명 단지 혼입의 원인과 같다.
-        cands = [(DAEBANG, "대림"), (SANGDO, "대림")]
-        self.assertIsNone(decide_mapping(inp(cands=cands, apt_nm="대림")))
-
-    def test_rank4_nothing_is_unmapped(self):
+    def test_rank3_nothing_is_unmapped(self):
         self.assertIsNone(decide_mapping(inp()))
+
+    def test_mapping_input_has_no_name_candidates(self):
+        # Option A (2026-10-15) — 법정동 이름 매칭 제거: 판정 입력에 이름 후보가 없다
+        self.assertEqual(MappingInput._fields, ("apt_nm", "legacy_pnus", "address_pnu"))
 
 
 class FrozenInheritWarningTest(unittest.TestCase):
@@ -108,7 +84,7 @@ class FrozenInheritWarningTest(unittest.TestCase):
 
 
 class MappingInputsByKeyTest(unittest.TestCase):
-    """Fix A — 주소·법정동 판정은 키의 모든 행으로 한다 (대표 행 하나가 아니다)."""
+    """Fix A — 주소 판정은 키의 모든 행으로 한다 (대표 행 하나가 아니다)."""
 
     MAJEON_11300 = "2826011300010030001"  # 마전동아 (apartments 에 있음)
     MAJEON_10300 = "2826010300010030001"  # 개편 전 법정동 — apartments 에 없음
@@ -126,8 +102,8 @@ class MappingInputsByKeyTest(unittest.TestCase):
             "n": n,
         }
 
-    def summarize(self, rows, existing, cands_by_bjd=None):
-        return mapping_inputs_by_key(rows, existing, cands_by_bjd or {}, {})
+    def summarize(self, rows, existing):
+        return mapping_inputs_by_key(rows, existing, {})
 
     def test_stale_umd_row_does_not_hide_existing_address(self):
         rows = [
@@ -139,7 +115,7 @@ class MappingInputsByKeyTest(unittest.TestCase):
         self.assertEqual(inp_.address_pnu, self.MAJEON_11300)
         self.assertEqual(decide_mapping(inp_), (self.MAJEON_11300, "api_address_pnu"))
 
-    def test_two_existing_addresses_fall_through_to_name(self):
+    def test_two_existing_addresses_is_none(self):
         rows = [
             self.row("28260-138", "동아", "10300"),
             self.row("28260-138", "동아", "11300"),
@@ -153,19 +129,9 @@ class MappingInputsByKeyTest(unittest.TestCase):
         inp_ = self.summarize([self.row("K", "동아", "10300")], set())["K"][0]
         self.assertIsNone(inp_.address_pnu)
 
-    def test_name_candidates_union_over_all_bjd_codes(self):
-        rows = [self.row("K", "동아", "10300"), self.row("K", "동아", "11300")]
-        cands = {
-            "2826010300": [("P1", "동아")],
-            "2826011300": [("P2", "현대")],
-            "2826099999": [("P3", "무관")],
-        }
-        inp_ = self.summarize(rows, set(), cands)["K"][0]
-        self.assertEqual(sorted(inp_.name_candidates), [("P1", "동아"), ("P2", "현대")])
-
-    def test_rent_only_key_has_no_candidates(self):
+    def test_rent_only_key_has_no_address(self):
         inp_ = self.summarize([self.row("K", "동아", None, n=5)], set())["K"][0]
-        self.assertEqual((inp_.address_pnu, inp_.name_candidates), (None, ()))
+        self.assertIsNone(inp_.address_pnu)
 
     def test_apt_nm_is_most_frequent_and_sgg_is_returned(self):
         rows = [
@@ -178,7 +144,7 @@ class MappingInputsByKeyTest(unittest.TestCase):
 
     def test_legacy_pnus_pass_through(self):
         got = mapping_inputs_by_key(
-            [self.row("K", "동아", None)], set(), {}, {"K": {DAEBANG}}
+            [self.row("K", "동아", None)], set(), {"K": {DAEBANG}}
         )
         self.assertEqual(got["K"][0].legacy_pnus, frozenset({DAEBANG}))
 
@@ -225,7 +191,7 @@ class InheritablePnusTest(unittest.TestCase):
         legacy = {"48123_에일린의뜰": "4812313700001100000"}  # apartments 에 없음
         got = inheritable_pnus_by_key(self.LKS, self.IDS, legacy, set())
         self.assertEqual(got, {"48123-583": set()})
-        # 상속 후보가 없으니 2·3순위로 넘어간다(여기선 아무것도 없어 미매핑)
+        # 상속 후보가 없으니 2순위(주소)로 넘어간다(여기선 주소도 없어 미매핑)
         self.assertIsNone(decide_mapping(inp(legacy=got["48123-583"])))
 
     def test_existing_legacy_pnu_is_inherited(self):
@@ -312,6 +278,55 @@ class MapApiKeysGateTest(unittest.TestCase):
             mapped = trade_key_mapping.map_api_keys(MagicMock(), MagicMock())
         self.assertEqual(gated["keys"], ["K_ADDR"])
         self.assertEqual(mapped, 1)
+
+
+class NoNameMappingTest(unittest.TestCase):
+    """Option A (2026-10-15) — 같은 법정동에 이름이 같은 단지가 하나뿐이어도, 상속·주소 근거가
+    없으면 매핑하지 않는다(로컬 검증에서 이름 매칭 28건 중 절반가량 오매핑)."""
+
+    def test_unique_same_dong_name_without_inherit_or_address_stays_unmapped(self):
+        # 신관동 '주공2' — 주소 PNU 는 apartments 에 없고, 같은 법정동엔 '주공2' 단지가 하나 있다
+        rows = [
+            {
+                "apt_seq": "44150-25",
+                "sgg_cd": "44150",
+                "apt_nm": "주공2",
+                "umd_cd": "10300",
+                "land_cd": "1",
+                "bonbun": "0268",
+                "bubun": "0003",
+                "n": 30,
+            }
+        ]
+        sqls = []
+
+        def fake_query_all(conn, sql, params=None):
+            sqls.append(sql)
+            if "FROM trade_history t" in sql:
+                return rows
+            if "bjd_code" in sql:  # 이름 후보 조회가 되살아나면 유일 동명 후보를 준다
+                return [
+                    {
+                        "pnu": "4415010300102680000",
+                        "nm": "주공2",
+                        "bjd_code": "4415010300",
+                    }
+                ]
+            return []
+
+        logger = MagicMock()
+        with (
+            patch.object(trade_key_mapping, "query_all", side_effect=fake_query_all),
+            patch.object(trade_key_mapping.psycopg2.extras, "execute_values") as ins,
+            patch.object(
+                trade_key_mapping, "reject_unverified_mappings", return_value=[]
+            ),
+        ):
+            mapped = trade_key_mapping.map_api_keys(MagicMock(), logger)
+        self.assertEqual(mapped, 0)
+        ins.assert_not_called()
+        self.assertFalse(any("bjd_code" in s for s in sqls))
+        self.assertIn("44150-25", logger.warning.call_args[0][0])
 
 
 if __name__ == "__main__":

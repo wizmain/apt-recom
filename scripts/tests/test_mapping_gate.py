@@ -62,7 +62,7 @@ SINGWAN_TO_JUGONG3 = stats(
     areas=[(39.72, 12), (51.02, 10), (59.12, 8)],
     apt_areas=[46.7, 46.9, 47.0],
     use_apr="19900601",
-    method="api_name_exact",
+    method="api_address_pnu",
 )
 # 50110-3508 '엘리시아'(2013, 24~30㎡ 원룸) → 포함 매칭 '연동엘리시아'(2011, 74~85㎡)
 ELYSIA = stats(
@@ -74,7 +74,7 @@ ELYSIA = stats(
     areas=[(24.4, 3), (30.5, 3)],
     apt_areas=[74.9, 84.9],
     use_apr="20110301",
-    method="api_name_contains",
+    method="api_address_pnu",
 )
 # 같은 단지(준공·주택형 일치) — 통과해야 한다
 MATCHING = stats(
@@ -98,7 +98,7 @@ YEAR_AND_AREA = stats(
     areas=[(59.9, 4), (84.9, 3)],
     apt_areas=[84.9, 101.0],
     use_apr="20190101",
-    method="api_name_contains",
+    method="api_address_pnu",
 )
 
 
@@ -123,7 +123,7 @@ class ViolationOfTest(unittest.TestCase):
 class GateKeysTest(unittest.TestCase):
     def test_inherit_exempt_and_sorted_unique(self):
         inserted = [
-            ("K2", "api_name_exact"),
+            ("K2", "api_address_pnu"),
             ("K1", "api_address_pnu"),
             ("K3", "api_inherit_legacy"),
             ("K1", "api_address_pnu"),
