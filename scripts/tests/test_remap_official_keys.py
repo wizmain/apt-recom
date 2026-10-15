@@ -88,8 +88,102 @@ class NonInheritVerdictsTest(unittest.TestCase):
             set(),
         )
         verified, judged = R.non_inherit_verdicts(items)
-        self.assertEqual(verified, ["KEEP_ADDR", "KEEP_NAME", "REPL_TO_ADDR"])
+        # 리뷰 #4 — 키별 확인한 PNU 를 남긴다(교체는 새 PNU)
+        self.assertEqual(
+            verified, {"KEEP_ADDR": P1, "KEEP_NAME": P1, "REPL_TO_ADDR": P1}
+        )
         self.assertEqual(judged, ["DEL_NAME", "KEEP_ADDR", "KEEP_NAME", "REPL_TO_ADDR"])
+
+
+class BlockedDeleteTest(unittest.TestCase):
+    """리뷰 #2 — 이미 키를 바꾼 구에 행이 있는 키는 삭제하지 않는다(rekey 는 그 행을 다시 보지 않음)."""
+
+    def test_rekeyed_delete_is_blocked_unless_allowed(self):
+        olds = {"K_RK": old(P1), "K_NEW": old(P1)}
+        blocked = R.plan_remap(olds, {}, set(), rekeyed_keys={"K_RK"})
+        self.assertEqual(
+            {it.apt_seq: it.action for it in blocked},
+            {"K_RK": R.ACTION_BLOCKED_DELETE, "K_NEW": R.ACTION_DELETE},
+        )
+        allowed = R.plan_remap(
+            olds, {}, set(), rekeyed_keys={"K_RK"}, allow_delete_rekeyed=True
+        )
+        self.assertEqual({it.action for it in allowed}, {R.ACTION_DELETE})
+
+    def test_rekeyed_keep_and_replace_unaffected(self):
+        items = R.plan_remap(
+            {"A": old(P1), "B": old(P2)},
+            {"A": dec(P1), "B": dec(P1)},
+            set(),
+            rekeyed_keys={"A", "B"},
+        )
+        self.assertEqual([it.action for it in items], [R.ACTION_KEEP, R.ACTION_REPLACE])
+
+    def test_blocked_is_judged_but_not_verified(self):
+        items = R.plan_remap({"K": old(P1)}, {}, set(), rekeyed_keys={"K"})
+        self.assertEqual(R.non_inherit_verdicts(items), ({}, ["K"]))
+
+
+class RowLossTest(unittest.TestCase):
+    """리뷰 #3 — 보이던 행 손실(기존 PNU 실존)과 이미 보이지 않던 행을 나눠 센다."""
+
+    def test_visible_and_invisible(self):
+        items = R.plan_remap(
+            {"VIS": old(P1), "DANG": old("GONE"), "BLK": old(P1)},
+            {},
+            set(),
+            rekeyed_keys={"BLK"},
+        )
+        counts = {
+            "VIS": {"trade_rows": 3, "rent_rows": 1, "inferred_rows": 0},
+            "DANG": {"trade_rows": 5, "rent_rows": 0, "inferred_rows": 2},
+            "BLK": {"trade_rows": 100, "rent_rows": 100, "inferred_rows": 0},
+        }
+        loss = R.deleted_row_loss(items, counts, existing_pnus={P1})
+        self.assertEqual(
+            loss.visible, {"trade_rows": 3, "rent_rows": 1, "inferred_rows": 0}
+        )
+        self.assertEqual(
+            loss.invisible, {"trade_rows": 5, "rent_rows": 0, "inferred_rows": 2}
+        )
+
+
+class EmptyRunCheckpointTest(unittest.TestCase):
+    """리뷰 #5·#6 — 대상 0건 --apply 도 체크포인트를 남기고, dry-run 게이트 로그는 쓰기를 암시하지 않는다."""
+
+    def test_zero_mappings_apply_writes_empty_checkpoint(self):
+        saved = {}
+        with (
+            patch.object(R, "_old_mappings", return_value={}),
+            patch.object(R, "_rekeyed_sggs", return_value=set()),
+            patch.object(R, "_write_report"),
+            patch.object(R, "_apply"),
+            patch.object(
+                R, "_save_checkpoint", side_effect=lambda c, rid, d: saved.update(d)
+            ),
+        ):
+            R.remap(MagicMock(), MagicMock(), True, "r.tsv", "T")
+        self.assertEqual(saved["verified_non_inherit_keys"], {})
+        self.assertEqual(saved["judged_non_inherit_keys"], [])
+        self.assertEqual(saved["total"], 0)
+
+    def test_dry_run_gate_log_says_would_reject(self):
+        logger = MagicMock()
+        violation = {
+            "apt_seq": "K", "apt_nm": "a", "bld_nm": "b",
+            "match_method": "api_address_pnu", "reasons": ["층"],
+        }  # fmt: skip
+        with (
+            patch.object(R, "find_violations", return_value=([violation], 1)),
+            patch.object(R, "_update_mappings"),
+        ):
+            got = R._gate_rejections(
+                MagicMock(), logger, {"K": old(P2)}, {"K": dec(P1)}, apply=False
+            )
+        self.assertEqual(got, {"K"})
+        msg = logger.warning.call_args[0][0]
+        self.assertIn("dry-run", msg)
+        self.assertNotIn("삭제 대상", msg)
 
 
 class GateCandidatesTest(unittest.TestCase):

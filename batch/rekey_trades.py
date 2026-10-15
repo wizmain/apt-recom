@@ -40,6 +40,7 @@ from batch.trade.audit_mappings import audit
 from batch.trade.remap_verification import (
     RemapVerification,
     load_latest,
+    regated_existing_keys,
     verified_existing_keys,
 )
 from batch.trade.trade_key_inference import KnownRow, TargetRow, infer_keys
@@ -497,6 +498,8 @@ def apply_and_verify(
     reverted_ids: dict[str, list[int]] = {}
     new_pnu: dict[str, str] = {}
     verified: set[str] = set()
+    mappings_after: list[dict] = []
+    pre_existing: set[str] = set()
     if new_keys:
         pre_existing = {r["apt_seq"] for r in _mappings(conn, new_keys)}
         map_api_keys(conn, logger, apt_seqs=new_keys)
@@ -509,11 +512,18 @@ def apply_and_verify(
                 conn, sgg, logger, plan, unmapped_keys
             )
             new_keys = [k for k in new_keys if k not in unmapped_keys]
+    after_violations = audit(conn, logger, apt_seqs=new_keys) if new_keys else []
+    if mappings_after:
         # 이번에 만든(또는 재판정이 검증한) 비상속 매핑은 귀속이 바뀌는 게 정상이다 — 도착 PNU
         # (최종 리뷰 #1c)와 그리로 행을 보낸 이름 키의 출발 PNU(F3b)를 허용 목록에 넣는다.
-        unverified = pre_existing - verified_existing_keys(
-            pre_existing, mappings_after, remap, MATCH_INHERIT_LEGACY
+        # 재판정 검증분은 옮긴 전체 행 감사에 위반이 없을 때만(재판정 게이트는 적재 행 몇 개만 봤다).
+        remap_verified = regated_existing_keys(
+            verified_existing_keys(
+                pre_existing, mappings_after, remap, MATCH_INHERIT_LEGACY
+            ),
+            after_violations,
         )
+        unverified = pre_existing - remap_verified
         allowed |= created_mapping_pnus(unverified, mappings_after)
         verified = created_non_inherit_keys(unverified, mappings_after)
     # 감사 기준선은 아직 옮겨진 행이 남은 이름 키로 좁힌다 (되돌린 키의 위반은 비교 대상 아님)
@@ -522,7 +532,6 @@ def apply_and_verify(
     allowed |= source_pnus(moved_pairs, old_pnu, verified)
     preserving = preserving_keys(moved_pairs, old_pnu, new_pnu)
     after = _snapshot(conn, sgg)
-    after_violations = audit(conn, logger, apt_seqs=new_keys) if new_keys else []
     cmp = compare_audits(
         before_violations,
         after_violations,
