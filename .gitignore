@@ -83,5 +83,8 @@ images/
 # 인스타 카드 자동 생성 산출물
 reports/insta/
 
+# 거래 키 변경(rekey·재판정) 로컬 실행 로그·리포트
+reports/rekey/
+
 # common_code 정리 스크립트의 삭제 전 백업 (로컬 안전장치)
 scripts/backups/
