@@ -56,6 +56,8 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 | **배치 실행 (annual)** | `.venv/bin/python -m batch.run --type annual` |
 | **거래 이력 N년 보관 정리 (수동)** | `.venv/bin/python -m batch.purge_old_trades --target both --dry-run` (실행은 `--dry-run` 제거) |
 | **사장된 PNU 정리 (수동)** | `.venv/bin/python -m batch.purge_dead_apartments --target both --dry-run` (실행은 `--dry-run` 제거 + `--confirm` 필수) |
+| **고유번호 키 매핑 재판정 (수동, rekey 전)** | `.venv/bin/python -m batch.remap_official_keys --target local --dry-run` (실행은 `--apply`, 목록은 `--report` 또는 `reports/rekey/`) |
+| **거래 키 → 고유번호 변경 (수동)** | `.venv/bin/python -m batch.rekey_trades --target local --dry-run` (실행은 `--apply`, 대상 DB 마다 재판정 `--apply` 후) |
 
 ## 데이터베이스 규칙
 - **ORM 없음**: raw SQL + psycopg2. SQLAlchemy, Alembic 사용하지 않음.

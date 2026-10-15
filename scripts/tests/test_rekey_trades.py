@@ -10,6 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from batch import rekey_trades
 from batch.rekey_trades import SKIP_STATUSES, Snapshot, check_invariants, plan_sgg
+from batch.trade.remap_verification import (
+    RemapVerification,
+    verification_from_checkpoint,
+    verified_existing_keys,
+)
 from batch.trade.trade_key_inference import KnownRow, TargetRow
 
 L = "11590_대림아파트"
@@ -454,6 +459,139 @@ class SourcePnusTest(unittest.TestCase):
             )
         self.assertEqual(captured["allowed"], {"P_X", "P_B"})
         self.assertEqual(review, [])
+
+
+class RemapVerifiedF3bTest(unittest.TestCase):
+    """재판정이 검증한 기존 비상속 매핑은 이번 실행 생성분처럼 출발·도착 PNU 를 허용한다."""
+
+    def run_with(self, remap, after_violations=()):
+        # L_B(P_B) 행이 이전부터 있던 주소 매핑 K_ADDR(P_X) 로 옮겨진다
+        plan = {"trade_history": [(1, "K_ADDR", "api")], "rent_history": []}
+        k_addr = {"apt_seq": "K_ADDR", "pnu": "P_X", "match_method": "api_address_pnu"}
+        captured = {}
+
+        def fake_check(before, after, allowed, ab, aa):
+            captured["allowed"] = allowed
+            return []
+
+        with (
+            mock.patch.object(rekey_trades, "_allowed_pnus", return_value=set()),
+            mock.patch.object(rekey_trades, "_snapshot"),
+            mock.patch.object(rekey_trades, "_current_keys", return_value=["L_B"]),
+            mock.patch.object(
+                rekey_trades, "audit", side_effect=[[], list(after_violations)]
+            ),
+            mock.patch.object(rekey_trades, "_apply"),
+            mock.patch.object(
+                rekey_trades,
+                "_mappings",
+                side_effect=[
+                    [{"apt_seq": "L_B", "pnu": "P_B", "match_method": "exact_name"}],
+                    [k_addr],
+                    [k_addr],
+                ],
+            ),
+            mock.patch.object(rekey_trades, "map_api_keys"),
+            mock.patch.object(
+                rekey_trades, "_key_pairs", return_value=[("K_ADDR", "L_B")]
+            ),
+            mock.patch.object(rekey_trades, "check_invariants", side_effect=fake_check),
+        ):
+            rekey_trades.apply_and_verify(
+                mock.MagicMock(), "11410", mock.MagicMock(), plan, [], [], remap=remap
+            )
+        return captured["allowed"]
+
+    def test_remap_verified_existing_mapping_allows_source_and_destination(self):
+        remap = RemapVerification("T", {"K_ADDR": "P_X"}, frozenset({"K_ADDR"}))
+        self.assertEqual(self.run_with(remap), {"P_X", "P_B"})
+
+    def test_remap_verified_but_full_history_violation_is_unverified(self):
+        # 리뷰 #1 — 재판정 게이트는 적재 행 몇 개만 봤다. 옮긴 전체 행 감사에 위반이면 신뢰하지 않는다
+        remap = RemapVerification("T", {"K_ADDR": "P_X"}, frozenset({"K_ADDR"}))
+        violation = {"apt_seq": "K_ADDR", "pnu": "P_X", "reasons": ["층"]}
+        self.assertEqual(self.run_with(remap, [violation]), set())
+
+    def test_remap_verified_with_different_pnu_is_unverified(self):
+        # 리뷰 #4 — 체크포인트의 PNU 와 지금 매핑 PNU 가 다르면 재판정 이후 바뀐 매핑
+        remap = RemapVerification("T", {"K_ADDR": "P_OTHER"}, frozenset({"K_ADDR"}))
+        self.assertEqual(self.run_with(remap), set())
+
+    def test_created_after_remap_is_verified(self):
+        # 재판정 당시 비상속 매핑이 아니었던 키 — 이후 현재 규칙의 map_api_keys 가 만든 것
+        remap = RemapVerification("T", {}, frozenset({"OTHER"}))
+        self.assertEqual(self.run_with(remap), {"P_X", "P_B"})
+
+    def test_created_after_remap_with_violation_is_unverified(self):
+        remap = RemapVerification("T", {}, frozenset({"OTHER"}))
+        self.assertEqual(self.run_with(remap, [{"apt_seq": "K_ADDR"}]), set())
+
+    def test_judged_but_not_verified_stays_unverified(self):
+        # 재판정이 지운 뒤 다시 생긴 키·blocked_delete 키 — 미검증
+        remap = RemapVerification("T", {}, frozenset({"K_ADDR"}))
+        self.assertEqual(self.run_with(remap), set())
+
+    def test_without_remap_pre_existing_stays_unverified(self):
+        self.assertEqual(self.run_with(None), set())
+
+    def test_inherit_mapping_never_verified_by_remap(self):
+        remap = RemapVerification("T", {"K": "P"}, frozenset({"K"}))
+        rows = [{"apt_seq": "K", "pnu": "P", "match_method": "api_inherit_legacy"}]
+        self.assertEqual(
+            verified_existing_keys({"K"}, rows, remap, "api_inherit_legacy"), set()
+        )
+
+
+class RemapCheckpointGuardTest(unittest.TestCase):
+    def test_apply_refused_without_checkpoint(self):
+        with self.assertRaises(SystemExit):
+            rekey_trades.require_remap_checkpoint(None, True, mock.MagicMock())
+
+    def test_dry_run_only_warns(self):
+        logger = mock.MagicMock()
+        rekey_trades.require_remap_checkpoint(None, False, logger)
+        logger.warning.assert_called_once()
+
+    def test_apply_allowed_with_checkpoint(self):
+        remap = RemapVerification("T", {}, frozenset())
+        rekey_trades.require_remap_checkpoint(remap, True, mock.MagicMock())
+
+    def test_old_format_checkpoint_counts_as_missing(self):
+        self.assertIsNone(verification_from_checkpoint("T", '{"total": 1}'))
+        # PNU 없는 목록 형식(첫 구현)도 옛 형식 — 리뷰 #4
+        self.assertIsNone(
+            verification_from_checkpoint(
+                "T",
+                '{"verified_non_inherit_keys": ["A"], "judged_non_inherit_keys": ["A"]}',
+            )
+        )
+        got = verification_from_checkpoint(
+            "T",
+            '{"verified_non_inherit_keys": {"A": "P"}, "judged_non_inherit_keys": ["A", "B"]}',
+        )
+        self.assertEqual(got, RemapVerification("T", {"A": "P"}, frozenset("AB")))
+
+    def test_empty_checkpoint_passes_guard(self):
+        # 리뷰 #5 — api_ 매핑 0건이어도 재판정 --apply 는 빈 체크포인트를 남기고, 그걸로 통과
+        got = verification_from_checkpoint(
+            "T", '{"verified_non_inherit_keys": {}, "judged_non_inherit_keys": []}'
+        )
+        self.assertEqual(got, RemapVerification("T", {}, frozenset()))
+        rekey_trades.require_remap_checkpoint(got, True, mock.MagicMock())
+
+    def test_main_apply_with_sgg_obeys_guard(self):
+        argv = ["rekey_trades", "--target", "local", "--apply", "--sgg", "11410"]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(rekey_trades, "db_url", return_value="x"),
+            mock.patch.object(rekey_trades.psycopg2, "connect"),
+            mock.patch.object(rekey_trades, "try_trade_write_lock", return_value=True),
+            mock.patch.object(rekey_trades, "load_latest", return_value=None),
+            mock.patch.object(rekey_trades, "rekey_sgg") as run,
+            self.assertRaises(SystemExit),
+        ):
+            rekey_trades.main()
+        run.assert_not_called()
 
 
 if __name__ == "__main__":
