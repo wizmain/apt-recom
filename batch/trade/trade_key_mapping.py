@@ -17,6 +17,9 @@ F1 상속은 apartments 에 실존하는 PNU 로 매핑된 이름 키에서만 �
 이름 키와 같게 취급한다(48123 에일린의뜰: 없는 PNU 상속이 혼입 키의 보이던 행까지 끌어감).
 F2 상속이 아닌 판정(2순위 주소)은 넣은 직후 물리 감사(mapping_gate)를 통과해야 남는다 — 위반이면
 지워 미매핑으로 둔다(2026-10-14 월계주공1·2 — 한 지번에 두 단지, 한쪽만 apartments 에 있음).
+
+판정(decide_api_keys)은 DB 를 바꾸지 않는 공용 함수다 — map_api_keys(새 키 넣기)와
+batch.remap_official_keys(옛 규칙으로 만들어진 기존 'api_%' 매핑 재판정)가 같은 규칙을 쓴다.
 """
 
 from __future__ import annotations
@@ -135,24 +138,54 @@ def mixed_legacy_ids(ids_by_legacy: dict[str, set[str]]) -> list[str]:
 # ── DB 래퍼 ──
 
 # 키의 모든 행을 (이름·주소) 단위로 집계해 가져온다 — 대표 행 하나(DISTINCT ON)가 아니다.
-_UNMAPPED_SQL = """
+# {*_mapping_filter}: 새 매핑(map_api_keys)은 매핑 없는 키만, 재판정(remap_official_keys)은 전부.
+# {pending_union}: 재판정 전용 _PENDING_ROWS_SQL.
+_KEY_ROWS_SQL = """
     SELECT apt_seq, sgg_cd, apt_nm, umd_cd, land_cd, bonbun, bubun, SUM(n) AS n
     FROM (
         SELECT apt_seq, sgg_cd, apt_nm, umd_cd, land_cd, bonbun, bubun, COUNT(*) AS n
         FROM trade_history t
-        WHERE apt_seq_method IS NOT NULL {seq_filter}
-          AND NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = t.apt_seq)
+        WHERE apt_seq_method IS NOT NULL {seq_filter} {trade_mapping_filter}
         GROUP BY 1, 2, 3, 4, 5, 6, 7
         UNION ALL
         SELECT apt_seq, sgg_cd, apt_nm, NULL, NULL, NULL, NULL, COUNT(*)
         FROM rent_history r
-        WHERE apt_seq_method IS NOT NULL {seq_filter}
-          AND NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = r.apt_seq)
+        WHERE apt_seq_method IS NOT NULL {seq_filter} {rent_mapping_filter}
         GROUP BY 1, 2, 3
+        {pending_union}
     ) u
     GROUP BY 1, 2, 3, 4, 5, 6, 7
     ORDER BY 1
 """
+# 재판정 전용: 아직 키 변경 전(apt_seq_method IS NULL)이지만 API 원본 고유번호가 이 키인 과거 행.
+# rekey 가 이 행들을 그대로 이 키로 옮기므로(plan_sgg 'api'), 재판정은 그 근거까지 본다 —
+# 적재기가 쓴 몇 행만 보면 개편 전 법정동 주소 같은 소수파 근거로 판정한다(28260-138).
+_PENDING_ROWS_SQL = """
+        UNION ALL
+        SELECT btrim(api_apt_seq), sgg_cd, apt_nm, umd_cd, land_cd, bonbun, bubun, COUNT(*)
+        FROM trade_history
+        WHERE apt_seq_method IS NULL AND btrim(api_apt_seq) = ANY(%(seqs)s)
+        GROUP BY 1, 2, 3, 4, 5, 6, 7
+        UNION ALL
+        SELECT btrim(api_apt_seq), sgg_cd, apt_nm, NULL, NULL, NULL, NULL, COUNT(*)
+        FROM rent_history
+        WHERE apt_seq_method IS NULL AND btrim(api_apt_seq) = ANY(%(seqs)s)
+        GROUP BY 1, 2, 3
+"""
+_LEGACY_KEYS_SQL = (
+    "SELECT DISTINCT apt_seq, legacy_apt_seq FROM trade_history "
+    "WHERE apt_seq = ANY(%(s)s) AND legacy_apt_seq IS NOT NULL "
+    "UNION SELECT DISTINCT apt_seq, legacy_apt_seq FROM rent_history "
+    "WHERE apt_seq = ANY(%(s)s) AND legacy_apt_seq IS NOT NULL"
+)
+# 키 변경 전 행의 이름 키는 apt_seq 자신이다
+_PENDING_LEGACY_KEYS_SQL = (
+    " UNION SELECT DISTINCT btrim(api_apt_seq), apt_seq FROM trade_history "
+    "WHERE apt_seq_method IS NULL AND btrim(api_apt_seq) = ANY(%(s)s) "
+    "UNION SELECT DISTINCT btrim(api_apt_seq), apt_seq FROM rent_history "
+    "WHERE apt_seq_method IS NULL AND btrim(api_apt_seq) = ANY(%(s)s)"
+)
+_UNMAPPED_FILTER = "AND NOT EXISTS (SELECT 1 FROM trade_apt_mapping m WHERE m.apt_seq = {alias}.apt_seq)"
 
 # 이름 키별 관측된 고유번호(API 원본만) — 상속 조건 "고유번호가 이 키 하나뿐" 판정용
 _LEGACY_IDS_SQL = """
@@ -168,21 +201,56 @@ _LEGACY_IDS_SQL = """
 """
 
 
-def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
-    """매핑 없는 새 키를 판정해 trade_apt_mapping 에 넣는다. 커밋하지 않는다."""
+class KeyDecision(NamedTuple):
+    """키 하나의 판정 결과 — trade_apt_mapping 한 행의 값. 물리 게이트(F2) 전이다."""
+
+    pnu: str
+    match_method: str
+    apt_nm: str
+    sgg_cd: str
+
+
+class KeyDecisions(NamedTuple):
+    decided: dict[str, KeyDecision]
+    unmapped: list[str]  # 판정 근거 없음(상속·주소 모두 실패)
+    ids_by_legacy: dict[str, set[str]]
+
+
+def decide_api_keys(
+    conn, logger, apt_seqs: list[str] | None = None, *, only_unmapped: bool = True
+) -> KeyDecisions:
+    """고유번호 키들의 매핑을 판정한다(F1 상속·주소 PNU) — DB 를 바꾸지 않는다.
+
+    only_unmapped=True: 매핑 없는 키만(map_api_keys). False: 기존 매핑과 무관하게 키의 모든 행으로
+    판정하고, 키 변경 전이지만 API 원본 고유번호가 이 키인 과거 행(_PENDING_ROWS_SQL)도 근거에
+    넣는다(remap_official_keys 재판정 — apt_seqs 필수). 판정 규칙(decide_mapping)은 같다. 물리 게이트(F2)는 판정 결과를 DB 에 쓴 뒤
+    호출부가 돌린다(감사 SQL 이 trade_apt_mapping 을 읽는다).
+    """
+    if not only_unmapped and not apt_seqs:
+        raise ValueError("재판정(only_unmapped=False)은 apt_seqs 필수")
     seq_filter = "AND apt_seq = ANY(%(seqs)s)" if apt_seqs else ""
     params = {"seqs": list(apt_seqs)} if apt_seqs else {}
-    rows = query_all(conn, _UNMAPPED_SQL.format(seq_filter=seq_filter), params or None)
+    rows = query_all(
+        conn,
+        _KEY_ROWS_SQL.format(
+            seq_filter=seq_filter,
+            trade_mapping_filter=_UNMAPPED_FILTER.format(alias="t")
+            if only_unmapped
+            else "",
+            rent_mapping_filter=_UNMAPPED_FILTER.format(alias="r")
+            if only_unmapped
+            else "",
+            pending_union="" if only_unmapped else _PENDING_ROWS_SQL,
+        ),
+        params or None,
+    )
     if not rows:
-        return 0
+        return KeyDecisions({}, [], {})
 
     lks_by_key: dict[str, set[str]] = {}
     for r in query_all(
         conn,
-        "SELECT DISTINCT apt_seq, legacy_apt_seq FROM trade_history "
-        "WHERE apt_seq = ANY(%(s)s) AND legacy_apt_seq IS NOT NULL "
-        "UNION SELECT DISTINCT apt_seq, legacy_apt_seq FROM rent_history "
-        "WHERE apt_seq = ANY(%(s)s) AND legacy_apt_seq IS NOT NULL",
+        _LEGACY_KEYS_SQL + ("" if only_unmapped else _PENDING_LEGACY_KEYS_SQL),
         {"s": sorted({r["apt_seq"] for r in rows})},
     ):
         lks_by_key.setdefault(r["apt_seq"], set()).add(r["legacy_apt_seq"])
@@ -227,20 +295,34 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
         lks_by_key, ids_by_legacy, legacy_pnu, legacy_existing
     )
     _warn_dangling_legacy(logger, lks_by_key, legacy_pnu, legacy_existing)
-    new_rows, unmapped = [], []
+    decided: dict[str, KeyDecision] = {}
+    unmapped: list[str] = []
     for key, (inp, sgg_cd) in mapping_inputs_by_key(
         rows, existing_pnus, inherit_by_key
     ).items():
         decision = decide_mapping(inp)
         if decision:
-            new_rows.append((key, decision[0], inp.apt_nm, sgg_cd, decision[1]))
+            decided[key] = KeyDecision(decision[0], decision[1], inp.apt_nm, sgg_cd)
         else:
             unmapped.append(key)
     warn_weak_address_choices(
         logger,
         address_pnu_counts(rows),
-        {k: pnu for k, pnu, _, _, m in new_rows if m == MATCH_ADDRESS_PNU},
+        {k: d.pnu for k, d in decided.items() if d.match_method == MATCH_ADDRESS_PNU},
     )
+    return KeyDecisions(decided, unmapped, ids_by_legacy)
+
+
+def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
+    """매핑 없는 새 키를 판정해 trade_apt_mapping 에 넣는다. 커밋하지 않는다."""
+    kd = decide_api_keys(conn, logger, apt_seqs)
+    if not kd.decided and not kd.unmapped:
+        return 0
+    new_rows = [
+        (key, d.pnu, d.apt_nm, d.sgg_cd, d.match_method)
+        for key, d in kd.decided.items()
+    ]
+    unmapped = list(kd.unmapped)
 
     inserted: list[tuple[str, str]] = []
     if new_rows:
@@ -270,7 +352,7 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
     )
     if unmapped:
         logger.warning(f"  미매핑 고유번호 키(최대 50): {unmapped[:50]}")
-    _warn_frozen_inherits(conn, logger, ids_by_legacy)
+    _warn_frozen_inherits(conn, logger, kd.ids_by_legacy)
     return mapped
 
 

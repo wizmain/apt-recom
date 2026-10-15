@@ -233,7 +233,7 @@ def compare_audits(
 # ── DB ──
 
 
-def _db_url(target: str) -> str:
+def db_url(target: str) -> str:
     url = os.getenv("DATABASE_URL" if target == "local" else "RAILWAY_DATABASE_URL")
     if not url:
         raise SystemExit(f"{target} DB URL 미설정 (.env 확인)")
@@ -570,7 +570,7 @@ def main():
     args = p.parse_args()
     logger = setup_logger("rekey_trades")
 
-    url = _db_url(args.target)
+    url = db_url(args.target)
     conn = psycopg2.connect(url)
     conn.autocommit = False
     try:
