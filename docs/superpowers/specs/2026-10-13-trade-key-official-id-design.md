@@ -95,15 +95,19 @@ ADR-014 분양·임대 교체 등 누적된 교정을 잃지 않기 위해서다
 
 | 순위 | 조건 | 매핑 | match_method |
 |---|---|---|---|
-| 1 | L 안의 aptSeq 가 K 하나뿐이고 L 이 매핑돼 있음 | L 의 PNU 상속 | `api_inherit_legacy` |
-| 2 | L 이 혼입(aptSeq 2개+)이거나 미매핑 | 주소 PNU(법정동코드 10자리 + 산 여부 + 본번 4 + 부번 4)가 `apartments` 에 있으면 그것 | `api_address_pnu` |
-| 3 | 2 실패 | 같은 **법정동** 후보로 기존 이름 매칭 3단계(정확·포함·핵심명) | `api_name_exact` / `api_name_contains` / `api_name_core` |
-| 4 | 전부 실패 | 매핑하지 않음 — 배치 로그·검증 리포트에 개수와 목록 | — |
+| 1 | L 안의 aptSeq 가 K 하나뿐이고 L 이 `apartments` 에 **실존하는** PNU 로 매핑돼 있음 | L 의 PNU 상속 | `api_inherit_legacy` |
+| 2 | 1 실패(L 이 혼입·미매핑·끊긴 매핑) | 키의 모든 행의 주소 PNU(법정동코드 10자리 + 산 여부 + 본번 4 + 부번 4) 중 `apartments` 에 있는 것이 정확히 하나면 그것 — 넣은 직후 물리 게이트(`mapping_gate`)를 통과해야 남는다 | `api_address_pnu` |
+| 3 | 1·2 실패(게이트 거부 포함) | 매핑하지 않음(fallback 없음) — 배치 로그에 개수와 목록, rekey 는 해당 행을 이름 키로 되돌려 현상 유지 | — |
 
 - 주소 PNU 의 산 여부 자리: 이 DB 는 일반 필지 `0`, 산 `1`(API `landCd` 2=산). 대방대림: `1159010800` + `0` + `0501` + `0000`.
 - 실측: aptSeq 28,961개 중 주소 PNU 가 `apartments` 에 있는 것 21,779개(75%), 그중 기존 매핑과 다른 것 2,244개 →
   다필지 단지의 대표 필지 차이 또는 혼입. 무조건 주소 우선은 관리사무소동 등 중복 레코드 오매핑 위험이 있어 2순위로만 쓴다.
-- 4순위에 fallback 매핑(아무 단지에 붙이기)은 두지 않는다. 미매핑은 기존 `register_missing_apartments` 흐름으로 단지를 등록한 뒤 재매핑한다.
+- 3순위에 fallback 매핑(아무 단지에 붙이기)은 두지 않는다. 미매핑은 기존 `register_missing_apartments` 흐름으로 단지를 등록한 뒤 재매핑한다.
+- **2026-10-15 변경 — 법정동 이름 매칭 순위 제거.** 원래 3순위는 같은 법정동 후보로 기존 이름 매칭 3단계(정확·포함·핵심명,
+  `api_name_exact` / `api_name_contains` / `api_name_core`)였다. 로컬 검증에서 이 경로의 매핑 28건 중 절반가량이 틀렸고
+  (숫자 지운 정규화 신관주공2 → 주공3, 포함 매칭 엘리시아 → 연동엘리시아), 물리 게이트는 `apt_area_type` 이 없는 단지(38%)를
+  판정하지 못해 걸러내지 못했다. 그래서 고유번호 키는 상속(1)·주소 PNU(2)로만 매핑하고, 이름 근거만 있는 키는 미매핑으로 둔다.
+  이미 이름 매칭으로 들어간 매핑의 재검토는 롤아웃 후 별도 이슈(`scripts/rematch_bad_mappings.py`)로 다룬다.
 - 구현 위치: 새 모듈 `batch/trade/trade_key_mapping.py`. 순위 판정은 순수 함수 `decide_mapping(...)` 로 분리한다.
   기존 이름 키 매핑(`recalc_price._update_mapping`)은 그대로 둔다.
 
@@ -165,7 +169,7 @@ ADR-014 분양·임대 교체 등 누적된 교정을 잃지 않기 위해서다
 **단위 테스트** (`scripts/tests`, DB·네트워크 없음, CI)
 - `resolve_trade_key`: aptSeq 있음 / 없음 / 빈 문자열
 - `infer_keys`: 단일 일치·불일치, 혼입의 준공연도 / 준공연도+면적 / 면적 해소, 모호 시 유지, 전월세 준공연도 없음
-- `decide_mapping`: 1~4순위 각각, 4순위 미매핑, 혼입 키의 기존 PNU 가 주소 일치 aptSeq 로 가는지
+- `decide_mapping`: 1~3순위 각각, 3순위 미매핑(동명 후보만 있는 키도 미매핑), 혼입 키의 기존 PNU 가 주소 일치 aptSeq 로 가는지
 - `register_missing_apartments`: 새 키 형식에서 시군구를 `sgg_cd` 로 읽는지
 
 **적용 후 검증** (로컬 → 운영, 구 단위·전체)
