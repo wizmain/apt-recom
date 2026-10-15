@@ -3,6 +3,7 @@
 import sys
 import unittest
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -116,12 +117,13 @@ class CreatedMappingPnusTest(unittest.TestCase):
     def test_rekey_sgg_snapshots_mappings_before_map_api_keys(self):
         calls = []
         before_rows = [
-            {"apt_seq": "11590-57", "pnu": "P_OLD", "match_method": "api_name_exact"}
+            {"apt_seq": "11590-57", "pnu": "P_OLD", "match_method": "api_address_pnu"}
         ]
         after_rows = before_rows + [
             {"apt_seq": "11590-85", "pnu": "P_NEW", "match_method": "api_address_pnu"}
         ]
-        snaps = iter([before_rows, after_rows])
+        old_rows = [{"apt_seq": L, "pnu": "P_L", "match_method": "exact_name"}]
+        snaps = iter([old_rows, before_rows, after_rows])
 
         def fake_mappings(conn, keys):
             calls.append("mappings")
@@ -159,7 +161,8 @@ class CreatedMappingPnusTest(unittest.TestCase):
                 mock.MagicMock(), "11590", mock.MagicMock(), apply=True
             )
         self.assertEqual(status, "done")
-        self.assertEqual(calls, ["mappings", "map_api_keys", "mappings"])
+        # 이름 키 매핑(F3 출발 PNU) → 새 키 매핑 스냅샷 → map_api_keys → 변경 후
+        self.assertEqual(calls, ["mappings", "mappings", "map_api_keys", "mappings"])
         self.assertEqual(captured["allowed"], {"P_NEW"})
 
 
@@ -215,27 +218,26 @@ class RowsToRevertTest(unittest.TestCase):
 
         moved_queries = []
 
-        def fake_query_all(c, sql, params):
-            moved_queries.append((sql.split("FROM ")[1].split()[0], params[0]))
-            return [{"legacy_apt_seq": L}]
+        def fake_key_pairs(c, table, ids):
+            moved_queries.append((table, ids))
+            # 되돌림 대상 행(2·5) → L2, 남은 행(1) → L
+            return [("11590-85", self.L2)] if 1 not in ids else [("11590-57", L)]
 
+        old_mappings = [{"apt_seq": L, "pnu": "P_L", "match_method": "exact_name"}]
         with (
             mock.patch.object(rekey_trades, "_allowed_pnus", return_value=set()),
             mock.patch.object(rekey_trades, "_snapshot", return_value=snap),
             mock.patch.object(rekey_trades, "_current_keys", return_value=[self.L2, L]),
             mock.patch.object(rekey_trades, "audit", side_effect=fake_audit),
             mock.patch.object(rekey_trades, "_apply"),
-            mock.patch.object(rekey_trades, "_mappings", side_effect=[[], mapped]),
-            mock.patch.object(rekey_trades, "map_api_keys"),
             mock.patch.object(
-                rekey_trades,
-                "_key_pairs",
-                side_effect=lambda c, t, ids: [("11590-85", self.L2)],
+                rekey_trades, "_mappings", side_effect=[old_mappings, [], mapped]
             ),
-            mock.patch.object(rekey_trades, "query_all", side_effect=fake_query_all),
+            mock.patch.object(rekey_trades, "map_api_keys"),
+            mock.patch.object(rekey_trades, "_key_pairs", side_effect=fake_key_pairs),
             mock.patch.object(rekey_trades, "_revert") as revert,
         ):
-            errors, reverted = rekey_trades.apply_and_verify(
+            errors, reverted, _review = rekey_trades.apply_and_verify(
                 mock.MagicMock(), "11590", mock.MagicMock(), plan, known, []
             )
         return errors, reverted, audited, revert, moved_queries
@@ -262,8 +264,8 @@ class RowsToRevertTest(unittest.TestCase):
         )
         # 변경 전 감사는 계획 전체 이름 키, 변경 후 감사는 매핑된 새 키만
         self.assertEqual(audited, [[self.L2, L], ["11590-57"]])
-        # 남은(되돌리지 않은) 계획 행으로만 옮겨진 이름 키를 찾는다
-        self.assertEqual(moved_queries, [("trade_history", [1])])
+        # 남은(되돌리지 않은) 계획 행으로만 옮겨진 이름 키를 찾는다 (되돌림 조회 다음)
+        self.assertEqual(moved_queries[-1], ("trade_history", [1]))
 
     def test_fully_reverted_old_key_violation_does_not_mask_new_violation(self):
         # L2 의 기존 위반은 L2 행이 전부 되돌려져 기준선에서 빠진다 → 새 키 위반 1건이 드러난다
@@ -308,6 +310,150 @@ class KnownTrimsApiIdTest(unittest.TestCase):
         with mock.patch.object(rekey_trades, "query_all", return_value=[]) as q:
             rekey_trades._known(None, "11590", "trade_history", True)
         self.assertIn("btrim(api_apt_seq) AS api_apt_seq", q.call_args[0][1])
+
+
+class AttributionPreservingTest(unittest.TestCase):
+    """F3a — 귀속 보존 키는 감사 비교 양쪽에서 빼고 재매칭 검토 목록으로 남긴다."""
+
+    # K_INH: 이름 키 L_A(P_A) 행을 같은 P_A 로 상속 / K_ADDR: L_B(P_B) 행을 주소 P_X 로
+    PAIRS: ClassVar = {"K_INH": {"L_A"}, "K_ADDR": {"L_B"}, "K_SPLIT": {"L_A", "L_C"}}
+    OLD: ClassVar = {"L_A": "P_A", "L_B": "P_B", "L_C": "P_C"}
+    NEW: ClassVar = {"K_INH": "P_A", "K_ADDR": "P_X", "K_SPLIT": "P_A"}
+
+    def test_preserving_keys(self):
+        self.assertEqual(
+            rekey_trades.preserving_keys(self.PAIRS, self.OLD, self.NEW), {"K_INH"}
+        )
+
+    def test_unmapped_legacy_is_not_preserving(self):
+        self.assertEqual(
+            rekey_trades.preserving_keys({"K": {"L_X"}}, {}, {"K": "P"}), set()
+        )
+
+    def test_fully_preserved_old_keys(self):
+        # L_A 행 일부는 K_SPLIT(비보존)로도 갔다 → 기준선에 남는다
+        self.assertEqual(
+            rekey_trades.fully_preserved_old_keys(self.PAIRS, {"K_INH"}), set()
+        )
+        self.assertEqual(
+            rekey_trades.fully_preserved_old_keys({"K_INH": {"L_A"}}, {"K_INH"}),
+            {"L_A"},
+        )
+
+    def test_inherit_only_violation_excluded_from_both_sides_and_listed(self):
+        before = [{"apt_seq": "L_A"}, {"apt_seq": "L_B"}]
+        after = [
+            {
+                "apt_seq": "K_INH",
+                "pnu": "P_A",
+                "apt_nm": "금호",
+                "bld_nm": "영주동아",
+                "match_method": "api_inherit_legacy",
+                "reasons": ["면적 일치 0%"],
+            },
+        ]
+        pairs = {"K_INH": {"L_A"}, "K_ADDR": {"L_B"}}
+        cmp = rekey_trades.compare_audits(
+            before, after, {"L_A", "L_B"}, {"K_INH"}, {"L_A"}, pairs
+        )
+        self.assertEqual((cmp.before, cmp.after), (1, 0))
+        self.assertEqual(
+            cmp.rematch_review,
+            [
+                {
+                    "apt_seq": "K_INH",
+                    "legacy_keys": ["L_A"],
+                    "pnu": "P_A",
+                    "apt_nm": "금호",
+                    "bld_nm": "영주동아",
+                    "match_method": "api_inherit_legacy",
+                    "reasons": ["면적 일치 0%"],
+                }
+            ],
+        )
+
+    def test_non_preserving_violation_still_counts(self):
+        cmp = rekey_trades.compare_audits(
+            [], [{"apt_seq": "K_ADDR"}], {"L_B"}, {"K_INH"}, set(), {"K_ADDR": {"L_B"}}
+        )
+        self.assertEqual((cmp.before, cmp.after, cmp.rematch_review), (0, 1, []))
+
+    def test_partial_preservation_does_not_hide_new_violation(self):
+        # L_A 행이 보존 키 K_INH 와 비보존 키 K_SPLIT 로 나뉘었다 → L_A 는 기준선에 남으므로
+        # K_INH 위반도 변경 후에서 빼면 안 된다 (빼면 L_A 위반이 K_SPLIT 신규 위반을 가린다)
+        preserving = rekey_trades.preserving_keys(self.PAIRS, self.OLD, self.NEW)
+        preserved_old = rekey_trades.fully_preserved_old_keys(self.PAIRS, preserving)
+        cmp = rekey_trades.compare_audits(
+            [{"apt_seq": "L_A"}],
+            [{"apt_seq": "K_INH"}, {"apt_seq": "K_SPLIT"}],
+            {"L_A", "L_B", "L_C"},
+            preserving,
+            preserved_old,
+            self.PAIRS,
+        )
+        self.assertEqual((cmp.before, cmp.after, cmp.rematch_review), (1, 2, []))
+
+
+class SourcePnusTest(unittest.TestCase):
+    """F3b — 검증된 비상속 새 키로 행을 보낸 이름 키의 출발 PNU 만 허용 목록에 더한다."""
+
+    def test_only_verified_non_inherit_moves(self):
+        pairs = {"K_ADDR": {"L_B", "L_UNMAPPED"}, "K_INH": {"L_A"}}
+        old = {"L_A": "P_A", "L_B": "P_B"}
+        self.assertEqual(rekey_trades.source_pnus(pairs, old, {"K_ADDR"}), {"P_B"})
+        self.assertEqual(rekey_trades.source_pnus(pairs, old, set()), set())
+
+    def test_created_non_inherit_keys_excludes_pre_existing_and_inherit(self):
+        after = [
+            {"apt_seq": "K_OLD", "pnu": "P1", "match_method": "api_address_pnu"},
+            {"apt_seq": "K_NEW", "pnu": "P2", "match_method": "api_address_pnu"},
+            {"apt_seq": "K_INH", "pnu": "P3", "match_method": "api_inherit_legacy"},
+        ]
+        self.assertEqual(
+            rekey_trades.created_non_inherit_keys({"K_OLD"}, after), {"K_NEW"}
+        )
+
+    def test_apply_and_verify_allows_source_pnu_of_verified_move(self):
+        # 41135 무지개마을형: L_B(P_B) 행이 검증된 주소 매핑 K_ADDR(P_X)로 옮겨 P_B 귀속이 줄어든다
+        plan = {"trade_history": [(1, "K_ADDR", "api")], "rent_history": []}
+        captured = {}
+
+        def fake_check(before, after, allowed, ab, aa):
+            captured["allowed"] = allowed
+            return []
+
+        with (
+            mock.patch.object(rekey_trades, "_allowed_pnus", return_value=set()),
+            mock.patch.object(rekey_trades, "_snapshot"),
+            mock.patch.object(rekey_trades, "_current_keys", return_value=["L_B"]),
+            mock.patch.object(rekey_trades, "audit", return_value=[]),
+            mock.patch.object(rekey_trades, "_apply"),
+            mock.patch.object(
+                rekey_trades,
+                "_mappings",
+                side_effect=[
+                    [{"apt_seq": "L_B", "pnu": "P_B", "match_method": "exact_name"}],
+                    [],
+                    [
+                        {
+                            "apt_seq": "K_ADDR",
+                            "pnu": "P_X",
+                            "match_method": "api_address_pnu",
+                        }
+                    ],
+                ],
+            ),
+            mock.patch.object(rekey_trades, "map_api_keys"),
+            mock.patch.object(
+                rekey_trades, "_key_pairs", return_value=[("K_ADDR", "L_B")]
+            ),
+            mock.patch.object(rekey_trades, "check_invariants", side_effect=fake_check),
+        ):
+            _, _, review = rekey_trades.apply_and_verify(
+                mock.MagicMock(), "41135", mock.MagicMock(), plan, [], []
+            )
+        self.assertEqual(captured["allowed"], {"P_X", "P_B"})
+        self.assertEqual(review, [])
 
 
 if __name__ == "__main__":

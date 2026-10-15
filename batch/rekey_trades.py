@@ -11,6 +11,13 @@
 전체 실행(--sgg 생략)은 체크포인트가 done/failed/rolled_back 인 구를 건너뛴다(롤백한 구를
 다음 --apply 가 되살리지 않는다). --sgg 로 명시한 구는 상태와 무관하게 다시 실행한다.
 감사(audit) 위반은 **같은 행**을 변경 전 키(old_keys)와 변경 후 키(new_keys)로 각각 세어 비교한다.
+
+F3a 귀속 보존 키(옮겨진 행 전부가 이름 키 시절과 같은 PNU 를 가리키는 새 키)는 감사 비교 양쪽에서
+뺀다 — 행 단위 귀속이 그대로라 이번 변경이 만든 문제가 아니고, 행 일부만 떼어 감사하면 기존
+오매핑(주로 레거시 auto_create)이 새 위반처럼 드러난다. 뺀 위반은 버리지 않고 재매칭 검토 목록으로
+로그·체크포인트 detail 에 남긴다. 귀속이 바뀐 키는 전부 계속 감사한다.
+F3b 이번 실행에서 만든 비상속 매핑(map_api_keys 의 물리 게이트 통과분)으로 행을 보낸 이름 키들의
+기존 PNU(출발 PNU)도 귀속 변화 허용 목록에 넣는다.
 """
 
 from __future__ import annotations
@@ -41,6 +48,7 @@ SKIP_STATUSES = (
 )  # 전체 실행에서 건너뛰는 체크포인트 상태
 DEFAULT_VACUUM_EVERY = 20  # 구 N개마다 VACUUM (ANALYZE) — 운영 1GB 캡 bloat 완화
 REVERTED_KEY_LOG_SAMPLE = 20
+REMATCH_REVIEW_LOG_SAMPLE = 20
 
 
 class Snapshot(NamedTuple):
@@ -130,6 +138,96 @@ def created_mapping_pnus(pre_existing_keys: set[str], mappings_after) -> set[str
         if m["apt_seq"] not in pre_existing_keys
         and m["match_method"] != MATCH_INHERIT_LEGACY
     }
+
+
+def created_non_inherit_keys(pre_existing_keys: set[str], mappings_after) -> set[str]:
+    """이번 실행에서 새로 생긴 비상속 매핑의 키 — map_api_keys 의 물리 게이트(F2)를 통과한 것들."""
+    return {
+        m["apt_seq"]
+        for m in mappings_after
+        if m["apt_seq"] not in pre_existing_keys
+        and m["match_method"] != MATCH_INHERIT_LEGACY
+    }
+
+
+def preserving_keys(
+    moved_pairs: dict[str, set[str]],
+    old_pnu: dict[str, str],
+    new_pnu: dict[str, str],
+) -> set[str]:
+    """귀속 보존 새 키 (F3a) — 옮겨진 행의 이름 키가 전부 새 키와 같은 PNU 로 매핑돼 있던 것.
+
+    moved_pairs: {새 키: {옮겨진 행의 이름 키…}}, old_pnu: 이름 키 → 변경 전 PNU,
+    new_pnu: 새 키 → 변경 후 PNU. 이름 키가 미매핑이었거나 PNU 가 다르면 보존이 아니다.
+    """
+    return {
+        k
+        for k, lks in moved_pairs.items()
+        if k in new_pnu and lks and all(old_pnu.get(lk) == new_pnu[k] for lk in lks)
+    }
+
+
+def fully_preserved_old_keys(
+    moved_pairs: dict[str, set[str]], preserving: set[str]
+) -> set[str]:
+    """옮겨진 행이 전부 귀속 보존 새 키로 간 이름 키 — 감사 기준선에서 뺀다 (F3a)."""
+    targets: dict[str, set[str]] = {}
+    for k, lks in moved_pairs.items():
+        for lk in lks:
+            targets.setdefault(lk, set()).add(k)
+    return {lk for lk, ks in targets.items() if ks <= preserving}
+
+
+def source_pnus(
+    moved_pairs: dict[str, set[str]], old_pnu: dict[str, str], verified_keys: set[str]
+) -> set[str]:
+    """검증된 비상속 새 키로 행을 보낸 이름 키들의 변경 전 PNU (F3b 허용 목록 추가분)."""
+    return {
+        old_pnu[lk]
+        for k, lks in moved_pairs.items()
+        if k in verified_keys
+        for lk in lks
+        if lk in old_pnu
+    }
+
+
+class AuditComparison(NamedTuple):
+    before: int
+    after: int
+    rematch_review: list[dict]
+
+
+def compare_audits(
+    before_violations,
+    after_violations,
+    moved_old_keys: set[str],
+    preserving: set[str],
+    preserved_old: set[str],
+    moved_pairs: dict[str, set[str]],
+) -> AuditComparison:
+    """감사 위반 비교 (F3a) — 귀속 보존 키는 양쪽에서 빼고, 변경 후 위반은 재매칭 검토 목록으로.
+
+    대칭 규칙: 보존 키의 변경 후 위반은 그 키의 이름 키가 전부 기준선에서 빠졌을 때(preserved_old)만
+    뺀다. 이름 키가 비보존 키로도 행을 보내 기준선에 남았는데 보존 키 위반만 빼면, 남은 기준선
+    위반이 비보존 키의 신규 위반을 가리는 여유가 된다 (리뷰 3a6485a..d4e551c #1).
+    """
+    excluded = {k for k in preserving if moved_pairs.get(k, set()) <= preserved_old}
+    before = baseline_violation_count(before_violations, moved_old_keys - preserved_old)
+    after = sum(1 for v in after_violations if v["apt_seq"] not in excluded)
+    review = [
+        {
+            "apt_seq": v["apt_seq"],
+            "legacy_keys": sorted(moved_pairs.get(v["apt_seq"], ())),
+            "pnu": v.get("pnu"),
+            "apt_nm": v.get("apt_nm"),
+            "bld_nm": v.get("bld_nm"),
+            "match_method": v.get("match_method"),
+            "reasons": v.get("reasons", []),
+        }
+        for v in sorted(after_violations, key=lambda x: x["apt_seq"])
+        if v["apt_seq"] in excluded
+    ]
+    return AuditComparison(before, after, review)
 
 
 # ── DB ──
@@ -276,22 +374,16 @@ def _key_pairs(conn, table, ids) -> list[tuple[str, str]]:
     ]
 
 
-def _moved_old_keys(conn, plan, reverted_ids: dict[str, list[int]]) -> set[str]:
-    """되돌리지 않은 계획 행들의 변경 전 이름 키."""
-    keys = set()
+def _moved_pairs(conn, plan, reverted_ids: dict[str, list[int]]) -> dict[str, set[str]]:
+    """되돌리지 않은 계획 행들의 {새 키: {변경 전 이름 키…}}."""
+    out: dict[str, set[str]] = {}
     for table, items in plan.items():
         skip = set(reverted_ids.get(table, ()))
         ids = [rid for rid, _, _ in items if rid not in skip]
         if ids:
-            keys |= {
-                r["legacy_apt_seq"]
-                for r in query_all(
-                    conn,
-                    f"SELECT DISTINCT legacy_apt_seq FROM {table} WHERE id = ANY(%s)",
-                    [ids],
-                )
-            }
-    return keys
+            for new_key, legacy_key in _key_pairs(conn, table, ids):
+                out.setdefault(new_key, set()).add(legacy_key)
+    return out
 
 
 def _revert(conn, table, ids):
@@ -338,8 +430,8 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
     if not apply:
         return "planned"
 
-    errors, reverted = apply_and_verify(conn, sgg, logger, plan, tk, rk)
-    detail = {"plan": counts, "reverted": reverted}
+    errors, reverted, rematch_review = apply_and_verify(conn, sgg, logger, plan, tk, rk)
+    detail = {"plan": counts, "reverted": reverted, "rematch_review": rematch_review}
     if errors:
         conn.rollback()
         logger.error(f"[{sgg}] 검증 실패 → 롤백: {errors}")
@@ -350,47 +442,72 @@ def rekey_sgg(conn, sgg, logger, apply: bool) -> str:
     return "done"
 
 
-def apply_and_verify(conn, sgg, logger, plan, tk, rk) -> tuple[list[str], dict]:
-    """계획 적용 → 새 키 매핑 → 매핑 못 한 키의 계획 행 되돌림 → 불변식 검사.
+def apply_and_verify(
+    conn, sgg, logger, plan, tk, rk
+) -> tuple[list[str], dict, list[dict]]:
+    """계획 적용 → 새 키 매핑(F1 상속·F2 물리 게이트) → 매핑 못 한 키의 계획 행 되돌림 → 불변식 검사.
 
-    커밋·롤백하지 않는다(호출자 몫). 반환: (불변식 위반 목록, 되돌림 요약).
+    커밋·롤백하지 않는다(호출자 몫). 반환: (불변식 위반 목록, 되돌림 요약, 재매칭 검토 목록).
     """
     allowed = _allowed_pnus(conn, sgg, tk, rk)
     before = _snapshot(conn, sgg)
     # 같은 행을 변경 전 키로 감사 → 변경 후 키로 감사 (PNU 집합이 달라 생기는 오탐 방지)
     old_keys = _current_keys(conn, plan)
+    old_pnu = (
+        {m["apt_seq"]: m["pnu"] for m in _mappings(conn, old_keys)} if old_keys else {}
+    )
     before_violations = audit(conn, logger, apt_seqs=old_keys) if old_keys else []
     for table, items in plan.items():
         if items:
             _apply(conn, table, items)
     new_keys = sorted({k for items in plan.values() for _, k, _ in items})
     reverted = {"keys": 0, "rows": {t: 0 for t in plan}, "map": {}}
-    moved_old_keys = set(old_keys)
+    reverted_ids: dict[str, list[int]] = {}
+    new_pnu: dict[str, str] = {}
+    verified: set[str] = set()
     if new_keys:
         pre_existing = {r["apt_seq"] for r in _mappings(conn, new_keys)}
         map_api_keys(conn, logger, apt_seqs=new_keys)
         mappings_after = _mappings(conn, new_keys)
-        # 매핑 못 한 새 키는 계획 행만 이름 키로 되돌린다 — 미매핑 행을 늘리지 않고 현상 유지
-        unmapped_keys = set(new_keys) - {m["apt_seq"] for m in mappings_after}
+        new_pnu = {m["apt_seq"]: m["pnu"] for m in mappings_after}
+        # 매핑 못 한(물리 게이트 거부 포함) 새 키는 계획 행만 이름 키로 되돌린다 — 현상 유지
+        unmapped_keys = set(new_keys) - set(new_pnu)
         if unmapped_keys:
             reverted, reverted_ids = _revert_unmapped(
                 conn, sgg, logger, plan, unmapped_keys
             )
             new_keys = [k for k in new_keys if k not in unmapped_keys]
-            # 감사 기준선은 아직 옮겨진 행이 남은 이름 키로 좁힌다 (되돌린 키의 위반은 비교 대상 아님)
-            moved_old_keys = _moved_old_keys(conn, plan, reverted_ids)
-        # 이번에 만든 상속(api_inherit_legacy) 아닌 매핑은 귀속이 바뀌는 게 정상이다 — 예: 매핑이
-        # 없던 상도1동대림이 주소 PNU 로 처음 거래를 갖는다. 혼입 키 기존 PNU 와 함께 허용 목록에 넣는다.
+        # 이번에 만든 비상속 매핑은 귀속이 바뀌는 게 정상이다 — 도착 PNU(최종 리뷰 #1c)와
+        # 그리로 행을 보낸 이름 키의 출발 PNU(F3b)를 허용 목록에 넣는다.
         allowed |= created_mapping_pnus(pre_existing, mappings_after)
+        verified = created_non_inherit_keys(pre_existing, mappings_after)
+    # 감사 기준선은 아직 옮겨진 행이 남은 이름 키로 좁힌다 (되돌린 키의 위반은 비교 대상 아님)
+    moved_pairs = _moved_pairs(conn, plan, reverted_ids) if new_keys else {}
+    moved_old_keys = set().union(*moved_pairs.values()) if moved_pairs else set()
+    allowed |= source_pnus(moved_pairs, old_pnu, verified)
+    preserving = preserving_keys(moved_pairs, old_pnu, new_pnu)
     after = _snapshot(conn, sgg)
-    audit_before = baseline_violation_count(before_violations, moved_old_keys)
-    audit_after = len(audit(conn, logger, apt_seqs=new_keys)) if new_keys else 0
-    logger.info(
-        f"[{sgg}] 감사 위반 기준선 {audit_before} (변경 전 전체 {len(before_violations)}) "
-        f"→ 변경 후 {audit_after}"
+    after_violations = audit(conn, logger, apt_seqs=new_keys) if new_keys else []
+    cmp = compare_audits(
+        before_violations,
+        after_violations,
+        moved_old_keys,
+        preserving,
+        fully_preserved_old_keys(moved_pairs, preserving),
+        moved_pairs,
     )
-    errors = check_invariants(before, after, allowed, audit_before, audit_after)
-    return errors, reverted
+    logger.info(
+        f"[{sgg}] 감사 위반 기준선 {cmp.before} (변경 전 전체 {len(before_violations)}) "
+        f"→ 변경 후 {cmp.after} (귀속 보존 키 {len(preserving):,}개 제외)"
+    )
+    if cmp.rematch_review:
+        logger.warning(
+            f"[{sgg}] 재매칭 검토 대상(귀속 보존 — 기존 오매핑이 드러남) {len(cmp.rematch_review)}건 "
+            f"(최대 {REMATCH_REVIEW_LOG_SAMPLE}): "
+            f"{[(r['apt_seq'], r['apt_nm'], r['bld_nm']) for r in cmp.rematch_review[:REMATCH_REVIEW_LOG_SAMPLE]]}"
+        )
+    errors = check_invariants(before, after, allowed, cmp.before, cmp.after)
+    return errors, reverted, cmp.rematch_review
 
 
 def _revert_unmapped(

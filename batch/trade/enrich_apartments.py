@@ -35,6 +35,7 @@ from batch.trade.registry import (
     parse_registry_response,
 )
 from batch.trade.collect_area_info import fetch_area_info, upsert_area_info, ensure_schema as ensure_area_schema
+from batch.trade.mapping_gate import reject_unverified_mappings
 
 BLD_TITLE_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo"
 
@@ -62,6 +63,7 @@ from batch.trade.name_matching import (  # noqa: E402,F401
     _normalize_name,
     _timeline_consistent,
 )
+from batch.trade.registration_veto import BJD_CODE_LEN, veto_registrations
 from batch.trade.trade_key_mapping import warn_weak_address_choices
 from batch.trade.trade_keys import (
     address_pnu_counts,
@@ -87,7 +89,7 @@ class OfficialKeyPlan(NamedTuple):
     map_existing: dict[str, str]  # apt_seq → 이미 apartments 에 있는 주소 PNU
     register: dict[str, list[str]]  # 새로 등록할 주소 PNU → 그 PNU 의 apt_seq 들
     unresolved: list[str]  # 주소 PNU 를 만들 수 없는 apt_seq
-    ambiguous: list[str]  # 서로 다른 주소 PNU 가 여럿이라 고르지 않은 apt_seq
+    ambiguous: list[str]  # 주소 PNU 가 여럿이거나 중복 등록 의심(registration_veto)이라 고르지 않은 apt_seq
     address_rows: dict[str, dict]  # 등록할 주소 PNU → 그 PNU 를 만든 거래 행(지번 주소 검색용)
 
 
@@ -700,15 +702,17 @@ def _enrich_official_keys(
     실패한 키는 미매핑으로 남기고 로그한다 — 다음 회차에 다시 시도된다.
     """
     plan = plan_official_keys(official_rows, existing_pnus)
+    names = official_key_names(official_rows)
+    plan = _veto_duplicate_registrations(conn, logger, plan, names)
     key_count = len({r["apt_seq"] for r in official_rows})
     logger.info(
         f"  고유번호 키 {key_count}건: 기존 주소 PNU {len(plan.map_existing)}건, "
         f"신규 등록 PNU {len(plan.register)}개, 주소 미확보 {len(plan.unresolved)}건, "
-        f"주소 모호 {len(plan.ambiguous)}건"
+        f"모호 {len(plan.ambiguous)}건"
     )
     if plan.ambiguous:
         logger.warning(
-            f"  거래 주소 PNU 가 여럿이라 고르지 않은 고유번호 키 — 미매핑 유지 {len(plan.ambiguous)}건 "
+            f"  모호(주소 PNU 여럿·중복 등록 의심)라 고르지 않은 고유번호 키 — 미매핑 유지 {len(plan.ambiguous)}건 "
             f"(최대 {UNRESOLVED_LOG_SAMPLE}): {plan.ambiguous[:UNRESOLVED_LOG_SAMPLE]}"
         )
     if plan.unresolved:
@@ -726,7 +730,6 @@ def _enrich_official_keys(
     rows_by_seq: dict[str, dict] = {}
     for r in official_rows:
         rows_by_seq.setdefault(r["apt_seq"], r)
-    names = official_key_names(official_rows)
     mappings = list(plan.map_existing.items())
     registered: dict[str, str] = {}
     failed: list[str] = []
@@ -761,21 +764,72 @@ def _enrich_official_keys(
         )
 
     cur = conn.cursor()
+    inserted_existing: list[str] = []
     for seq, pnu in mappings:
         row = rows_by_seq[seq]
         cur.execute(
             "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) "
-            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING",
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (apt_seq) DO NOTHING RETURNING apt_seq",
             [seq, pnu, names[seq], str(row["sgg_cd"])[:5], OFFICIAL_KEY_ADDRESS_METHOD],
         )
+        if seq in plan.map_existing and cur.fetchone():
+            inserted_existing.append(seq)
+    # F2 — 기존 단지로 붙인 매핑은 물리 감사를 통과해야 남는다(신규 등록 단지는 비교할 진본이 없어 제외).
+    rejected = reject_unverified_mappings(
+        conn, logger, inserted_existing, source="enrich_official_keys"
+    )
     conn.commit()
-    logger.info(f"  고유번호 키 주소 매핑 {len(mappings)}건 (신규 등록 {len(registered)}개)")
+    mapped = len(mappings) - len({v["apt_seq"] for v in rejected})
+    logger.info(
+        f"  고유번호 키 주소 매핑 {mapped}건 (신규 등록 {len(registered)}개, "
+        f"물리 감사 거부 {len(rejected)}건)"
+    )
 
     # K-APT 이름 매칭(_enrich_kapt_targeted)은 의도적으로 호출하지 않는다.
     # 고유번호 키로 새로 등록되는 단지는 동명 이웃과 분리된 단지(예: 상도동 대림 vs 대방동 대림)라
     # 시군구+이름 첫 매칭이 이웃의 kapt_code/세대수를 가져올 위험이 있다.
     # 후속: 법정동 범위 매처가 생기면 연결한다(백로그).
-    return len(mappings), registered
+    return mapped, registered
+
+
+def _apartment_names_by_bjd(conn, bjds: list[str]) -> dict[str, list[tuple[str, str]]]:
+    """법정동별 기존 단지 (pnu, 이름) — 이름 변형을 넓게 보려고 bld_nm·display_name 을 모두 담는다."""
+    out: dict[str, list[tuple[str, str]]] = {}
+    for a in query_all(
+        conn,
+        "SELECT pnu, bld_nm, display_name, bjd_code FROM apartments WHERE bjd_code = ANY(%s)",
+        [bjds],
+    ):
+        for nm in {a["bld_nm"], a["display_name"]} - {None, ""}:
+            out.setdefault(a["bjd_code"], []).append((a["pnu"], nm))
+    return out
+
+
+def _veto_duplicate_registrations(
+    conn, logger, plan: OfficialKeyPlan, names: dict[str, str]
+) -> OfficialKeyPlan:
+    """신규 등록 예정 키 중 같은 법정동에 같은·포함 이름 단지가 있는 것은 등록·매핑하지 않고 모호로 돌린다.
+
+    이름은 거부 근거로만 쓴다 — 후보 단지로 매핑하지 않는다(registration_veto 참고).
+    """
+    if not plan.register:
+        return plan
+    bjds = sorted({pnu[:BJD_CODE_LEN] for pnu in plan.register})
+    kept, vetoed = veto_registrations(
+        plan.register, names, _apartment_names_by_bjd(conn, bjds)
+    )
+    if not vetoed:
+        return plan
+    sample = list(vetoed.items())[:UNRESOLVED_LOG_SAMPLE]
+    logger.warning(
+        f"  같은 법정동에 같은·포함 이름 단지가 있어 신규 등록하지 않은 고유번호 키 — 미매핑 유지 "
+        f"{len(vetoed)}건 (최대 {UNRESOLVED_LOG_SAMPLE}, 키: 후보 PNU): {sample}"
+    )
+    return plan._replace(
+        register=kept,
+        ambiguous=plan.ambiguous + list(vetoed),
+        address_rows={p: r for p, r in plan.address_rows.items() if p in kept},
+    )
 
 
 def _official_address_rows(conn, apt_seqs: list[str]) -> list[dict]:
