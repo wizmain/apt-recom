@@ -228,5 +228,29 @@ class EnrichOfficialKeysGateTest(unittest.TestCase):
         conn.commit.assert_called()
 
 
+class EnrichOfficialKeysVetoTest(unittest.TestCase):
+    """리뷰 #2 — 같은 법정동에 같은 이름 단지가 있으면 신규 등록도 매핑도 하지 않는다."""
+
+    def test_vetoed_key_neither_registered_nor_mapped(self):
+        conn = MagicMock()
+        cur = conn.cursor.return_value
+        rows = [row("11590-58", True, umd_cd="10200", bonbun="0411")]
+        same_dong = {SANGDO[:10]: [("1159010200009990000", "대림아파트")]}
+        logger = MagicMock()
+        with (
+            patch.object(mod, "_apartment_names_by_bjd", return_value=same_dong),
+            patch.object(mod, "_resolve_official_one") as by_addr,
+        ):
+            mapped, registered = mod._enrich_official_keys(
+                conn, logger, rows, set(), {}, {}
+            )
+        by_addr.assert_not_called()
+        self.assertEqual((mapped, registered), (0, {}))
+        sqls = [c[0][0] for c in cur.execute.call_args_list]
+        self.assertFalse(any("INSERT" in s for s in sqls))
+        warned = " ".join(str(c[0][0]) for c in logger.warning.call_args_list)
+        self.assertIn("1159010200009990000", warned)
+
+
 if __name__ == "__main__":
     unittest.main()
