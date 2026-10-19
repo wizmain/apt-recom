@@ -1,12 +1,15 @@
 """batch.sync_from_railway 검증 로직 — DB·네트워크 없이 순수 함수만 확인 (CI 대상)."""
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from batch.sync_from_railway import (
     APT_SYNC_TABLES,
     CHECKSUM_COLS,
     build_checksum_sql,
     find_stale_pks,
+    latest_created_at,
+    parse_checkpoint,
     verify_status,
 )
 
@@ -94,3 +97,38 @@ class TestFindStalePks(unittest.TestCase):
 
     def test_로컬이_비어_있으면_잔존_없음(self):
         self.assertEqual(find_stale_pks(self.COLS, self.PK, [("A", 1.0)], []), [])
+
+
+class TestCheckpoint(unittest.TestCase):
+    """체크포인트를 문자열로 비교해 같은 날짜 행에서 전진하지 못했다 (2026-10-19 실측).
+
+    full sync 가 'T' 구분자로 저장 → 증분 sync 의 str(created_at)(공백 구분자)이
+    같은 날 더 늦은 시각인데도 작다고 판정 → 다음 회차가 같은 행을 재조회.
+    """
+
+    def test_T_구분자와_공백_구분자를_같은_시각으로_읽는다(self):
+        self.assertEqual(
+            parse_checkpoint("2026-10-15T01:14:53.230582+00:00"),
+            parse_checkpoint("2026-10-15 01:14:53.230582+00:00"),
+        )
+
+    def test_타임존_없는_값은_UTC_로_본다(self):
+        self.assertEqual(parse_checkpoint("2026-10-15T01:14:53").tzinfo, timezone.utc)
+
+    def test_같은_날짜_늦은_행이면_체크포인트가_전진한다(self):
+        checkpoint = parse_checkpoint("2026-10-15T01:14:53.230582+00:00")
+        later = datetime(2026, 10, 15, 18, 5, tzinfo=timezone.utc)
+        rows = [("a", later - timedelta(minutes=3)), ("b", later)]
+        self.assertEqual(latest_created_at(checkpoint, rows), later)
+
+    def test_타임존이_달라도_시각으로_비교한다(self):
+        checkpoint = parse_checkpoint("2026-10-15T10:00:00+00:00")
+        kst = timezone(timedelta(hours=9))
+        earlier_in_kst = datetime(2026, 10, 15, 18, 0, tzinfo=kst)  # 09:00 UTC
+        self.assertEqual(
+            latest_created_at(checkpoint, [("a", earlier_in_kst)]), checkpoint
+        )
+
+    def test_created_at_이_없는_행은_무시한다(self):
+        checkpoint = parse_checkpoint("2026-10-15T01:00:00+00:00")
+        self.assertEqual(latest_created_at(checkpoint, [("a", None)]), checkpoint)

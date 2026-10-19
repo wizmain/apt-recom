@@ -288,6 +288,24 @@ def sync_apt_tables(local, railway, logger):
     return total
 
 
+def parse_checkpoint(text: str) -> datetime:
+    """저장된 체크포인트 문자열 → aware datetime.
+
+    full sync 는 isoformat('T' 구분자), 과거 증분 sync 는 str(datetime)(공백 구분자)으로
+    저장했다. 둘을 문자열로 비교하면 같은 날짜에서 공백 < 'T' 라 순서가 뒤집힌다.
+    """
+    checkpoint = datetime.fromisoformat(text)
+    if checkpoint.tzinfo is None:
+        checkpoint = checkpoint.replace(tzinfo=timezone.utc)
+    return checkpoint
+
+
+def latest_created_at(checkpoint: datetime, rows) -> datetime:
+    """체크포인트와 행들의 created_at(마지막 컬럼) 중 최댓값. 순수 함수."""
+    created = [row[-1] for row in rows if row[-1] is not None]
+    return max([checkpoint, *created])
+
+
 def _get_last_sync(local_conn):
     """로컬 DB에서 마지막 동기화 시각 조회."""
     cur = local_conn.cursor()
@@ -319,14 +337,15 @@ def incremental_sync(logger):
     local = psycopg2.connect(local_url)
     railway = psycopg2.connect(railway_url)
 
-    last_sync = _get_last_sync(local)
-    if not last_sync:
+    last_sync_text = _get_last_sync(local)
+    if not last_sync_text:
         logger.info("마지막 동기화 시각 없음 → full 모드로 전환")
         local.close()
         railway.close()
         return full_sync(logger)
 
-    logger.info(f"증분 동기화 시작 (기준: {last_sync})")
+    last_sync = parse_checkpoint(last_sync_text)
+    logger.info(f"증분 동기화 시작 (기준: {last_sync.isoformat()})")
     total = 0
     max_created = last_sync
 
@@ -337,33 +356,32 @@ def incremental_sync(logger):
         new_rows = rcur.fetchall()
 
         if new_rows:
-            # 로컬에 INSERT
+            # 체크포인트가 같은 날짜 행에서 전진하지 않으면 다음 회차가 이미 넣은 행을 다시
+            # 가져온다 — 행별 rollback 은 앞선 미커밋 INSERT 까지 지워 정상 행이 유실됐다
+            # (2026-10-19 전월세 2,751건). 이미 있는 행은 ON CONFLICT 로 건너뛴다.
             lcur = local.cursor()
-            col_count = len(cols.split(","))
-            placeholders = ",".join(["%s"] * col_count)
-            for row in new_rows:
-                try:
-                    lcur.execute(
-                        f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", row
-                    )
-                except psycopg2.errors.UniqueViolation:
-                    local.rollback()
-                    continue
+            inserted = psycopg2.extras.execute_values(
+                lcur,
+                f"INSERT INTO {table} ({cols}) VALUES %s ON CONFLICT DO NOTHING RETURNING 1",
+                new_rows,
+                page_size=1000,
+                fetch=True,
+            )
             local.commit()
 
-            # 최대 created_at 갱신
-            for row in new_rows:
-                ct = row[-1]  # created_at은 마지막 컬럼
-                if ct and str(ct) > max_created:
-                    max_created = str(ct)
+            max_created = latest_created_at(max_created, new_rows)
 
-            logger.info(f"  {table}: {len(new_rows):,}건 동기화")
-            total += len(new_rows)
+            skipped = len(new_rows) - len(inserted)
+            logger.info(
+                f"  {table}: 조회 {len(new_rows):,}건 → 신규 {len(inserted):,}건"
+                f" (기존 행 건너뜀 {skipped:,}건)"
+            )
+            total += len(inserted)
         else:
             logger.info(f"  {table}: 신규 없음")
 
     # 동기화 시각 갱신
-    _save_last_sync(local, max_created)
+    _save_last_sync(local, max_created.isoformat())
 
     # 아파트 관련 테이블 동기화 (PK 기반)
     apt_total = sync_apt_tables(local, railway, logger)
