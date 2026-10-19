@@ -23,6 +23,7 @@ from batch.config import (
     COLLECT_ABORT_CONSECUTIVE_FAILURES,
     COLLECT_BUDGET_MINUTES,
     COLLECT_FAILURE_WARN_RATIO,
+    COLLECT_LOOKBACK_MONTHS,
     DATA_GO_KR_API_KEY,
     DATA_GO_KR_RATE,
     DATA_GO_KR_RETRIES,
@@ -199,26 +200,37 @@ def _parse_xml(xml_text, col_map):
     return rows
 
 
+def _shift_month(ym, delta):
+    """YYYYMM 정수를 delta 개월 이동."""
+    index = (ym // 100) * 12 + (ym % 100 - 1) + delta
+    return (index // 12) * 100 + index % 12 + 1
+
+
+def collection_months(last_ym, now, lookback=COLLECT_LOOKBACK_MONTHS):
+    """수집 대상 월 목록(YYYYMM 문자열, **최신 월부터**). 순수 함수.
+
+    시작 월 = min(DB 최신 계약월, 이번 달 - lookback).
+    - lookback: 지난달 계약의 지연 신고(기한 30일)를 매 회차 회수한다.
+    - DB 최신 계약월: 배치가 오래 멈췄을 때 그 사이 월을 따라잡는다.
+    최신 월부터 도는 이유: 예산 초과로 잘려도 이번 달 거래가 먼저 확보된다.
+    """
+    cur_ym = now.year * 100 + now.month
+    start_ym = min(last_ym, _shift_month(cur_ym, -lookback))
+    months = []
+    ym = cur_ym
+    while ym >= start_ym:
+        months.append(str(ym))
+        ym = _shift_month(ym, -1)
+    return months
+
+
 def _get_collection_months(conn):
-    """DB에서 마지막 수집월 조회 → 다음 월부터 현재월까지 목록 반환."""
+    """DB 최신 계약월을 조회해 collection_months 로 수집 대상 월을 정한다."""
     row = query_one(
         conn, "SELECT MAX(deal_year * 100 + deal_month) as last_ym FROM trade_history"
     )
     last_ym = row["last_ym"] if row and row["last_ym"] else 201601
-
-    now = datetime.now()
-    cur_ym = now.year * 100 + now.month
-
-    # 마지막 수집월부터 (이미 수집된 달도 증분 체크를 위해 포함)
-    months = []
-    y, m = int(str(last_ym)[:4]), int(str(last_ym)[4:])
-    while y * 100 + m <= cur_ym:
-        months.append(f"{y}{m:02d}")
-        m += 1
-        if m > 12:
-            m = 1
-            y += 1
-    return months
+    return collection_months(last_ym, datetime.now())
 
 
 def collect_trades(
@@ -239,7 +251,7 @@ def collect_trades(
     stats = CollectStats(districts_total=len(codes) * len(months), start_offset=offset)
 
     logger.info(
-        f"수집 대상: {len(codes)}개 시군구 x {len(months)}개월 ({months[0]}~{months[-1]}) "
+        f"수집 대상: {len(codes)}개 시군구 x {len(months)}개월 ({months[-1]}~{months[0]}, 최신 월부터) "
         f"— 시작 오프셋 {offset}, 예산 {budget / 60:.0f}분"
     )
 
