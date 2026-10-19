@@ -320,3 +320,41 @@ class FakeConn:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCollectionMonths(unittest.TestCase):
+    """지난달 지연 신고분이 월초 이후 수집에서 빠지던 결손 (2026-10-19 실측).
+
+    예전 로직은 'DB 최신 계약월~이번 달'이라 10/1 에 10월 거래 1건이 들어오면 9월 조회가
+    멈췄다 — 9월 계약 하순/상순 비율 0.39 (평시 1.0~1.5).
+    """
+
+    NOW = datetime(2026, 10, 19, 7, 0)
+
+    def test_월초에_이번달이_있어도_지난달을_포함한다(self):
+        self.assertEqual(
+            mod.collection_months(202610, self.NOW, 1), ["202610", "202609"]
+        )
+
+    def test_최신_월부터_반환한다(self):
+        months = mod.collection_months(202610, self.NOW, 2)
+        self.assertEqual(months, ["202610", "202609", "202608"])
+
+    def test_연도_경계를_넘는다(self):
+        now = datetime(2027, 1, 3)
+        self.assertEqual(mod.collection_months(202701, now, 1), ["202701", "202612"])
+
+    def test_오래_멈춘_배치는_공백_월을_따라잡는다(self):
+        self.assertEqual(
+            mod.collection_months(202606, self.NOW, 1),
+            ["202610", "202609", "202608", "202607", "202606"],
+        )
+
+    def test_lookback_0_이면_예전처럼_이번달만(self):
+        self.assertEqual(mod.collection_months(202610, self.NOW, 0), ["202610"])
+
+    def test_기본_lookback_은_예산_안에_든다(self):
+        """1개월 수집 실측 8~10분(518콜) — 대상 월 수 × 10분이 예산 이내여야 한다."""
+        from batch.config import COLLECT_LOOKBACK_MONTHS
+
+        self.assertLessEqual((COLLECT_LOOKBACK_MONTHS + 1) * 10, COLLECT_BUDGET_MINUTES)
