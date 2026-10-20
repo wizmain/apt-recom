@@ -22,6 +22,7 @@ from datetime import datetime
 from batch.config import (
     COLLECT_ABORT_CONSECUTIVE_FAILURES,
     COLLECT_BUDGET_MINUTES,
+    COLLECT_DB_HEARTBEAT_SECONDS,
     COLLECT_FAILURE_WARN_RATIO,
     COLLECT_LOOKBACK_MONTHS,
     DATA_GO_KR_API_KEY,
@@ -233,6 +234,32 @@ def _get_collection_months(conn):
     return collection_months(last_ym, datetime.now())
 
 
+class DbKeepAlive:
+    """수집 중 유휴 커넥션을 살려 둔다 (COLLECT_DB_HEARTBEAT_SECONDS 참고).
+
+    ping 은 SELECT 1 + commit — 세션을 활동 상태로 두고, 수집 전 조회가 열어 둔
+    트랜잭션도 닫는다. 세션 advisory lock 은 commit 과 무관하게 유지된다.
+    """
+
+    def __init__(self, conn, interval):
+        self.conn = conn
+        self.interval = interval
+        self.last_ping = None
+        self.pings = 0
+
+    def ping(self, now):
+        cur = self.conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        self.conn.commit()
+        self.last_ping = now
+        self.pings += 1
+
+    def ping_if_due(self, now):
+        if self.last_ping is None or now - self.last_ping >= self.interval:
+            self.ping(now)
+
+
 def collect_trades(
     conn, logger, dry_run=False, *, budget_seconds=None, clock=time.monotonic, now=None
 ):
@@ -258,9 +285,11 @@ def collect_trades(
     trade_rows = []
     rent_rows = []
 
+    keepalive = DbKeepAlive(conn, COLLECT_DB_HEARTBEAT_SECONDS)
     for month in months:
         for code in codes:
-            if clock() >= deadline:
+            now_t = clock()
+            if now_t >= deadline:
                 stats.budget_exceeded = True
                 logger.warning(
                     f"수집 예산 {budget / 60:.0f}분 초과 — "
@@ -268,6 +297,7 @@ def collect_trades(
                     "수집분은 그대로 적재하며, 남은 몫은 다음 런이 이어받습니다."
                 )
                 break
+            keepalive.ping_if_due(now_t)
 
             # 매매
             xml = _call_api(TRADE_URL, code, month, logger)

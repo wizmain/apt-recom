@@ -42,6 +42,13 @@ COLLECT_BUDGET_MINUTES = 35
 # 1개월 = 회차당 호출 2배(약 518 → 1,036콜, 수집 17~20분)로 예산 35분 안에 든다.
 COLLECT_LOOKBACK_MONTHS = 1
 
+# 수집 중 DB 커넥션 유지 간격 (2026-10-20). 수집(외부 API, 15분+) 동안 커넥션은
+# 트랜잭션을 연 채 유휴였고, TCP keepalive 만으로는 서버·프록시의 세션 정리를 못 막아
+# 10/19 20:33 UTC 회차가 적재 직전 "SSL SYSCALL error: EOF detected" 로 0건 적재.
+# 이 간격마다 SELECT 1 + commit 으로 세션을 활동 상태로 두고 열린 트랜잭션을 닫는다.
+# 재연결이 아닌 이유: 거래 쓰기 잠금(세션 advisory lock)이 커넥션에 묶여 있다.
+COLLECT_DB_HEARTBEAT_SECONDS = 60
+
 # 실패율이 이 값을 넘으면 수집 요약에 경고를 남긴다 (예산 초과의 선행 지표).
 COLLECT_FAILURE_WARN_RATIO = 0.05
 
