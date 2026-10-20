@@ -156,8 +156,9 @@ class TestRotation(unittest.TestCase):
 
 
 class TestCollectBudget(unittest.TestCase):
-    def _run(self, *, codes, budget_seconds, step, fail_codes=()):
+    def _run(self, *, codes, budget_seconds, step, fail_codes=(), conn=None):
         logger = FakeLogger()
+        conn = conn or FakeConn()
 
         def fake_call(url, code, month, log, **kwargs):
             return None if code in fail_codes else "<xml/>"
@@ -172,7 +173,7 @@ class TestCollectBudget(unittest.TestCase):
             patch.object(mod.time, "sleep"),
         ):
             trade_rows, rent_rows, stats = mod.collect_trades(
-                conn=None,
+                conn=conn,
                 logger=logger,
                 budget_seconds=budget_seconds,
                 clock=StepClock(step),
@@ -314,12 +315,29 @@ class TestRunTradeReportsUnreachable(unittest.TestCase):
 
 
 class FakeConn:
+    """execute 된 SQL 과 commit 횟수를 기록한다."""
+
+    def __init__(self):
+        self.executed = []
+        self.commits = 0
+
+    def cursor(self):
+        conn = self
+
+        class _Cursor:
+            def execute(self, sql, params=None):
+                conn.executed.append(sql)
+
+            def fetchone(self):
+                return (1,)
+
+        return _Cursor()
+
+    def commit(self):
+        self.commits += 1
+
     def close(self):
         pass
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestCollectionMonths(unittest.TestCase):
@@ -358,3 +376,38 @@ class TestCollectionMonths(unittest.TestCase):
         from batch.config import COLLECT_LOOKBACK_MONTHS
 
         self.assertLessEqual((COLLECT_LOOKBACK_MONTHS + 1) * 10, COLLECT_BUDGET_MINUTES)
+
+
+class TestDbKeepAlive(unittest.TestCase):
+    """수집 중 유휴 커넥션 끊김 (2026-10-19 20:33 UTC, SSL SYSCALL EOF → 0건 적재)."""
+
+    def test_첫_시군구_전에_ping_해서_열린_트랜잭션을_닫는다(self):
+        conn = FakeConn()
+        TestCollectBudget()._run(
+            codes=["00001"], budget_seconds=10_000, step=1, conn=conn
+        )
+        self.assertEqual(conn.executed[0], "SELECT 1")
+        self.assertGreaterEqual(conn.commits, 1)
+
+    def test_간격마다_ping_한다(self):
+        """step 20초 × 시군구 10곳 = 200초 → 60초 간격이면 첫 ping 포함 4회."""
+        conn = FakeConn()
+        TestCollectBudget()._run(
+            codes=[f"{i:05d}" for i in range(10)],
+            budget_seconds=10_000,
+            step=20,
+            conn=conn,
+        )
+        self.assertEqual(conn.executed.count("SELECT 1"), 4)
+
+    def test_간격_전에는_ping_하지_않는다(self):
+        keepalive = mod.DbKeepAlive(FakeConn(), 60)
+        keepalive.ping_if_due(0)
+        keepalive.ping_if_due(59)
+        self.assertEqual(keepalive.pings, 1)
+        keepalive.ping_if_due(60)
+        self.assertEqual(keepalive.pings, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
