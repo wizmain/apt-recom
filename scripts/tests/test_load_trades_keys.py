@@ -82,5 +82,40 @@ class LoadTradesKeyTest(unittest.TestCase):
         self.assertEqual(row[-3:], (1995, "11590_대림아파트", "api"))
 
 
+class ExecuteValuesChunkedCountTest(unittest.TestCase):
+    """반환값은 시도한 행 수가 아니라 실제 반영 행 수(rowcount 합)여야 한다."""
+
+    def test_sums_rowcount_not_chunk_length(self):
+        from batch import db
+
+        class _Cur:
+            rowcount = -1
+
+        class _Conn:
+            def __init__(self):
+                self.cur = _Cur()
+                self.commits = 0
+
+            def cursor(self):
+                return self.cur
+
+            def commit(self):
+                self.commits += 1
+
+        # chunk 별 반영 수: 3행 중 2행, 2행 중 0행(전부 ON CONFLICT 로 버려짐)
+        applied = iter([2, 0])
+
+        def fake_execute_values(cur, _sql, _chunk, page_size):
+            cur.rowcount = next(applied)
+
+        conn = _Conn()
+        with patch.object(db.psycopg2.extras, "execute_values", fake_execute_values):
+            total = db.execute_values_chunked(
+                conn, "SQL", [1, 2, 3, 4, 5], chunk_size=3
+            )
+        self.assertEqual(total, 2)
+        self.assertEqual(conn.commits, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
