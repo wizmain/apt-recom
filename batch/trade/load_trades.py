@@ -136,7 +136,8 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             )
             total_inserted += cnt
             logger.info(
-                f"  매매 신규 {cnt:,}건 적재 (기존 {len(existing_keys):,}건 스킵)"
+                f"  매매 신규 {cnt:,}건 적재 (후보 {len(new_rows):,}건 중 중복 {len(new_rows) - cnt:,}건,"
+                f" 기존 키 {len(existing_keys):,}건)"
             )
         else:
             logger.info("  매매 신규 건 없음")
@@ -230,7 +231,8 @@ def load_trades(conn, trade_rows, rent_rows, logger):
             )
             total_inserted += cnt
             logger.info(
-                f"  전월세 신규 {cnt:,}건 적재 (기존 {len(existing_keys):,}건 스킵)"
+                f"  전월세 신규 {cnt:,}건 적재 (후보 {len(new_rows):,}건 중 중복 {len(new_rows) - cnt:,}건,"
+                f" 기존 키 {len(existing_keys):,}건)"
             )
         else:
             logger.info("  전월세 신규 건 없음")

@@ -31,13 +31,17 @@ def get_dict_cursor(conn):
 
 
 def execute_values_chunked(conn, sql, rows, chunk_size=10000):
-    """대량 INSERT를 chunk 단위로 실행."""
+    """대량 INSERT를 chunk 단위로 실행. 실제 반영된 행 수(rowcount 합)를 반환.
+
+    page_size=chunk_size 라 chunk 하나가 문장 하나 — 호출 직후 rowcount 가 그 chunk
+    전체의 반영 행 수다. ON CONFLICT DO NOTHING 으로 버려진 행은 세지 않는다.
+    """
     cur = conn.cursor()
     total = 0
     for i in range(0, len(rows), chunk_size):
         chunk = rows[i : i + chunk_size]
         psycopg2.extras.execute_values(cur, sql, chunk, page_size=chunk_size)
-        total += len(chunk)
+        total += cur.rowcount
     conn.commit()
     return total
 
