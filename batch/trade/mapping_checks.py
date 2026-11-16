@@ -155,18 +155,45 @@ def area_match_ratio(deal_areas, apt_areas) -> float | None:
     return matched / total if total else None
 
 
-def check_mapping(deal: dict, apt: dict) -> list[Signal]:
+def is_predecessor(use_apr_day: str | None,
+                   median_build_year: int | None,
+                   max_deal_year: int | None) -> bool:
+    """철거된 옛 단지의 실적이 같은 부지의 새 단지에 붙은 재건축 계보인지 (ADR-017 결정 2).
+
+    실적의 건축년도가 단지 준공연도보다 이르고, 마지막 실적이 준공연도 전에 끝났다
+    (개포주공1단지 → 디에이치퍼스티어아이파크). 다른 단지 혼입이 아니라 같은 부지의 이력이라
+    오매핑으로 보지 않는다. 준공 후에도 실적이 이어지면 옛 단지가 남아 있다는 뜻이라 해당하지 않는다.
+    값이 하나라도 없으면 판단하지 않는다.
+    """
+    if (not use_apr_day or len(use_apr_day) < 4 or not use_apr_day[:4].isdigit()
+            or median_build_year is None or max_deal_year is None):
+        return False
+    apt_year = int(use_apr_day[:4])
+    return median_build_year < apt_year and max_deal_year < apt_year
+
+
+def check_mapping(deal: dict, apt: dict, allow_predecessor: bool = True) -> list[Signal]:
     """매핑이 물리적으로 어긋나는 신호 목록을 반환한다 (빈 목록이면 정합).
 
     신호를 모으기만 하고 판정하지 않는다. 오매핑 확정은 mismatch_confirmed 가
     한다 — 지표 하나만으로 판정하면 오탐이 많기 때문이다.
 
+    재건축 계보(is_predecessor)는 신호 없이 정합으로 둔다 — 옛 단지라 연도·면적·층이 모두
+    다른 것이 당연하다. 단 allow_predecessor=False 면 계보로 보지 않는다: **이름으로 고른 새 후보**를
+    검증할 때다. 계보 면제는 같은 부지라는 근거(기존 매핑·주소)가 있을 때만 성립한다 — 이름만으로
+    고르면 옛 단지 실적을 아무 신축 단지에 옮길 수 있다(2026-11-16 리허설: `극동`(1997) 75건이
+    이름으로 주안극동스타클래스더로얄(2025)에 재매핑됨).
+
     deal — 거래·전월세 실적 집계
-      apt_nm, max_floor, min_deal_year, median_build_year, areas,
+      apt_nm, max_floor, min_deal_year, max_deal_year, median_build_year, areas,
       jibun_pnus(거래 지번으로 만든 PNU 키), jibun_owner_pnus(그중 실존 단지 PNU)
     apt  — 매핑 대상 아파트
       pnu, bld_nm, max_floor, use_apr_day, areas
     """
+    if allow_predecessor and is_predecessor(
+            apt.get("use_apr_day"), deal.get("median_build_year"), deal.get("max_deal_year")):
+        return []
+
     signals = []
 
     if complex_number_conflict(deal.get("apt_nm"), apt.get("bld_nm")):
@@ -193,6 +220,11 @@ def check_mapping(deal: dict, apt: dict) -> list[Signal]:
                           deal.get("min_deal_year"),
                           deal.get("median_build_year")):
         signals.append(Signal("timeline", "타임라인", strong=False))
+        # 이름 불일치는 단독 근거로 쓰지 않는다(name_consistent). 연도가 이미 어긋난 실적에서만
+        # 두 번째 신호로 센다 — 표준 주택형(59·84㎡)이라 면적이 우연히 맞거나 주택형 정보가 없어
+        # 타임라인 하나로 남던 이름 매칭 오매핑을 확정하기 위해서다(ADR-017 결정 1).
+        if not name_consistent(deal.get("apt_nm") or "", apt.get("bld_nm") or ""):
+            signals.append(Signal("name", "이름 불일치", strong=False))
 
     ratio = area_match_ratio(deal.get("areas"), apt.get("areas"))
     if ratio is not None and ratio < AREA_MATCH_MIN_RATIO:

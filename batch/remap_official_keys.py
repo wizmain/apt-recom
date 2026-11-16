@@ -128,14 +128,20 @@ def plan_remap(
     return items
 
 
-def gate_candidates(old: dict[str, OldMapping], decided: dict[str, KeyDecision]):
-    """물리 게이트 대상 — 비상속 판정 키 (map_api_keys 와 같은 면제 규칙).
+def gate_candidates(
+    old: dict[str, OldMapping],
+    decided: dict[str, KeyDecision],
+    manual_inherits: frozenset[str] = frozenset(),
+):
+    """물리 게이트 대상 — 판정 키 전부, manual_fix 이름 키에서 상속한 키만 면제
+    (map_api_keys 와 같은 면제 규칙, ADR-017).
 
     반환: (게이트할 키, 그중 게이트 전에 판정 PNU 로 바꿔 써야 하는 키 — 기존 PNU 와 다른 것).
     """
     keys = gate_keys(
         [(k, d.match_method) for k, d in decided.items() if k in old],
-        {MATCH_INHERIT_LEGACY},
+        set(),
+        manual_inherits,
     )
     return keys, [k for k in keys if decided[k].pnu != old[k].pnu]
 
@@ -248,10 +254,17 @@ def _existing_pnus(conn, pnus: list[str]) -> set[str]:
     }
 
 
-def _gate_rejections(conn, logger, old, decided, apply: bool) -> set[str]:
+def _gate_rejections(
+    conn,
+    logger,
+    old,
+    decided,
+    apply: bool,
+    manual_inherits: frozenset[str] = frozenset(),
+) -> set[str]:
     """판정을 SAVEPOINT 안에 써서 물리 게이트(mapping_gate 와 같은 find_violations 판정)를 돌리고
     되돌린다 — 거부된 키 집합. 쓰기는 이후 _apply 가 한다(dry-run 은 쓰지 않는다)."""
-    keys, rewrite = gate_candidates(old, decided)
+    keys, rewrite = gate_candidates(old, decided, manual_inherits)
     if not keys:
         return set()
     cur = conn.cursor()
@@ -355,7 +368,11 @@ def remap(
         if keys
         else KeyDecisions({}, [], {})
     )
-    rejected = _gate_rejections(conn, logger, old, kd.decided, apply) if keys else set()
+    rejected = (
+        _gate_rejections(conn, logger, old, kd.decided, apply, kd.manual_inherits)
+        if keys
+        else set()
+    )
     counts, sggs_by_key = _row_counts(conn, keys) if keys else ({}, {})
     rekeyed_sggs = _rekeyed_sggs(conn)
     rekeyed_keys = {k for k, sggs in sggs_by_key.items() if sggs & rekeyed_sggs}

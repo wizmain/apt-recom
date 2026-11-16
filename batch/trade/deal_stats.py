@@ -70,11 +70,12 @@ deal AS (
          COUNT(*) FILTER (WHERE src = 'r') rents,
          MAX(floor) max_floor,
          MIN(deal_year) min_deal_year,
+         MAX(deal_year) max_deal_year,
          PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY build_year) median_build_year
   FROM raw GROUP BY apt_seq
 )
 SELECT m.apt_seq, m.apt_nm, m.sgg_cd, m.pnu, m.match_method,
-       d.trades, d.rents, d.max_floor, d.min_deal_year, d.median_build_year,
+       d.trades, d.rents, d.max_floor, d.min_deal_year, d.max_deal_year, d.median_build_year,
        aa.areas AS areas,
        jb.jibun_pnus, jb.jibun_owner_pnus,
        a.bld_nm, a.max_floor AS apt_max_floor, a.use_apr_day,

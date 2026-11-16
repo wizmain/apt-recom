@@ -187,17 +187,19 @@ class EmptyRunCheckpointTest(unittest.TestCase):
 
 
 class GateCandidatesTest(unittest.TestCase):
-    def test_inherit_exempt_and_only_changed_pnus_rewritten(self):
-        olds = {"INH": old(P2), "SAME": old(P1), "CHG": old(P2)}
+    def test_inherit_gated_and_only_changed_pnus_rewritten(self):
+        """ADR-017 — 상속도 게이트 대상, manual_fix 이름 키에서 상속한 키만 면제."""
+        olds = {"INH": old(P2), "MAN": old(P1), "SAME": old(P1), "CHG": old(P2)}
         decided = {
             "INH": dec(P1, "api_inherit_legacy"),
+            "MAN": dec(P1, "api_inherit_legacy"),
             "SAME": dec(P1),
             "CHG": dec(P1),
             "NOT_OLD": dec(P1),  # 기존 api_ 매핑이 아닌 키는 대상 아님
         }
-        keys, rewrite = R.gate_candidates(olds, decided)
-        self.assertEqual(keys, ["CHG", "SAME"])
-        self.assertEqual(rewrite, ["CHG"])
+        keys, rewrite = R.gate_candidates(olds, decided, frozenset({"MAN"}))
+        self.assertEqual(keys, ["CHG", "INH", "SAME"])
+        self.assertEqual(rewrite, ["CHG", "INH"])
 
 
 class DecideApiKeysScopeTest(unittest.TestCase):

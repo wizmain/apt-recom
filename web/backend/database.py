@@ -270,6 +270,20 @@ def create_tables(conn) -> None:
             match_method TEXT
         );
 
+        -- 물리 판정으로 해제한 매핑의 원본 보존 (ADR-017). 되돌릴 때 이 행을 다시 넣는다.
+        -- 채우는 곳: scripts/rematch_bad_mappings.py --unmap-no-target
+        CREATE TABLE IF NOT EXISTS trade_apt_mapping_removed (
+            id SERIAL PRIMARY KEY,
+            apt_seq TEXT NOT NULL,
+            pnu TEXT,
+            apt_nm TEXT,
+            sgg_cd TEXT,
+            match_method TEXT,
+            reason TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (apt_seq, created_at)
+        );
+
         CREATE TABLE IF NOT EXISTS school_zones (
             pnu TEXT PRIMARY KEY,
             elementary_school_name TEXT,

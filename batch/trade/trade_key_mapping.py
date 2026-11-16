@@ -15,8 +15,10 @@ manual_fix·ADR-011·ADR-014 교정을 잃지 않기 위해서다. 판정 실패
 
 F1 상속은 apartments 에 실존하는 PNU 로 매핑된 이름 키에서만 한다 — 끊긴 매핑(없는 PNU)은 미매핑
 이름 키와 같게 취급한다(48123 에일린의뜰: 없는 PNU 상속이 혼입 키의 보이던 행까지 끌어감).
-F2 상속이 아닌 판정(2순위 주소)은 넣은 직후 물리 감사(mapping_gate)를 통과해야 남는다 — 위반이면
-지워 미매핑으로 둔다(2026-10-14 월계주공1·2 — 한 지번에 두 단지, 한쪽만 apartments 에 있음).
+F2 판정은 넣은 직후 물리 감사(mapping_gate)를 통과해야 남는다 — 위반이면 지워 미매핑으로 둔다
+(2026-10-14 월계주공1·2 — 한 지번에 두 단지, 한쪽만 apartments 에 있음). 처음에는 2순위 주소 판정만
+대상이었으나, 이름 키의 오매핑을 상속한 키가 615개 쌓여 상속도 대상으로 바꿨다(ADR-017). 사람이
+교정한(manual_fix) 이름 키에서 상속한 것만 면제한다(manual_inherit_keys).
 
 판정(decide_api_keys)은 DB 를 바꾸지 않는 공용 함수다 — map_api_keys(새 키 넣기)와
 batch.remap_official_keys(옛 규칙으로 만들어진 기존 'api_%' 매핑 재판정)가 같은 규칙을 쓴다.
@@ -40,6 +42,8 @@ from batch.trade.trade_keys import (
 
 MATCH_INHERIT_LEGACY = "api_inherit_legacy"
 MATCH_ADDRESS_PNU = "api_address_pnu"
+# 사람이 교정한 매핑의 match_method — 이 이름 키에서 상속한 매핑은 물리 게이트를 면제한다(ADR-017)
+MATCH_MANUAL_FIX = "manual_fix"
 WEAK_ADDRESS_LOG_SAMPLE = 50
 FROZEN_INHERIT_LOG_SAMPLE = 50
 
@@ -130,6 +134,28 @@ def inheritable_pnus_by_key(
     }
 
 
+def manual_inherit_keys(
+    decided: dict[str, KeyDecision],
+    lks_by_key: dict[str, set[str]],
+    legacy_pnu: dict[str, str],
+    legacy_method: dict[str, str],
+) -> frozenset[str]:
+    """사람이 교정한 이름 키에서 상속한 새 키 — 물리 게이트 면제 대상 (ADR-017 결정 3).
+
+    상속 판정 키 중, 상속한 PNU 를 가리키는 이름 키의 match_method 가 manual_fix 인 것.
+    상속을 둔 이유(사람의 교정 보존)를 지키면서 나머지 상속은 게이트를 거치게 한다.
+    """
+    return frozenset(
+        key
+        for key, d in decided.items()
+        if d.match_method == MATCH_INHERIT_LEGACY
+        and any(
+            legacy_pnu.get(lk) == d.pnu and legacy_method.get(lk) == MATCH_MANUAL_FIX
+            for lk in lks_by_key.get(key, ())
+        )
+    )
+
+
 def mixed_legacy_ids(ids_by_legacy: dict[str, set[str]]) -> list[str]:
     """고유번호가 2개 이상 관측된(혼입) 이름 키들에 속한 고유번호."""
     return sorted({i for ids in ids_by_legacy.values() if len(ids) > 1 for i in ids})
@@ -214,6 +240,8 @@ class KeyDecisions(NamedTuple):
     decided: dict[str, KeyDecision]
     unmapped: list[str]  # 판정 근거 없음(상속·주소 모두 실패)
     ids_by_legacy: dict[str, set[str]]
+    # manual_fix 이름 키에서 상속한 키 — 물리 게이트 면제(ADR-017)
+    manual_inherits: frozenset[str] = frozenset()
 
 
 def decide_api_keys(
@@ -266,7 +294,7 @@ def decide_api_keys(
     legacy_rows = (
         query_all(
             conn,
-            "SELECT m.apt_seq, m.pnu, (a.pnu IS NOT NULL) AS pnu_exists "
+            "SELECT m.apt_seq, m.pnu, m.match_method, (a.pnu IS NOT NULL) AS pnu_exists "
             "FROM trade_apt_mapping m LEFT JOIN apartments a ON a.pnu = m.pnu "
             "WHERE m.apt_seq = ANY(%s)",
             [legacy_keys],
@@ -275,6 +303,7 @@ def decide_api_keys(
         else []
     )
     legacy_pnu = {r["apt_seq"]: r["pnu"] for r in legacy_rows}
+    legacy_method = {r["apt_seq"]: r["match_method"] for r in legacy_rows}
     legacy_existing = {r["pnu"] for r in legacy_rows if r["pnu_exists"]}
 
     addr_values = sorted(
@@ -310,7 +339,12 @@ def decide_api_keys(
         address_pnu_counts(rows),
         {k: d.pnu for k, d in decided.items() if d.match_method == MATCH_ADDRESS_PNU},
     )
-    return KeyDecisions(decided, unmapped, ids_by_legacy)
+    return KeyDecisions(
+        decided,
+        unmapped,
+        ids_by_legacy,
+        manual_inherit_keys(decided, lks_by_key, legacy_pnu, legacy_method),
+    )
 
 
 def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
@@ -334,13 +368,14 @@ def map_api_keys(conn, logger, apt_seqs: list[str] | None = None) -> int:
             fetch=True,
         )
         inserted = [(r[0], r[1]) for r in returned]
-    # F2 — 이번에 넣은 비상속 매핑만 물리 감사한다 (상속은 이름 키 귀속 그대로라 대상 아님)
+    # F2 — 이번에 넣은 매핑을 물리 감사한다. 상속도 대상이다(ADR-017) — 이름 매칭 시절의
+    # 오매핑이 검사 없이 넘어오지 않게. 사람이 교정한 이름 키에서 상속한 것만 면제한다.
     rejected = {
         v["apt_seq"]
         for v in reject_unverified_mappings(
             conn,
             logger,
-            gate_keys(inserted, {MATCH_INHERIT_LEGACY}),
+            gate_keys(inserted, set(), kd.manual_inherits),
             source="map_api_keys",
         )
     }
