@@ -2,6 +2,7 @@
 
 import re
 from batch.db import query_all, query_one, execute_values_chunked
+from batch.trade.mapping_gate import reject_unverified_mappings
 
 
 def _normalize_name(name):
@@ -95,7 +96,17 @@ def _update_mapping(conn, logger):
         execute_values_chunked(conn,
             "INSERT INTO trade_apt_mapping (apt_seq, pnu, apt_nm, sgg_cd, match_method) VALUES %s ON CONFLICT (apt_seq) DO NOTHING",
             new_mappings)
-        logger.info(f"  신규 매핑 {len(new_mappings):,}건 추가")
+        # 이름만 보고 붙인 매핑이라 물리 게이트(F2)를 거친다 — 물리 판정으로 해제된 키
+        # (rematch_bad_mappings --unmap-no-target)가 여기서 검사 없이 다시 붙지 않게 (ADR-017).
+        # 이름 매칭이라 재건축 계보 면제를 주지 않는다 (mapping_checks.check_mapping)
+        rejected = reject_unverified_mappings(
+            conn, logger, [m[0] for m in new_mappings], source="recalc_price",
+            allow_predecessor=False,
+        )
+        logger.info(
+            f"  신규 매핑 {len(new_mappings) - len(rejected):,}건 추가 "
+            f"(물리 감사 거부 {len(rejected):,}건)"
+        )
 
 
 def recalc_price(conn, logger):

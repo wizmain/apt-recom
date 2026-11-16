@@ -130,6 +130,10 @@ class GateKeysTest(unittest.TestCase):
         ]
         self.assertEqual(gate_keys(inserted, {"api_inherit_legacy"}), ["K1", "K2"])
 
+    def test_exempt_keys_are_skipped_regardless_of_method(self):
+        inserted = [("K1", "api_inherit_legacy"), ("K2", "api_inherit_legacy")]
+        self.assertEqual(gate_keys(inserted, set(), frozenset({"K2"})), ["K1"])
+
 
 class RejectUnverifiedMappingsTest(unittest.TestCase):
     def run_gate(self, rows, keys):

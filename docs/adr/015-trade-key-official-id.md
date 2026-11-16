@@ -3,6 +3,7 @@
 - **상태**: Proposed
 - **날짜**: 2026-10-13
 - **설계서**: `docs/superpowers/specs/2026-10-13-trade-key-official-id-design.md`
+- **보완**: [ADR-017](017-inherited-mapping-physical-check.md) — 상속 매핑에도 물리 판정 적용 (2026-11-16)
 
 ## 맥락
 

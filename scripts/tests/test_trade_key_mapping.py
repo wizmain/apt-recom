@@ -11,9 +11,11 @@ from unittest.mock import MagicMock, patch
 
 from batch.trade import trade_key_mapping
 from batch.trade.trade_key_mapping import (
+    KeyDecision,
     MappingInput,
     decide_mapping,
     inheritable_pnus_by_key,
+    manual_inherit_keys,
     mapping_inputs_by_key,
     mixed_legacy_ids,
     most_frequent_value,
@@ -215,10 +217,37 @@ class InheritablePnusTest(unittest.TestCase):
         self.assertEqual(got, {"K": set()})
 
 
-class MapApiKeysGateTest(unittest.TestCase):
-    """F2 — map_api_keys 는 이번에 넣은 비상속 매핑만 게이트에 넘기고, 거부분은 미매핑으로 센다."""
+class ManualInheritKeysTest(unittest.TestCase):
+    """ADR-017 결정 3 — manual_fix 이름 키에서 상속한 키만 게이트 면제."""
 
-    def test_only_inserted_non_inherit_keys_are_gated(self):
+    def test_only_inherits_from_manual_fix_legacy_pointing_same_pnu(self):
+        decided = {
+            "K_MAN": KeyDecision("P1", "api_inherit_legacy", "a", "11590"),
+            "K_AUTO": KeyDecision("P2", "api_inherit_legacy", "b", "11590"),
+            "K_ADDR": KeyDecision("P3", "api_address_pnu", "c", "11590"),
+            "K_STALE": KeyDecision("P4", "api_inherit_legacy", "d", "11590"),
+        }
+        lks = {"K_MAN": {"L1"}, "K_AUTO": {"L2"}, "K_ADDR": {"L3"}, "K_STALE": {"L4"}}
+        legacy_pnu = {"L1": "P1", "L2": "P2", "L3": "P3", "L4": "P9"}
+        legacy_method = {
+            "L1": "manual_fix",
+            "L2": "auto_create",
+            "L3": "manual_fix",
+            "L4": "manual_fix",
+        }
+        # K_ADDR: 상속이 아님, K_STALE: manual_fix 키가 다른 PNU 를 가리킴
+        self.assertEqual(
+            manual_inherit_keys(decided, lks, legacy_pnu, legacy_method), {"K_MAN"}
+        )
+
+
+class MapApiKeysGateTest(unittest.TestCase):
+    """F2 — map_api_keys 는 이번에 넣은 매핑을 게이트에 넘기고, 거부분은 미매핑으로 센다.
+
+    ADR-017 부터 상속도 게이트 대상이다. manual_fix 이름 키에서 상속한 것만 면제한다.
+    """
+
+    def _run(self, legacy_method):
         rows = [
             {
                 "apt_seq": "K_ADDR",
@@ -250,7 +279,14 @@ class MapApiKeysGateTest(unittest.TestCase):
             if "ARRAY_AGG(DISTINCT api_apt_seq)" in sql:
                 return [{"lk": "11590_현대", "ids": ["K_INH"]}]
             if "LEFT JOIN apartments a" in sql:
-                return [{"apt_seq": "11590_현대", "pnu": "P_H", "pnu_exists": True}]
+                return [
+                    {
+                        "apt_seq": "11590_현대",
+                        "pnu": "P_H",
+                        "match_method": legacy_method,
+                        "pnu_exists": True,
+                    }
+                ]
             if "SELECT pnu FROM apartments" in sql:
                 return [{"pnu": DAEBANG}]
             return []
@@ -276,7 +312,16 @@ class MapApiKeysGateTest(unittest.TestCase):
             ),
         ):
             mapped = trade_key_mapping.map_api_keys(MagicMock(), MagicMock())
-        self.assertEqual(gated["keys"], ["K_ADDR"])
+        return gated["keys"], mapped
+
+    def test_inherited_keys_are_gated_too(self):
+        keys, mapped = self._run("exact_name")
+        self.assertEqual(keys, ["K_ADDR", "K_INH"])
+        self.assertEqual(mapped, 1)
+
+    def test_inherit_from_manual_fix_is_exempt(self):
+        keys, mapped = self._run("manual_fix")
+        self.assertEqual(keys, ["K_ADDR"])
         self.assertEqual(mapped, 1)
 
 

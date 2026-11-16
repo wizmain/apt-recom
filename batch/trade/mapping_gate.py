@@ -1,5 +1,9 @@
 """새로 만든 고유번호 키 매핑의 물리 게이트 (ADR-015 F2).
 
+ADR-017(2026-11-16)부터 상속(api_inherit_legacy)도 게이트를 거친다 — 이름 매칭 시절의 오매핑이
+상속으로 검사 없이 넘어온 것이 615키였다. 면제는 사람이 교정한(manual_fix) 이름 키에서 상속한 것뿐이다.
+아래는 상속 면제 시절의 배경이다.
+
 상속(api_inherit_legacy)이 아닌 판정 — 주소 PNU — 은 "그 키의 거래가 그 단지의 것"이라는 근거가
 주소 한 줄뿐이다. 2026-10-14 로컬 적용에서 이 판정이 틀린 단지를 골랐다: 같은 지번의 다른 단지
 (월계주공1·2, 휘경주공1·2 — 한쪽만 apartments 에 있음). 법정동 이름 매칭(숫자 지운 정규화
@@ -22,21 +26,38 @@ from batch.trade.audit_mappings import find_violations
 REJECT_LOG_SAMPLE = 50
 
 
-def gate_keys(inserted: list[tuple[str, str]], exempt_methods: set[str]) -> list[str]:
-    """(키, match_method) 쌍 중 게이트를 거칠 키 — 면제 방법(상속 등)을 뺀다. 정렬·중복 제거."""
-    return sorted({k for k, method in inserted if method not in exempt_methods})
+def gate_keys(
+    inserted: list[tuple[str, str]],
+    exempt_methods: set[str],
+    exempt_keys: frozenset[str] = frozenset(),
+) -> list[str]:
+    """(키, match_method) 쌍 중 게이트를 거칠 키 — 면제 방법·면제 키를 뺀다. 정렬·중복 제거.
+
+    exempt_keys: 방법이 아니라 키 단위로 면제할 것 — 사람이 교정한(manual_fix) 이름 키에서
+    상속한 매핑이 여기 해당한다(ADR-017 결정 3).
+    """
+    return sorted(
+        {
+            k
+            for k, method in inserted
+            if method not in exempt_methods and k not in exempt_keys
+        }
+    )
 
 
 def reject_unverified_mappings(
-    conn, logger, apt_seqs: list[str], source: str
+    conn, logger, apt_seqs: list[str], source: str, allow_predecessor: bool = True
 ) -> list[dict]:
     """apt_seqs 의 매핑을 물리 감사하고, 위반인 매핑을 지운다. 커밋하지 않는다.
 
     반환: 거부한 위반 목록(audit_mappings.violation_of 형식). source 는 로그 구분용(호출 위치).
+    allow_predecessor=False: 이름만으로 만든 매핑 — 재건축 계보 면제를 주지 않는다.
     """
     if not apt_seqs:
         return []
-    violations, _ = find_violations(conn, apt_seqs=list(apt_seqs))
+    violations, _ = find_violations(
+        conn, apt_seqs=list(apt_seqs), allow_predecessor=allow_predecessor
+    )
     if not violations:
         return []
     keys = sorted({v["apt_seq"] for v in violations})

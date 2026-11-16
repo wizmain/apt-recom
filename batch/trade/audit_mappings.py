@@ -42,6 +42,7 @@ def _as_deal(row: dict) -> dict:
         "apt_nm": row["apt_nm"],
         "max_floor": row["max_floor"],
         "min_deal_year": row["min_deal_year"],
+        "max_deal_year": row.get("max_deal_year"),
         "median_build_year": row["median_build_year"],
         "areas": row["areas"],
         # 지번 대조 근거 (mapping_checks.jibun_points_elsewhere)
@@ -60,9 +61,12 @@ def _as_apt(row: dict) -> dict:
     }
 
 
-def violation_of(row: dict) -> dict | None:
-    """실적 집계 행 하나(deal_stats)의 판정 — 물리적으로 성립하지 않으면 위반 dict, 아니면 None."""
-    signals = check_mapping(_as_deal(row), _as_apt(row))
+def violation_of(row: dict, allow_predecessor: bool = True) -> dict | None:
+    """실적 집계 행 하나(deal_stats)의 판정 — 물리적으로 성립하지 않으면 위반 dict, 아니면 None.
+
+    allow_predecessor=False: 이름만으로 만든 매핑 — 재건축 계보 면제를 주지 않는다(check_mapping).
+    """
+    signals = check_mapping(_as_deal(row), _as_apt(row), allow_predecessor)
     if not mismatch_confirmed(signals):
         return None
     return {
@@ -74,7 +78,8 @@ def violation_of(row: dict) -> dict | None:
 
 
 def find_violations(conn, apt_seqs: list[str] | None = None,
-                    pnus: list[str] | None = None) -> tuple[list[dict], int]:
+                    pnus: list[str] | None = None,
+                    allow_predecessor: bool = True) -> tuple[list[dict], int]:
     """(위반 목록, 검사한 매핑 수). 로그·변경 없음 — audit 와 매핑 게이트(mapping_gate)가 공유한다."""
     params = {}
     if apt_seqs:
@@ -86,7 +91,7 @@ def find_violations(conn, apt_seqs: list[str] | None = None,
         build_deal_stats_sql(by_seqs="seqs" in params, by_pnus="pnus" in params),
         params or None,
     )
-    return [v for r in rows if (v := violation_of(r))], len(rows)
+    return [v for r in rows if (v := violation_of(r, allow_predecessor))], len(rows)
 
 
 def audit(conn, logger, apt_seqs: list[str] | None = None,

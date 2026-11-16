@@ -11,6 +11,7 @@ from batch.trade.mapping_checks import (
     complex_number_conflict,
     complex_numbers,
     floor_exceeds,
+    is_predecessor,
     jibun_points_elsewhere,
     mismatch_confirmed,
     name_consistent,
@@ -191,9 +192,6 @@ class TestNameConsistent(unittest.TestCase):
         self.assertTrue(name_consistent("아무개", ""))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestMismatchConfirmed(unittest.TestCase):
     """판정 보정 — 지표 하나로 확정하지 않되, 면적은 예외로 둔다."""
@@ -323,3 +321,89 @@ class TestJibunSignalInCheckMapping(unittest.TestCase):
              "max_floor": None, "use_apr_day": None, "areas": []})
         self.assertEqual(codes(signals), {"complex_number"})
         self.assertFalse(mismatch_confirmed(signals))
+
+
+class TestNameCorroboration(unittest.TestCase):
+    """ADR-017 결정 1 — 이름 불일치는 타임라인이 어긋난 실적에서만 두 번째 신호로 센다."""
+
+    def _deal(self, **kw):
+        base = {"apt_nm": "A", "max_floor": None, "min_deal_year": None,
+                "max_deal_year": None, "median_build_year": None, "areas": None}
+        base.update(kw)
+        return base
+
+    def _apt(self, **kw):
+        base = {"bld_nm": "A", "max_floor": None, "use_apr_day": None, "areas": None}
+        base.update(kw)
+        return base
+
+    def test_타임라인과_이름이_함께_어긋나면_확정한다(self):
+        """화명대림타운(1998)에 코오롱하늘채(2002) 거래가 붙은 사례 — 59·84㎡ 라 면적은 맞았다."""
+        signals = check_mapping(
+            self._deal(apt_nm="코오롱하늘채2차", median_build_year=2002,
+                       min_deal_year=2016, max_deal_year=2026),
+            self._apt(bld_nm="화명대림타운", use_apr_day="19980601"),
+        )
+        self.assertEqual(codes(signals), {"timeline", "name"})
+        self.assertTrue(mismatch_confirmed(signals))
+
+    def test_이름이_같으면_타임라인_단독이라_확정하지_않는다(self):
+        signals = check_mapping(
+            self._deal(apt_nm="화명대림타운", median_build_year=2002, max_deal_year=2026),
+            self._apt(bld_nm="화명대림타운", use_apr_day="19980601"),
+        )
+        self.assertEqual(codes(signals), {"timeline"})
+        self.assertFalse(mismatch_confirmed(signals))
+
+    def test_연도가_맞으면_이름만_달라도_신호가_아니다(self):
+        """월계시영고층 ← 미륭 — 같은 단지의 다른 이름(미미삼)."""
+        signals = check_mapping(
+            self._deal(apt_nm="미륭", median_build_year=1986, max_deal_year=2026),
+            self._apt(bld_nm="월계시영고층", use_apr_day="19861101"),
+        )
+        self.assertEqual(signals, [])
+
+
+class TestPredecessor(unittest.TestCase):
+    """ADR-017 결정 2 — 재건축 계보는 오매핑이 아니다."""
+
+    def test_준공_전에_끝난_옛_단지_실적은_계보다(self):
+        """개포주공1단지(1982) → 디에이치퍼스티어아이파크(2023)."""
+        self.assertTrue(is_predecessor("20231130", 1982, 2022))
+
+    def test_준공_후에도_실적이_이어지면_계보가_아니다(self):
+        """복지(1986) → 역곡역아테움스위첸(2026), 2026 년 거래 — 옛 단지가 남아 있다."""
+        self.assertFalse(is_predecessor("20260301", 1986, 2026))
+
+    def test_실적이_더_새것이면_계보가_아니다(self):
+        self.assertFalse(is_predecessor("20030101", 2016, 2002))
+
+    def test_값이_없으면_판단하지_않는다(self):
+        self.assertFalse(is_predecessor(None, 1982, 2022))
+        self.assertFalse(is_predecessor("20231130", None, 2022))
+        self.assertFalse(is_predecessor("20231130", 1982, None))
+
+    def test_계보면_다른_신호도_내지_않는다(self):
+        signals = check_mapping(
+            {"apt_nm": "개포주공1단지", "max_floor": 5, "min_deal_year": 2016,
+             "max_deal_year": 2022, "median_build_year": 1982,
+             "areas": [(35.6, 10)]},
+            {"bld_nm": "디에이치퍼스티어아이파크", "max_floor": 35,
+             "use_apr_day": "20231130", "areas": [59.9, 84.9]},
+        )
+        self.assertEqual(signals, [])
+
+    def test_이름으로_고른_후보에는_계보_면제를_주지_않는다(self):
+        """극동(1997) → 주안극동스타클래스더로얄(2025) — 이름만 같은 신축으로 옮기면 안 된다."""
+        deal = {"apt_nm": "극동", "max_floor": None, "min_deal_year": 2016,
+                "max_deal_year": 2024, "median_build_year": 1997, "areas": None}
+        apt = {"bld_nm": "주안극동스타클래스더로얄", "max_floor": None,
+               "use_apr_day": "20250430", "areas": None}
+        self.assertEqual(check_mapping(deal, apt), [])
+        # 면제를 끄면 타임라인 신호가 살아난다 — 후보 수락 기준(rematch)이 이 신호로 거부한다
+        signals = check_mapping(deal, apt, allow_predecessor=False)
+        self.assertIn("timeline", codes(signals))
+
+
+if __name__ == "__main__":
+    unittest.main()
