@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRising } from "@/hooks/useRising";
 import type { RisingFilters } from "@/types/rising";
+import ComplexDetailPanel from "./ComplexDetailPanel";
 import ComplexListControls from "./ComplexListControls";
 import ComplexTable from "./ComplexTable";
 import { formatBaseMonth } from "./format";
@@ -27,6 +28,20 @@ const INITIAL_FILTERS: RisingFilters = {
 export default function RisingView() {
   const [filters, setFilters] = useState<RisingFilters>(INITIAL_FILTERS);
   const { meta, list, loading, error } = useRising(filters);
+  const [selected, setSelected] = useState<{ pnu: string; sigunguCode: string } | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  const openDetail = (pnu: string, trigger: HTMLElement) => {
+    const item = list?.items.find((candidate) => candidate.pnu === pnu);
+    triggerRef.current = trigger;
+    setSelected({ pnu, sigunguCode: item?.sigungu_code ?? "" });
+  };
+
+  /** 닫으면 열었던 행/카드로 포커스를 돌려준다. */
+  const closeDetail = useCallback(() => {
+    setSelected(null);
+    triggerRef.current?.focus();
+  }, []);
 
   /** page 이외의 필터가 바뀌면 1페이지로 되돌린다. */
   const updateFilters = (patch: Partial<RisingFilters>) =>
@@ -87,9 +102,23 @@ export default function RisingView() {
             totalCount={list?.total_count ?? 0}
             loading={loading}
             onPageChange={(page) => updateFilters({ page })}
+            onSelect={openDetail}
           />
         </div>
       </div>
+      {selected && (
+        <ComplexDetailPanel
+          pnu={selected.pnu}
+          areaBand={filters.areaBand}
+          areaBandName={meta.bands.find((band) => band.code === filters.areaBand)?.name ?? ""}
+          region={
+            (meta.regions[filters.areaBand] ?? []).find(
+              (region) => region.sigungu_code === selected.sigunguCode,
+            ) ?? null
+          }
+          onClose={closeDetail}
+        />
+      )}
     </section>
   );
 }

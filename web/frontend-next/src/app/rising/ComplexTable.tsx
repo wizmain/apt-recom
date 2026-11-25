@@ -13,6 +13,27 @@ interface ComplexTableProps {
   totalCount: number;
   loading: boolean;
   onPageChange: (page: number) => void;
+  /** 행/카드 선택. trigger 는 닫을 때 포커스를 돌려줄 요소. */
+  onSelect: (pnu: string, trigger: HTMLElement) => void;
+}
+
+type SelectHandler = ComplexTableProps["onSelect"];
+
+const ROW_INTERACTION_CLASS =
+  "cursor-pointer hover:bg-gray-50 focus-visible:bg-gray-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500";
+
+/** 클릭·Enter 로 단지를 선택하는 공통 props. */
+function selectableProps(item: RisingItem, onSelect: SelectHandler) {
+  return {
+    tabIndex: 0,
+    onClick: (event: React.MouseEvent<HTMLElement>) => onSelect(item.pnu, event.currentTarget),
+    onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key !== "Enter") return;
+      // 기본 동작을 막지 않으면 패널의 닫기 버튼이 같은 Enter 로 즉시 눌린다.
+      event.preventDefault();
+      onSelect(item.pnu, event.currentTarget);
+    },
+  };
 }
 
 function PriceCell({ item }: { item: RisingItem }) {
@@ -38,7 +59,7 @@ function NameCell({ item }: { item: RisingItem }) {
   );
 }
 
-function DesktopTable({ items }: { items: RisingItem[] }) {
+function DesktopTable({ items, onSelect }: { items: RisingItem[]; onSelect: SelectHandler }) {
   const head = "whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-gray-500";
   return (
     <table className="hidden w-full md:table">
@@ -54,7 +75,11 @@ function DesktopTable({ items }: { items: RisingItem[] }) {
       </thead>
       <tbody className="divide-y divide-gray-100">
         {items.map((item) => (
-          <tr key={item.pnu} className="align-top text-sm">
+          <tr
+            key={item.pnu}
+            className={`align-top text-sm ${ROW_INTERACTION_CLASS}`}
+            {...selectableProps(item, onSelect)}
+          >
             <td className="px-3 py-3"><NameCell item={item} /></td>
             <td className="px-3 py-3"><RegionGradeBadge grade={item.region_grade} /></td>
             <td className="px-3 py-3"><ComplexGradeCell item={item} /></td>
@@ -72,11 +97,15 @@ function DesktopTable({ items }: { items: RisingItem[] }) {
   );
 }
 
-function MobileCards({ items }: { items: RisingItem[] }) {
+function MobileCards({ items, onSelect }: { items: RisingItem[]; onSelect: SelectHandler }) {
   return (
     <ul className="divide-y divide-gray-100 md:hidden">
       {items.map((item) => (
-        <li key={item.pnu} className="px-3 py-3 text-sm">
+        <li
+          key={item.pnu}
+          className={`px-3 py-3 text-sm ${ROW_INTERACTION_CLASS}`}
+          {...selectableProps(item, onSelect)}
+        >
           <div className="flex items-start justify-between gap-2">
             <NameCell item={item} />
             <PriceCell item={item} />
@@ -109,6 +138,7 @@ export default function ComplexTable({
   totalCount,
   loading,
   onPageChange,
+  onSelect,
 }: ComplexTableProps) {
   if (items.length === 0) {
     return (
@@ -120,8 +150,8 @@ export default function ComplexTable({
   return (
     <div className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}>
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-        <DesktopTable items={items} />
-        <MobileCards items={items} />
+        <DesktopTable items={items} onSelect={onSelect} />
+        <MobileCards items={items} onSelect={onSelect} />
       </div>
       <Pagination
         page={page}
