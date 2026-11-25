@@ -634,6 +634,15 @@ def main():
         except Exception as e:
             logger.warning(f"로컬 대시보드 집계 갱신 실패 (동기화는 완료): {e}")
 
+        # 오르는 단지 면적대 추세 집계도 같은 이유(raw 만 복사)로 로컬에서 재생성한다.
+        try:
+            from batch.trade.refresh_band_trend import refresh_band_trend
+
+            counts = refresh_band_trend(logger)
+            logger.info(f"로컬 면적대 추세 집계 갱신: {counts}")
+        except Exception as e:
+            logger.warning(f"로컬 면적대 추세 집계 갱신 실패 (동기화는 완료): {e}")
+
 
 if __name__ == "__main__":
     main()

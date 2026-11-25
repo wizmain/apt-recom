@@ -161,6 +161,25 @@ def run_trade(args, logger, result):
             logger.error(f"대시보드 집계 갱신 실패: {e}")
             result.record("대시보드 집계 갱신", "warning", error=str(e))
 
+        # 4.6. 오르는 단지 면적대 추세 집계 — 대시보드 집계와 같은 격리(별도 커넥션,
+        #      실패는 warning). 선행 단계는 4.5 에서 이미 commit 됐다.
+        try:
+            from batch.trade.refresh_band_trend import refresh_band_trend
+
+            t0 = time.time()
+            counts = refresh_band_trend(logger)
+            result.record(
+                "면적대 추세 집계",
+                "success",
+                rows=counts["monthly_rows"]
+                + counts["trend_rows"]
+                + counts["region_rows"],
+                duration=time.time() - t0,
+            )
+        except Exception as e:
+            logger.error(f"면적대 추세 집계 실패: {e}")
+            result.record("면적대 추세 집계", "warning", error=str(e))
+
         # 5. K-APT 보완은 enrich_new_apartments 내부 Phase 3에서 처리됨
 
         # 6. 시설 집계 + 안전점수 + 유사도 벡터 (모든 데이터 반영 후 계산)
