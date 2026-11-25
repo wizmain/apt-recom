@@ -312,4 +312,5 @@ class TestMonthlySeries(unittest.TestCase):
 - [ ] **Step 1: Railway rekey** — `docs/guides/trade-key-rekey-runbook.md` 순서(remap → rekey → VACUUM FULL). 완료 기록을 PR 설명에 남긴다.
 - [ ] **Step 2: 배포 후 운영 집계 1회 실행** — trade 배치 또는 수동 명령. Railway 자동배포 누락 여부는 `--service apt-recom` 로 확인.
 - [ ] **Step 3: 상위 50 점검** — `GET /api/rising?area_band=84&budget_min=3&budget_max=100&sort=change_6m` 상위 50개를 단지 상세 거래와 대조해 혼입·이상 급등 0건 확인. 걸린 건은 `reflect_*` 방식 교정 후 재집계·재점검. 자동 제외 오탐(정상 단지가 빠짐)은 목록으로 남겨 제외 규칙 조정 이슈로 분리.
+  - 추가 확인: 기준 창(최근 3개월)·6개월 전·12개월 전 창별 `dealing_gbn` 기록률을 Railway 에서 확인 — 비교 창 기록률이 낮으면 직거래 제외가 비대칭이라 상승률이 위로 치우침. 로컬 검증 전 `.venv/bin/python -m batch.sync_from_railway --mode full` 로 로컬을 맞춘다.
 - [ ] **Step 4: 출시** — 점검 통과 후 진입 링크 노출 여부를 사용자와 결정(홈·지역 허브 링크는 후속 범위).
