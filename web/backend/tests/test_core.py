@@ -1837,6 +1837,142 @@ def test_mcp_detail_with_image():
 
 
 # ============================================================
+# 오르는 단지 API — 배치(refresh_band_trend)가 채운 로컬 집계 테이블 필요
+# ============================================================
+
+RISING_API = "http://localhost:8000/api/rising"
+RISING_BAND_84_BUDGET = {"area_band": "84", "budget_min": 3, "budget_max": 10}
+
+
+def _rising_all_items(params: dict) -> list[dict]:
+    """목록 API 를 마지막 페이지까지 순회해 항목을 모은다."""
+    import requests
+
+    items: list[dict] = []
+    page = 1
+    while True:
+        resp = requests.get(RISING_API, params={**params, "page": page})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        items.extend(data["items"])
+        if page * data["page_size"] >= data["total_count"]:
+            return items
+        page += 1
+
+
+@test("오르는 단지: meta — 면적대 6개 + 기준월 int")
+def test_rising_meta():
+    import requests
+
+    resp = requests.get(f"{RISING_API}/meta")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data["bands"]) == 6, data["bands"]
+    assert isinstance(data["base_ym"], int), data["base_ym"]
+
+
+@test("오르는 단지: 84㎡급 3~10억 → 중위가 예산 안 + 페이지 20개 이하")
+def test_rising_list_budget_and_band():
+    import requests
+
+    resp = requests.get(RISING_API, params=RISING_BAND_84_BUDGET)
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    assert items, "84㎡급 3~10억 결과가 비어 있음"
+    assert len(items) <= 20, len(items)
+    for item in items:
+        assert 30000 <= item["median_price_3m"] <= 100000, item
+
+
+@test("오르는 단지: 변화값 NULL 은 정렬 맨 뒤 (change_6m·relative_6m)")
+def test_rising_nulls_last():
+    for sort, field in (
+        ("change_6m", "change_6m_pct"),
+        ("relative_6m", "relative_change_6m_pct"),
+    ):
+        items = _rising_all_items({**RISING_BAND_84_BUDGET, "sort": sort})
+        seen_null = False
+        for item in items:
+            if item[field] is None:
+                seen_null = True
+            assert not (seen_null and item[field] is not None), (
+                f"{sort}: NULL 뒤에 값 있는 항목 {item['pnu']}"
+            )
+
+
+@test("오르는 단지: 예산 하한 > 상한 → 422")
+def test_rising_budget_inverted():
+    import requests
+
+    resp = requests.get(
+        RISING_API, params={"area_band": "84", "budget_min": 10, "budget_max": 3}
+    )
+    assert resp.status_code == 422, resp.status_code
+
+
+@test("오르는 단지: 없는 면적대·정렬 → 422")
+def test_rising_invalid_band_or_sort():
+    import requests
+
+    resp = requests.get(RISING_API, params={"area_band": "60"})
+    assert resp.status_code == 422, f"area_band=60 → {resp.status_code}"
+    resp = requests.get(RISING_API, params={"area_band": "84", "sort": "foo"})
+    assert resp.status_code == 422, f"sort=foo → {resp.status_code}"
+
+
+@test("오르는 단지: 검색어는 리터럴 + 앞뒤 공백 무시")
+def test_rising_search_literal():
+    import requests
+
+    resp = requests.get(RISING_API, params={"area_band": "84", "q": "%"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total_count"] == 0, resp.json()["total_count"]
+
+    padded = requests.get(RISING_API, params={"area_band": "84", "q": "  동탄  "})
+    plain = requests.get(RISING_API, params={"area_band": "84", "q": "동탄"})
+    assert padded.status_code == 200 and plain.status_code == 200
+    assert padded.json() == plain.json(), "공백 포함 검색 결과가 다름"
+
+
+@test("오르는 단지: 상세 — 60개월 시계열 + 최근 실거래 면적대 범위 안")
+def test_rising_detail():
+    import requests
+
+    meta = requests.get(f"{RISING_API}/meta").json()
+    band = next(b for b in meta["bands"] if b["code"] == "84")
+    first = requests.get(RISING_API, params=RISING_BAND_84_BUDGET).json()["items"][0]
+
+    resp = requests.get(f"{RISING_API}/{first['pnu']}", params={"area_band": "84"})
+    assert resp.status_code == 200, resp.text
+    detail = resp.json()
+    assert len(detail["monthly"]) == 60, len(detail["monthly"])
+    assert detail["item"]["pnu"] == first["pnu"]
+    for trade in detail["recent_trades"]:
+        area = trade["exclu_use_ar"]
+        assert area >= band["min_area"], trade
+        assert band["max_area"] is None or area < band["max_area"], trade
+
+
+@test("오르는 단지: 상세 — 해당 면적대 행 없으면 404")
+def test_rising_detail_missing_band():
+    import requests
+
+    from database import DictConnection
+
+    pnu = requests.get(RISING_API, params={"area_band": "84"}).json()["items"][0]["pnu"]
+    conn = DictConnection()
+    has_row = conn.execute(
+        "SELECT 1 FROM apt_band_trend WHERE pnu = %s AND area_band = %s",
+        [pnu, "175"],
+    ).fetchone()
+    conn.close()
+
+    resp = requests.get(f"{RISING_API}/{pnu}", params={"area_band": "175"})
+    expected = 200 if has_row else 404
+    assert resp.status_code == expected, f"{pnu} 175㎡급 → {resp.status_code}"
+
+
+# ============================================================
 # 실행
 # ============================================================
 
