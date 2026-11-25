@@ -9,8 +9,10 @@ from batch.trade.band_trend_aggregate import (
     REASON_MAPPING_VIOLATION,
     BandTrade,
     GradeCandidate,
+    MemberApt,
     SourceTrade,
     apply_exclusions,
+    attach_trades,
     build_tables,
     build_year_mismatch,
     complex_grades,
@@ -233,6 +235,55 @@ class TestBuildTables(unittest.TestCase):
         self.assertEqual({r.pnu for r in tables.monthly_rows}, {"P1"})
         p1_months = sorted(r.deal_ym for r in tables.monthly_rows)
         self.assertEqual(p1_months, [202602, 202603, 202608, 202609])
+
+
+class TestAttachTrades(unittest.TestCase):
+    MEMBERS = {
+        "P_MEMBER": MemberApt("P_REP", "11590", 1993),
+        "P_REP": MemberApt("P_REP", "11590", 1995),
+    }
+    MAPPING = {"11590-57": "P_MEMBER", "11590-85": "P_REP", "11590-99": "P_OUTSIDE"}
+
+    def test_매핑과_대표_단지_정보를_붙인다(self):
+        rows = [("11590-57", "대림", 84.9, 202609, 85000, 1993)]
+        self.assertEqual(
+            attach_trades(rows, self.MAPPING, self.MEMBERS),
+            [
+                SourceTrade(
+                    "11590-57",
+                    "대림",
+                    "P_MEMBER",
+                    "P_REP",
+                    "11590",
+                    84.9,
+                    202609,
+                    85000,
+                    1993,
+                    1993,
+                )
+            ],
+        )
+
+    def test_준공연도는_매핑된_구성원_단지_기준(self):
+        rows = [("11590-85", "대림", 84.9, 202609, 85000, 1995)]
+        (trade,) = attach_trades(rows, self.MAPPING, self.MEMBERS)
+        self.assertEqual(
+            (trade.mapped_pnu, trade.pnu, trade.completion_year),
+            ("P_REP", "P_REP", 1995),
+        )
+
+    def test_매핑_없는_키와_범위_밖_단지는_버린다(self):
+        rows = [
+            ("11590-00", "미매핑", 84.9, 202609, 85000, 2000),
+            ("11590-99", "범위밖", 84.9, 202609, 85000, 2000),
+        ]
+        self.assertEqual(attach_trades(rows, self.MAPPING, self.MEMBERS), [])
+
+    def test_이름이_없으면_None(self):
+        rows = [("11590-57", None, 84.9, 202609, 85000, None)]
+        (trade,) = attach_trades(rows, self.MAPPING, self.MEMBERS)
+        self.assertIsNone(trade.apt_nm)
+        self.assertIsNone(trade.build_year)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ docs/superpowers/specs/2026-11-25-rising-complexes-design.md §5.3~§5.5.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter, defaultdict
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from typing import NamedTuple
@@ -65,6 +66,49 @@ class SourceTrade(NamedTuple):
     price: int  # 만원
     build_year: int | None  # 거래 신고서 건축년도
     completion_year: int | None  # 매핑 단지 준공연도
+
+
+class MemberApt(NamedTuple):
+    """범위 내 노출 대표 단지에 속한 구성원 단지(매핑 대상 PNU) 정보."""
+
+    pnu: str  # 대표 단지(group_pnu)
+    sigungu_code: str
+    completion_year: int | None  # 구성원 단지 준공연도
+
+
+def attach_trades(
+    raw_trades: Iterable[tuple],
+    mapping: Mapping[str, str],
+    members: Mapping[str, MemberApt],
+) -> list[SourceTrade]:
+    """거래 행에 매핑·대표 단지 정보를 붙인다. 매핑이 없거나 범위 밖 단지인 거래는 버린다.
+
+    raw_trades: (apt_seq, apt_nm, area, deal_ym, price, build_year)
+    mapping: apt_seq → 매핑 PNU, members: 매핑 PNU → 대표 단지 정보.
+    DB 조인 대신 여기서 붙이는 이유는 band_trend_source.load_trades 주석 참조.
+    """
+    trades: list[SourceTrade] = []
+    for apt_seq, apt_nm, area, deal_ym, price, build_year in raw_trades:
+        mapped_pnu = mapping.get(apt_seq)
+        member = members.get(mapped_pnu) if mapped_pnu is not None else None
+        if member is None:
+            continue
+        # 키·이름 문자열은 intern 해 80만 행 규모의 메모리를 줄인다.
+        trades.append(
+            SourceTrade(
+                sys.intern(apt_seq),
+                sys.intern(apt_nm) if apt_nm else None,
+                mapped_pnu,
+                member.pnu,
+                member.sigungu_code,
+                area,
+                deal_ym,
+                price,
+                build_year,
+                member.completion_year,
+            )
+        )
+    return trades
 
 
 class BandTrade(NamedTuple):
