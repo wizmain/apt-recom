@@ -59,6 +59,7 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 | **고유번호 키 매핑 재판정 (수동, rekey 전)** | `.venv/bin/python -m batch.remap_official_keys --target local --dry-run` (실행은 `--apply`, 목록은 `--report` 또는 `reports/rekey/`) |
 | **거래 키 → 고유번호 변경 (수동)** | `.venv/bin/python -m batch.rekey_trades --target local --dry-run` (실행은 `--apply`, 대상 DB 마다 재판정 `--apply` 후) |
 | **면적대 추세 집계 (수동)** | `.venv/bin/python -c "from batch.logger import setup_logger; from batch.trade.refresh_band_trend import refresh_band_trend; print(refresh_band_trend(setup_logger('band')))"` (오르는 단지, ADR-018. 거래 배치에도 포함, `sync_from_railway` 후 로컬 재생성용) |
+| **매매 거래유형(dealing_gbn) 백필 (수동)** | `.venv/bin/python -m batch.trade.backfill_dealing_gbn --target local --dry-run --sido 11,28,41 --from-ym 202507` (실행은 `--apply`, 보조 키 일 900콜·체크포인트로 이어서 실행) |
 
 ## 데이터베이스 규칙
 - **ORM 없음**: raw SQL + psycopg2. SQLAlchemy, Alembic 사용하지 않음.
