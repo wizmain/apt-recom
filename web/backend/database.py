@@ -741,6 +741,105 @@ def create_tables(conn) -> None:
             PRIMARY KEY (type, deal_year, deal_month, sgg_cd)
         );
 
+        -- 오르는 단지: 단지×면적대 월별 중위 거래가 60개월 시계열 (상세 차트용)
+        -- batch/trade/refresh_band_trend.py 가 기준월 기준 전체 재생성(DELETE+INSERT, 한 트랜잭션).
+        CREATE TABLE IF NOT EXISTS apt_band_monthly_price (
+            pnu TEXT NOT NULL,
+            area_band TEXT NOT NULL,
+            deal_ym INTEGER NOT NULL,
+            median_price INTEGER NOT NULL,
+            trade_count INTEGER NOT NULL,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (pnu, area_band, deal_ym)
+        );
+
+        -- 오르는 단지: 단지×면적대 스냅샷 (목록용, 기준월 1개)
+        -- refresh_band_trend.py 가 전체 재생성. 대형 면적대는 한 단지가 여러 구간에 걸쳐 행이 나뉜다.
+        -- NULL 허용 칼럼(change_*, relative_*, complex_*)은 표본 부족 시 배치가 NULL 로 둔다.
+        CREATE TABLE IF NOT EXISTS apt_band_trend (
+            pnu TEXT NOT NULL,
+            area_band TEXT NOT NULL,
+            sigungu_code TEXT NOT NULL,
+            base_ym INTEGER NOT NULL,
+            median_price_3m INTEGER,
+            trade_count_3m INTEGER,
+            trade_count_6m INTEGER,
+            change_6m_pct DOUBLE PRECISION,
+            change_12m_pct DOUBLE PRECISION,
+            matched_type_count_6m INTEGER,
+            matched_type_count_12m INTEGER,
+            relative_change_6m_pct DOUBLE PRECISION,
+            complex_grade TEXT,
+            complex_rank INTEGER,
+            complex_rank_total INTEGER,
+            grade_window_months INTEGER,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (pnu, area_band)
+        );
+        CREATE INDEX IF NOT EXISTS idx_apt_band_trend_band_price
+            ON apt_band_trend(area_band, median_price_3m);
+        CREATE INDEX IF NOT EXISTS idx_apt_band_trend_band_sigungu
+            ON apt_band_trend(area_band, sigungu_code);
+
+        -- 오르는 단지: 시군구×면적대 스냅샷 (refresh_band_trend.py 가 전체 재생성)
+        CREATE TABLE IF NOT EXISTS region_band_trend (
+            sigungu_code TEXT NOT NULL,
+            area_band TEXT NOT NULL,
+            base_ym INTEGER NOT NULL,
+            median_price_3m INTEGER,
+            trade_count_3m INTEGER,
+            change_6m_pct DOUBLE PRECISION,
+            change_12m_pct DOUBLE PRECISION,
+            region_grade TEXT,
+            region_rank INTEGER,
+            region_rank_total INTEGER,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (sigungu_code, area_band)
+        );
+
+        -- 오르는 단지: 거래 혼입 의심으로 집계에서 제외한 거래 키
+        -- refresh_band_trend.py 가 제외 판정 때마다 갱신. reason: mapping_violation | build_year_mismatch
+        CREATE TABLE IF NOT EXISTS apt_band_trend_excluded_key (
+            apt_seq TEXT PRIMARY KEY,
+            pnu TEXT,
+            reason TEXT NOT NULL,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        -- 오르는 단지 코드값 (재실행 안전: 이미 있으면 유지)
+        -- rising_area_band.extra = "하한,상한"(㎡, 빈 상한은 무한)
+        INSERT INTO common_code (group_id, code, name, extra, sort_order) VALUES
+            ('rising_area_band', '59', '59㎡급', '50,70', 1),
+            ('rising_area_band', '84', '84㎡급', '70,100', 2),
+            ('rising_area_band', '100', '대형 100–125㎡', '100,125', 3),
+            ('rising_area_band', '125', '대형 125–150㎡', '125,150', 4),
+            ('rising_area_band', '150', '대형 150–175㎡', '150,175', 5),
+            ('rising_area_band', '175', '대형 175㎡ 이상', '175,', 6),
+            ('rising_region_grade', 'S+', 'S+', '', 1),
+            ('rising_region_grade', 'S', 'S', '', 2),
+            ('rising_region_grade', 'S-', 'S-', '', 3),
+            ('rising_region_grade', 'A+', 'A+', '', 4),
+            ('rising_region_grade', 'A', 'A', '', 5),
+            ('rising_region_grade', 'A-', 'A-', '', 6),
+            ('rising_region_grade', 'B+', 'B+', '', 7),
+            ('rising_region_grade', 'B', 'B', '', 8),
+            ('rising_region_grade', 'B-', 'B-', '', 9),
+            ('rising_region_grade', 'C+', 'C+', '', 10),
+            ('rising_region_grade', 'C', 'C', '', 11),
+            ('rising_region_grade', 'C-', 'C-', '', 12),
+            ('rising_region_grade', 'D+', 'D+', '', 13),
+            ('rising_region_grade', 'D', 'D', '', 14),
+            ('rising_region_grade', 'D-', 'D-', '', 15),
+            ('rising_complex_grade', 'S', 'S', '', 1),
+            ('rising_complex_grade', 'A', 'A', '', 2),
+            ('rising_complex_grade', 'B', 'B', '', 3),
+            ('rising_complex_grade', 'C', 'C', '', 4),
+            ('rising_complex_grade', 'D', 'D', '', 5),
+            ('rising_scope_sido', '11', '서울', '', 1),
+            ('rising_scope_sido', '28', '인천', '', 2),
+            ('rising_scope_sido', '41', '경기', '', 3)
+        ON CONFLICT (group_id, code) DO NOTHING;
+
         -- apartments.display_name 자동 보완 트리거
         -- 다양한 INSERT 사이트(enrich_apartments, backfill_trades 등)에서 display_name을
         -- 명시하지 않았을 때 K-APT 명칭(bld_nm)으로 자동 채움. UPDATE에는 적용하지 않아

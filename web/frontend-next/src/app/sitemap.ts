@@ -90,6 +90,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { loc: `${SITE_URL}/about` },
     { loc: `${SITE_URL}/guide` },
     { loc: `${SITE_URL}/explore` },
+    { loc: `${SITE_URL}/rising` }, // 오르는 단지 — 정적 셸 + 클라이언트 데이터
     { loc: `${SITE_URL}/region` }, // 시군구 인덱스 — 내부 링크 허브
   ];
 

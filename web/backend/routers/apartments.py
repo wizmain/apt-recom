@@ -12,6 +12,8 @@ router = APIRouter()
 # /apartments 목록과 /dashboard/regions 의 apt_count 가 반드시 같은 기준을
 # 공유해야 한다 — 기준이 갈리면 지역 인덱스(/region) 노출 판정과 허브 페이지의
 # 실제 단지 목록이 어긋난다.
+# batch 는 web/backend 를 import 하지 않아 batch/trade/band_trend_source.py 의
+# VISIBLE_APARTMENT_CONDITIONS 에 같은 조건을 복제해 두었다 — 바꿀 때 함께 바꾼다.
 APARTMENT_VISIBLE_CONDITIONS: list[str] = [
     "a.pnu NOT LIKE 'TRADE_%%'",
     "a.lat IS NOT NULL",

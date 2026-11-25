@@ -58,6 +58,7 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 | **사장된 PNU 정리 (수동)** | `.venv/bin/python -m batch.purge_dead_apartments --target both --dry-run` (실행은 `--dry-run` 제거 + `--confirm` 필수) |
 | **고유번호 키 매핑 재판정 (수동, rekey 전)** | `.venv/bin/python -m batch.remap_official_keys --target local --dry-run` (실행은 `--apply`, 목록은 `--report` 또는 `reports/rekey/`) |
 | **거래 키 → 고유번호 변경 (수동)** | `.venv/bin/python -m batch.rekey_trades --target local --dry-run` (실행은 `--apply`, 대상 DB 마다 재판정 `--apply` 후) |
+| **면적대 추세 집계 (수동)** | `.venv/bin/python -c "from batch.logger import setup_logger; from batch.trade.refresh_band_trend import refresh_band_trend; print(refresh_band_trend(setup_logger('band')))"` (오르는 단지, ADR-018. 거래 배치에도 포함, `sync_from_railway` 후 로컬 재생성용) |
 | **매매 거래유형(dealing_gbn) 백필 (수동)** | `.venv/bin/python -m batch.trade.backfill_dealing_gbn --target local --dry-run --sido 11,28,41 --from-ym 202507` (실행은 `--apply`, 보조 키 일 900콜·체크포인트로 이어서 실행) |
 
 ## 데이터베이스 규칙
@@ -66,7 +67,7 @@ apt-recom/                          # 워크스페이스 루트, .venv 여기에
 - **파라미터**: `%s` placeholder 사용 (psycopg2 형식). `?` 사용 금지.
 - **스키마**: `web/backend/database.py`의 `create_tables()` 함수에 정의.
 - **마이그레이션**: 별도 프레임워크 없음. 스키마 변경 시 `create_tables()` 수정 + ALTER TABLE SQL 작성.
-- **주요 테이블**: apartments, facilities, apt_facility_summary, trade_history, rent_history, trade_apt_mapping, school_zones, apt_price_score, apt_safety_score, population_by_district, chat_feedback
+- **주요 테이블**: apartments, facilities, apt_facility_summary, trade_history, rent_history, trade_apt_mapping, school_zones, apt_price_score, apt_safety_score, population_by_district, chat_feedback, apt_band_trend, region_band_trend, apt_band_monthly_price, apt_band_trend_excluded_key
 
 ## 데이터베이스 설계 원칙
 
