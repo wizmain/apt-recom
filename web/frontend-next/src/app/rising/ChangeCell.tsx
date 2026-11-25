@@ -1,4 +1,4 @@
-import { formatChange } from "./format";
+import { formatChange, isRoundedZero } from "./format";
 
 const NO_COMPARISON_TEXT = "비교 부족";
 const SINGLE_TYPE_TEXT = "한 주택형만 비교";
@@ -17,7 +17,7 @@ export default function ChangeCell({ pct, matchedTypeCount }: ChangeCellProps) {
         ? SINGLE_TYPE_TEXT
         : null;
   const tone =
-    pct === null || pct === 0
+    pct === null || isRoundedZero(pct)
       ? "text-gray-400"
       : pct > 0
         ? "text-emerald-600"

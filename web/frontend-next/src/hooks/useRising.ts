@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, isCancel } from "@/lib/api";
+import { BUDGET_MAX_EOK, BUDGET_MIN_EOK } from "@/app/rising/budgetScale";
 import type {
   RisingFilters,
   RisingListResponse,
@@ -32,11 +33,12 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 function buildListParams(filters: RisingFilters, query: string): URLSearchParams {
   const params = new URLSearchParams({
     area_band: filters.areaBand,
-    budget_min: String(filters.budgetMin),
-    budget_max: String(filters.budgetMax),
     sort: filters.sort,
     page: String(filters.page),
   });
+  // 슬라이더 양 끝 = 제한 없음 → 파라미터를 보내지 않는다.
+  if (filters.budgetMin > BUDGET_MIN_EOK) params.set("budget_min", String(filters.budgetMin));
+  if (filters.budgetMax < BUDGET_MAX_EOK) params.set("budget_max", String(filters.budgetMax));
   if (filters.sido) params.set("sido", filters.sido);
   for (const code of filters.sggCodes) params.append("sgg", code);
   const trimmed = query.trim();
@@ -96,6 +98,8 @@ export function useRising(filters: RisingFilters) {
     // 필터 전환 중에는 직전 목록을 유지해 화면이 깜빡이지 않게 한다.
     list: result?.list ?? null,
     loading: !settled,
-    error: (settled ? result.error : null) ?? metaError,
+    // 메타 실패는 화면 전체를, 목록 실패는 목록 영역만 대체한다(필터는 계속 사용 가능).
+    metaError,
+    listError: settled ? result.error : null,
   };
 }

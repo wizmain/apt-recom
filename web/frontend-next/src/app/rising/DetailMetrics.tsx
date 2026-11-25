@@ -1,7 +1,7 @@
 import type { RisingItem, RisingRegion } from "@/types/rising";
 import ChangeCell from "./ChangeCell";
 import GradeBadge, { RegionGradeBadge } from "./GradeBadge";
-import { formatEok } from "./format";
+import { THIN_SAMPLE_TEXT, formatEok, isThinSample } from "./format";
 
 const REFERENCE_WINDOW_MONTHS = 12;
 const DECILE_COUNT = 10;
@@ -69,11 +69,11 @@ interface DetailMetricsProps {
   region: RisingRegion | null;
 }
 
-/** 지표 5칸: 지역 등급 / 지역 내 단지 등급 / 3개월 중위가격 / 6개월 / 12개월. */
+/** 지표 5칸: 지역 가격 등급 / 지역 내 단지 등급 / 3개월 중위가격 / 6개월 / 12개월. */
 export default function DetailMetrics({ item, region }: DetailMetricsProps) {
   return (
     <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      <Metric label="지역 등급">
+      <Metric label="지역 가격 등급">
         <RegionGradeMetric region={region} grade={item.region_grade} />
       </Metric>
       <Metric label="지역 내 단지 등급">
@@ -89,6 +89,9 @@ export default function DetailMetrics({ item, region }: DetailMetricsProps) {
             </span>
             {item.trade_count_3m !== null && (
               <span className="block text-[11px] text-gray-500">{item.trade_count_3m}건 기준</span>
+            )}
+            {isThinSample(item.trade_count_3m) && (
+              <span className="block text-[11px] text-amber-600">{THIN_SAMPLE_TEXT}</span>
             )}
           </>
         )}

@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useRising } from "@/hooks/useRising";
 import type { RisingFilters } from "@/types/rising";
+import { BUDGET_MIN_EOK } from "./budgetScale";
 import ComplexDetailPanel from "./ComplexDetailPanel";
 import ComplexListControls from "./ComplexListControls";
 import ComplexTable from "./ComplexTable";
@@ -13,10 +14,12 @@ import RisingFilterBar from "./RisingFilterBar";
 /** 첫 응답 전 페이지네이션 계산용(서버 page_size 와 동일). */
 const DEFAULT_PAGE_SIZE = 20;
 
+const DEFAULT_BUDGET_MAX_EOK = 10;
+
 const INITIAL_FILTERS: RisingFilters = {
   areaBand: "84",
-  budgetMin: 3,
-  budgetMax: 10,
+  budgetMin: BUDGET_MIN_EOK, // 제한 없음
+  budgetMax: DEFAULT_BUDGET_MAX_EOK,
   sido: null,
   sggCodes: [],
   query: "",
@@ -27,7 +30,7 @@ const INITIAL_FILTERS: RisingFilters = {
 /** 필터 상태 보유 + 데이터 조회. 하위 컴포넌트는 props 로만 데이터를 받는다. */
 export default function RisingView() {
   const [filters, setFilters] = useState<RisingFilters>(INITIAL_FILTERS);
-  const { meta, list, loading, error } = useRising(filters);
+  const { meta, list, loading, metaError, listError } = useRising(filters);
   const [selected, setSelected] = useState<{ pnu: string; sigunguCode: string } | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
 
@@ -47,8 +50,15 @@ export default function RisingView() {
   const updateFilters = (patch: Partial<RisingFilters>) =>
     setFilters((prev) => ({ ...prev, page: 1, ...patch }));
 
-  if (error) {
-    return <p className="mt-6 text-sm text-red-600">{error}</p>;
+  /** 면적대를 바꾸면 시군구 선택을 비우고, 시도는 새 면적대에 지역이 있을 때만 유지한다. */
+  const changeAreaBand = (code: string) => {
+    const nextRegions = meta?.regions[code] ?? [];
+    const keepSido = filters.sido !== null && nextRegions.some((r) => r.sido_code === filters.sido);
+    updateFilters({ areaBand: code, sido: keepSido ? filters.sido : null, sggCodes: [] });
+  };
+
+  if (metaError) {
+    return <p className="mt-6 text-sm text-red-600">{metaError}</p>;
   }
   if (meta && meta.base_ym === null) {
     return (
@@ -68,7 +78,7 @@ export default function RisingView() {
         areaBand={filters.areaBand}
         budgetMin={filters.budgetMin}
         budgetMax={filters.budgetMax}
-        onAreaBandChange={(code) => updateFilters({ areaBand: code })}
+        onAreaBandChange={changeAreaBand}
         onBudgetChange={({ min, max }) => updateFilters({ budgetMin: min, budgetMax: max })}
       />
       {meta.base_ym != null && (
@@ -76,6 +86,7 @@ export default function RisingView() {
       )}
       <div className="grid gap-4 md:grid-cols-[280px_1fr] md:items-start">
         <RegionPanel
+          sidos={meta.sidos}
           regions={meta.regions[filters.areaBand] ?? []}
           regionCounts={list?.region_counts ?? {}}
           sido={filters.sido}
@@ -90,20 +101,26 @@ export default function RisingView() {
             onSortChange={(sort) => updateFilters({ sort })}
             onQueryChange={(query) => updateFilters({ query })}
           />
-          {list && (
+          {list && !listError && (
             <p className="text-sm text-gray-700">
               {list.total_count.toLocaleString()}개 단지 · {list.region_count}개 지역
             </p>
           )}
-          <ComplexTable
-            items={list?.items ?? []}
-            page={filters.page}
-            pageSize={list?.page_size ?? DEFAULT_PAGE_SIZE}
-            totalCount={list?.total_count ?? 0}
-            loading={loading}
-            onPageChange={(page) => updateFilters({ page })}
-            onSelect={openDetail}
-          />
+          {listError ? (
+            <p role="alert" className="rounded-lg bg-white p-6 text-center text-sm text-red-600">
+              {listError}
+            </p>
+          ) : (
+            <ComplexTable
+              items={list?.items ?? []}
+              page={filters.page}
+              pageSize={list?.page_size ?? DEFAULT_PAGE_SIZE}
+              totalCount={list?.total_count ?? 0}
+              loading={loading}
+              onPageChange={(page) => updateFilters({ page })}
+              onSelect={openDetail}
+            />
+          )}
         </div>
       </div>
       {selected && (

@@ -1,5 +1,8 @@
-/** 예산 슬라이더 눈금 — 3~100억, 15억이 트랙 중앙(구간별 선형). */
-export const BUDGET_MIN_EOK = 3;
+/**
+ * 예산 슬라이더 눈금 — 0~100억, 15억이 트랙 중앙(구간별 선형).
+ * 양 끝 값은 "제한 없음": 하한 0 = 하한 없음, 상한 100 = 상한 없음.
+ */
+export const BUDGET_MIN_EOK = 0;
 export const BUDGET_MAX_EOK = 100;
 const BUDGET_MID_EOK = 15;
 export const SLIDER_STEPS = 1000;
@@ -28,6 +31,11 @@ export function sliderToEok(pos: number): number {
     BUDGET_MID_EOK +
     ((pos - SLIDER_MID) / SLIDER_MID) * (BUDGET_MAX_EOK - BUDGET_MID_EOK);
   return Math.round(eok / HIGH_STEP_EOK) * HIGH_STEP_EOK;
+}
+
+/** 예산 값이 해당 끝(제한 없음)인지. */
+export function isBudgetUnbounded(edge: "min" | "max", value: number): boolean {
+  return value === (edge === "min" ? BUDGET_MIN_EOK : BUDGET_MAX_EOK);
 }
 
 /** 하한 ≤ 상한 불변: 움직인 쪽에 맞춰 반대쪽을 같은 값으로 민다. */

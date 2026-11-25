@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { RisingRegion } from "@/types/rising";
+import type { RisingRegion, RisingSido } from "@/types/rising";
 import { RegionGradeBadge } from "./GradeBadge";
 
-/** 시도 탭 라벨 — 탭 목록 자체는 meta 의 sido_code 에서 파생. */
-const SIDO_LABELS: Record<string, string> = { "11": "서울", "41": "경기", "28": "인천" };
-
 interface RegionPanelProps {
+  /** common_code rising_scope_sido (meta.sidos). 탭은 현재 면적대에 지역이 있는 시도만 보여준다. */
+  sidos: RisingSido[];
   regions: RisingRegion[];
   regionCounts: Record<string, number>;
   sido: string | null;
@@ -33,6 +32,7 @@ function tabClass(active: boolean): string {
 
 /** 지역 패널 — 데스크톱은 좌측 고정, 모바일(<768px)은 상단에서 펼치는 시트. */
 export default function RegionPanel({
+  sidos,
   regions,
   regionCounts,
   sido,
@@ -41,7 +41,8 @@ export default function RegionPanel({
   onSggChange,
 }: RegionPanelProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const sidoCodes = [...new Set(regions.map((r) => r.sido_code))];
+  const sidoCodesWithRegions = new Set(regions.map((r) => r.sido_code));
+  const visibleSidos = sidos.filter((s) => sidoCodesWithRegions.has(s.code));
   const visible = sortByRegionRank(
     sido ? regions.filter((r) => r.sido_code === sido) : regions,
   );
@@ -67,14 +68,14 @@ export default function RegionPanel({
           <button type="button" onClick={() => onSidoChange(null)} className={tabClass(sido === null)}>
             전체
           </button>
-          {sidoCodes.map((code) => (
+          {visibleSidos.map(({ code, name }) => (
             <button
               key={code}
               type="button"
               onClick={() => onSidoChange(code)}
               className={tabClass(sido === code)}
             >
-              {SIDO_LABELS[code] ?? code}
+              {name}
             </button>
           ))}
         </div>

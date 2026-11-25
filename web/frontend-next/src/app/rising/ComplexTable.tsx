@@ -1,7 +1,7 @@
 import type { RisingItem } from "@/types/rising";
 import ChangeCell from "./ChangeCell";
 import { ComplexGradeCell, RegionGradeBadge } from "./GradeBadge";
-import { formatEok } from "./format";
+import { THIN_SAMPLE_TEXT, formatEok, isThinSample } from "./format";
 import Pagination from "./Pagination";
 
 const EMPTY_RESULT_TEXT = "조건에 맞는 단지가 없습니다";
@@ -46,6 +46,9 @@ function PriceCell({ item }: { item: RisingItem }) {
       {item.trade_count_3m !== null && (
         <span className="block text-[11px] text-gray-400">{item.trade_count_3m}건</span>
       )}
+      {isThinSample(item.trade_count_3m) && (
+        <span className="block whitespace-nowrap text-[11px] text-amber-600">{THIN_SAMPLE_TEXT}</span>
+      )}
     </div>
   );
 }
@@ -66,7 +69,7 @@ function DesktopTable({ items, onSelect }: { items: RisingItem[]; onSelect: Sele
       <thead className="border-b border-gray-200 bg-gray-50">
         <tr>
           <th className={head}>단지</th>
-          <th className={head}>지역 등급</th>
+          <th className={head}>지역 가격 등급</th>
           <th className={head}>지역 내 단지 등급</th>
           <th className={head}>3개월 중위가격</th>
           <th className={head}>6개월</th>

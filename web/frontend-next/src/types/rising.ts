@@ -32,10 +32,17 @@ export interface RisingRegion {
   region_rank_total: number | null;
 }
 
+/** common_code rising_scope_sido 한 행 — 지역 패널 시도 탭. */
+export interface RisingSido {
+  code: string;
+  name: string;
+}
+
 /** GET /api/rising/meta. base_ym(YYYYMM) null = 집계 전. */
 export interface RisingMeta {
   base_ym: number | null;
   bands: RisingBand[];
+  sidos: RisingSido[];
   regions: Record<string, RisingRegion[]>;
 }
 
@@ -94,7 +101,7 @@ export interface RisingDetail {
   recent_trades: RisingRecentTrade[];
 }
 
-/** 화면 필터 상태. 예산은 억 단위(API 파라미터와 동일). */
+/** 화면 필터 상태. 예산은 억 단위(API 파라미터와 동일), 양 끝 값은 "제한 없음"(budgetScale.ts). */
 export interface RisingFilters {
   areaBand: string;
   budgetMin: number;
