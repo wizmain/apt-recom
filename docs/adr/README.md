@@ -32,3 +32,4 @@
 | [014](014-kapt-sale-rental-pnu-contention.md) | K-APT 분양·임대 레코드의 PNU 경합 — PNU 당 1건 유지, 분양 우선, 세대수는 합산 | Accepted | 2026-09-20 |
 | [015](015-trade-key-official-id.md) | 거래 키를 국토부 단지 고유번호(aptSeq)로 전환 | Proposed | 2026-10-13 |
 | [017](017-inherited-mapping-physical-check.md) | 상속 매핑에도 물리 판정 적용, 이름 불일치를 보강 신호로 (ADR-015 보완) | Proposed | 2026-11-16 |
+| [018](018-rising-band-trend.md) | 오르는 단지 — 면적대·주택형 기준 변화율 사전 집계 4테이블 | Proposed | 2026-11-25 |

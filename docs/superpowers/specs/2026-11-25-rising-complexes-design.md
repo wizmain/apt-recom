@@ -84,7 +84,8 @@
   - 키 단위: `batch/trade/mapping_checks.py` 의 `check_mapping` → `mismatch_confirmed` 가 참인 apt_seq 의 거래 전부 제외
     (면적 대조·층·준공 타임라인 등 물리 신호, 기존 순수 함수 재사용).
   - 거래 단위: 거래 `build_year` 가 단지 준공연도와 `name_matching._BUILD_YEAR_TOLERANCE` 넘게 다른 거래 제외
-    (분양권·입주권 거래는 `PRESALE_TOLERANCE_YEARS` 허용 — 기존 상수 재사용, 새 임계값 만들지 않음).
+    (거래 단위 허용 오차 `_BUILD_YEAR_TOLERANCE`(3년) 하나만 쓴다. 국토부 매매 API 는 분양권을 포함하지 않아
+    `PRESALE_TOLERANCE_YEARS` 는 적용하지 않는다 — 새 임계값도 만들지 않음).
   - 정상 거래가 빠질 위험(재건축 단지 등)이 있으므로 배치는 **제외 건수와 제외 키 목록**을 로그로 남기고,
     배치 결과 요약에 면적대별 제외 비율을 포함한다. 제외 비율이 비정상적으로 크면(빌더가 실측 후 기준 설정) 경고.
   - 이 장치는 매핑을 고치지 않는다 — 걸린 키의 실제 교정은 기존 방식(`reflect_*` 스크립트)으로 한다.
@@ -149,7 +150,8 @@ region_band_trend           -- 시군구 스냅샷
 ```
 
 - 대형 면적대는 한 단지가 여러 구간에 걸치므로 PK 에 `area_band` 가 들어가 자연스럽게 행이 나뉜다.
-- 등급 컷(15단계·5단계 라벨)은 `common_code` group `price_grade` 로 관리.
+- 등급 라벨(15단계·5단계)은 `common_code` group `rising_region_grade` / `rising_complex_grade` 로 관리.
+- 구현 중 `apt_band_trend_excluded_key`(혼입 제외 키·사유) 테이블이 추가돼 총 4개다 — ADR-018.
 
 ## 7. 배치 / API / 화면
 
@@ -157,7 +159,7 @@ region_band_trend           -- 시군구 스냅샷
 - `batch/trade/refresh_band_trend.py` (신규): 위 3개 테이블 재생성. `batch/run.py` trade 체인의
   `refresh_dashboard_stats` 다음 단계로 등록.
 - 거래 필터(§5.3) 상수는 이 모듈에 정의. 인스타 value 시리즈와의 공통화는 후속(§10).
-- `sync_from_railway` 가 새 테이블을 동기화 대상에 포함.
+- `sync_from_railway` 는 새 테이블을 복사하지 않고, 동기화 후 로컬에서 재생성한다(`refresh_dashboard_stats` 와 같은 패턴).
 
 ### 7.2 API (api-developer) — `routers/rising.py` → `services/rising.py`
 - `GET /api/rising/meta` — 기준월, 면적대 목록, 면적대별 지역 목록(등급·가격수준·변화).
