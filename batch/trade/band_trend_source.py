@@ -6,12 +6,11 @@ refresh_band_trend 가 이 모듈로 입력을 읽고, 계산·적재는 그쪽�
 
 from __future__ import annotations
 
-import sys
 from typing import NamedTuple
 
 from batch.db import query_all
 from batch.trade.audit_mappings import find_violations
-from batch.trade.band_trend_aggregate import SourceTrade
+from batch.trade.band_trend_aggregate import MemberApt, SourceTrade, attach_trades
 from batch.trade.band_trend_calc import EXCLUDED_DEALING_GBN, BandDef, parse_band_extra
 
 # "목록에 노출 가능한 단지" 조건 — web/backend/routers/apartments.py 의
@@ -94,22 +93,35 @@ scope_apt AS (
 
 _COMPLETION_DATE = "COALESCE(NULLIF(mk.use_date, ''), ma.use_apr_day)"
 
-_TRADES_SQL = f"""
+# 범위 내 대표 단지에 속한 구성원 단지(매핑 대상 PNU)와 그 대표 단지·준공연도. 약 1.8만 행.
+_MEMBERS_SQL = f"""
 WITH {_SCOPE_APT_CTE}
-SELECT t.apt_seq, t.apt_nm, m.pnu AS mapped_pnu, s.pnu, s.sigungu_code,
-       t.exclu_use_ar AS area, t.deal_year * 100 + t.deal_month AS deal_ym,
-       t.deal_amount AS price, t.build_year,
+SELECT ma.pnu AS member_pnu, s.pnu, s.sigungu_code,
        CASE WHEN LEFT({_COMPLETION_DATE}, 4) ~ '^[0-9]{{4}}$'
             THEN LEFT({_COMPLETION_DATE}, 4)::INTEGER END AS completion_year
-FROM trade_history t
-JOIN trade_apt_mapping m ON m.apt_seq = t.apt_seq
-JOIN apartments ma ON ma.pnu = m.pnu
+FROM apartments ma
 LEFT JOIN apt_kapt_info mk ON mk.pnu = ma.pnu
 JOIN scope_apt s ON s.pnu = ma.group_pnu
-WHERE t.deal_year * 100 + t.deal_month BETWEEN %(start_ym)s AND %(end_ym)s
-  AND t.dealing_gbn IS DISTINCT FROM %(excluded_dealing_gbn)s
-  AND t.deal_amount > 0
-  AND t.exclu_use_ar > 0
+"""
+
+# 구성원 단지에 매핑된 거래 키. 약 3.4만 행.
+_MAPPING_SQL = (
+    "SELECT apt_seq, pnu FROM trade_apt_mapping WHERE pnu = ANY(%(member_pnus)s)"
+)
+
+# 거래는 조인 없이 trade_history 하나만 읽는다. 시도 접두는 사전 필터일 뿐이고 최종 범위는
+# attach_trades 가 매핑·구성원 단지로 정한다(거래 sgg_cd 와 단지 sigungu_code 는 같은 구코드 체계).
+# deal_year 범위는 계약월 식과 같은 조건이지만 인덱스·계획 추정을 돕기 위해 함께 둔다.
+_RAW_TRADES_SQL = """
+SELECT apt_seq, apt_nm, exclu_use_ar AS area, deal_year * 100 + deal_month AS deal_ym,
+       deal_amount AS price, build_year
+FROM trade_history
+WHERE deal_year BETWEEN %(start_year)s AND %(end_year)s
+  AND deal_year * 100 + deal_month BETWEEN %(start_ym)s AND %(end_ym)s
+  AND LEFT(sgg_cd, 2) = ANY(%(scope_sido)s)
+  AND dealing_gbn IS DISTINCT FROM %(excluded_dealing_gbn)s
+  AND deal_amount > 0
+  AND exclu_use_ar > 0
 """
 
 _MEMBER_PNUS_SQL = f"""
@@ -124,33 +136,37 @@ def load_trades(
     """범위 시도·기간의 매매 거래(직거래 제외)를 대표 단지에 귀속해 읽는다.
 
     dealing_gbn NULL(미분류)은 유지한다 — 스펙 §5.3. 매핑 단지가 노출 대표 단지에
-    속하지 않으면 읽지 않는다.
+    속하지 않으면 버린다.
+
+    거래·매핑·단지를 한 SQL 로 조인하면 플래너가 대상 단지 수를 1~2건으로 잘못 추정해
+    단지마다 거래 인덱스를 찾는 중첩 루프를 고른다. 메모리 1GB 인 운영 DB 에서는
+    trade_history 를 디스크에서 무작위로 읽게 되어 이 조회만 503초가 걸렸다(2026-11-25
+    운영 배치, 로컬 5.6초). 그래서 작은 표 두 개(구성원 단지·매핑)와 거래 단일 스캔으로
+    나눠 읽고 attach_trades 로 붙인다(로컬 0.8초, 결과 행 동일).
     """
+    members = {
+        r["member_pnu"]: MemberApt(r["pnu"], r["sigungu_code"], r["completion_year"])
+        for r in query_all(conn, _MEMBERS_SQL, {"scope_sido": scope_sido})
+    }
+    if not members:
+        return []
+    mapping = {
+        r["apt_seq"]: r["pnu"]
+        for r in query_all(conn, _MAPPING_SQL, {"member_pnus": list(members)})
+    }
     params = {
         "scope_sido": scope_sido,
+        "start_year": start_ym // 100,
+        "end_year": end_ym // 100,
         "start_ym": start_ym,
         "end_ym": end_ym,
         "excluded_dealing_gbn": EXCLUDED_DEALING_GBN,
     }
-    # 수도권 60개월이 80만 행 수준이라 서버 측 커서로 나눠 받고, 반복되는
-    # 키·이름 문자열은 intern 해 메모리를 줄인다.
-    trades: list[SourceTrade] = []
+    # 수도권 60개월이 80만 행 수준이라 서버 측 커서로 나눠 받는다.
     with conn.cursor(name="band_trend_trades") as cur:
         cur.itersize = _FETCH_BATCH_ROWS
-        cur.execute(_TRADES_SQL, params)
-        for row in cur:
-            apt_seq, apt_nm, mapped_pnu, pnu, sigungu_code, *rest = row
-            trades.append(
-                SourceTrade(
-                    sys.intern(apt_seq),
-                    sys.intern(apt_nm) if apt_nm else None,
-                    sys.intern(mapped_pnu),
-                    sys.intern(pnu),
-                    sys.intern(sigungu_code),
-                    *rest,
-                )
-            )
-    return trades
+        cur.execute(_RAW_TRADES_SQL, params)
+        return attach_trades(cur, mapping, members)
 
 
 def find_mapping_violations(conn, scope_sido: list[str]) -> list[dict]:
