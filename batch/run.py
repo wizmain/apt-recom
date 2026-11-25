@@ -164,17 +164,30 @@ def run_trade(args, logger, result):
         # 4.6. 오르는 단지 면적대 추세 집계 — 대시보드 집계와 같은 격리(별도 커넥션,
         #      실패는 warning). 선행 단계는 4.5 에서 이미 commit 됐다.
         try:
-            from batch.trade.refresh_band_trend import refresh_band_trend
+            from batch.trade.refresh_band_trend import (
+                EXCLUSION_RATIO_WARN,
+                refresh_band_trend,
+            )
 
             t0 = time.time()
             counts = refresh_band_trend(logger)
+            # 면적대별 혼입 제외 비율 최댓값을 결과 요약에 남기고, 경고선을 넘으면
+            # 판정 규칙 오작동(대량 오탐) 의심으로 warning 처리한다 (스펙 §5.3).
+            max_ratio_pct = counts["max_excluded_ratio_pct"]
+            over_warn = max_ratio_pct > EXCLUSION_RATIO_WARN * 100
+            note = f"면적대별 혼입 제외 비율 최대 {max_ratio_pct}%"
+            if over_warn:
+                note += (
+                    f" — 경고선 {EXCLUSION_RATIO_WARN:.0%} 초과, 판정 규칙 점검 필요"
+                )
             result.record(
                 "면적대 추세 집계",
-                "success",
+                "warning" if over_warn else "success",
                 rows=counts["monthly_rows"]
                 + counts["trend_rows"]
                 + counts["region_rows"],
                 duration=time.time() - t0,
+                error=note,
             )
         except Exception as e:
             logger.error(f"면적대 추세 집계 실패: {e}")

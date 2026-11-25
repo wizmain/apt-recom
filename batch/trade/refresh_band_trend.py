@@ -28,6 +28,7 @@ from batch.trade.band_trend_aggregate import (
     ExclusionResult,
     apply_exclusions,
     build_tables,
+    excluded_ratio_by_band,
 )
 from batch.trade.band_trend_calc import HISTORY_MONTHS, base_month, shift_month
 from batch.trade.band_trend_source import (
@@ -71,8 +72,13 @@ _TABLE_INSERTS = (
 )
 
 
-def refresh_band_trend(logger, today: date | None = None) -> dict[str, int]:
-    """4개 테이블 재생성. 반환 키: monthly_rows, trend_rows, region_rows, excluded_keys, excluded_trades."""
+def refresh_band_trend(logger, today: date | None = None) -> dict[str, int | float]:
+    """4개 테이블 재생성.
+
+    반환 키: monthly_rows, trend_rows, region_rows, excluded_keys, excluded_trades,
+    max_excluded_ratio_pct(면적대별 혼입 제외 비율 중 최댓값, 퍼센트 — 호출자가
+    EXCLUSION_RATIO_WARN 과 비교해 배치 결과를 warning 으로 남긴다).
+    """
     started = time.time()
     base_ym = base_month(today or date.today())
     start_ym = shift_month(base_ym, -(HISTORY_MONTHS - 1))
@@ -130,6 +136,9 @@ def refresh_band_trend(logger, today: date | None = None) -> dict[str, int]:
         "region_rows": len(tables.region_rows),
         "excluded_keys": len(excluded_rows),
         "excluded_trades": sum(exclusion.excluded_trades_by_key.values()),
+        "max_excluded_ratio_pct": round(
+            max(excluded_ratio_by_band(exclusion).values(), default=0.0) * 100, 1
+        ),
     }
     logger.info(f"  면적대 추세 집계 완료: {counts} ({time.time() - started:.1f}s)")
     return counts
@@ -157,11 +166,10 @@ def _log_exclusions(
         f"    혼입 제외: 키 {len(exclusion.excluded_keys):,}개 {dict(reasons)}, "
         f"거래 {excluded_total:,}건 / 면적대 거래 {sum(exclusion.trades_by_band.values()):,}건"
     )
-    for band, total in sorted(
-        exclusion.trades_by_band.items(), key=lambda item: float(item[0])
-    ):
+    ratios = excluded_ratio_by_band(exclusion)
+    for band, ratio in sorted(ratios.items(), key=lambda item: float(item[0])):
         excluded = exclusion.excluded_by_band[band]
-        ratio = excluded / total if total else 0.0
+        total = exclusion.trades_by_band[band]
         line = f"      {band}: {excluded:,}/{total:,} ({ratio:.1%})"
         if ratio > EXCLUSION_RATIO_WARN:
             logger.warning(

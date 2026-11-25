@@ -25,6 +25,7 @@ from typing import NamedTuple
 from batch.trade.band_trend_calc import (
     CHANGE_OFFSETS,
     HISTORY_MONTHS,
+    MIN_COMPLEX_GRADE_POPULATION,
     MIN_GRADE_TRADES,
     MIN_RECENT_TRADES,
     MIN_REGION_TRADES,
@@ -174,6 +175,15 @@ def apply_exclusions(
     )
 
 
+def excluded_ratio_by_band(exclusion: ExclusionResult) -> dict[str, float]:
+    """면적대별 혼입 제외 비율(0~1). 분모는 면적대 안 거래 전체(제외 전)."""
+    return {
+        band: exclusion.excluded_by_band[band] / total
+        for band, total in exclusion.trades_by_band.items()
+        if total
+    }
+
+
 def make_windows(base_ym: int) -> Windows:
     return Windows(
         current=frozenset(window(base_ym)),
@@ -232,6 +242,7 @@ def complex_grades(
     모집단 = 6개월 거래 MIN_GRADE_TRADES 이상 단지, 6개월 중위가 내림차순 순위.
     미달 단지는 12개월 중위가를 모집단에 대입해 등급만 준다(순위 비움). 모집단보다
     싸면 placement_rank 가 total+1 이 되므로 최하위(total)로 맞춘다.
+    모집단이 MIN_COMPLEX_GRADE_POPULATION 미만이면 아무 단지에도 등급을 주지 않는다.
     """
     population = [
         c
@@ -240,7 +251,8 @@ def complex_grades(
     ]
     population_desc = sorted((c.median_6m for c in population), reverse=True)
     total = len(population_desc)
-    if total == 0:
+    if total < MIN_COMPLEX_GRADE_POPULATION:
+        # 등급·순위·grade_window_months 모두 NULL 로 적재된다(호출부가 grades 에 없는 단지를 비움).
         return {}
     grades: dict[str, ComplexGrade] = {}
     for c in population:

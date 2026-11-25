@@ -14,6 +14,7 @@ from batch.trade.band_trend_aggregate import (
     build_tables,
     build_year_mismatch,
     complex_grades,
+    excluded_ratio_by_band,
     region_grades,
     trades_in_window,
 )
@@ -105,6 +106,20 @@ class TestApplyExclusions(unittest.TestCase):
         result = apply_exclusions([source("K", build_year=1995)], BANDS, {"K": "PNU_K"})
         self.assertEqual(result.excluded_keys["K"], ("PNU_K", REASON_MAPPING_VIOLATION))
 
+    def test_면적대별_제외_비율(self):
+        result = apply_exclusions(
+            [
+                source("BAD"),
+                source("OK"),
+                source("OK"),
+                source("OK"),
+                source("OK", area=59.0),
+            ],
+            BANDS,
+            {"BAD": "PNU_BAD"},
+        )
+        self.assertEqual(excluded_ratio_by_band(result), {"84": 0.25, "59": 0.0})
+
     def test_면적대_밖_거래는_통계에서_빠짐(self):
         result = apply_exclusions(
             [source("K", area=40.0), source("K", area=59.9)], BANDS, {}
@@ -148,6 +163,21 @@ class TestComplexGrades(unittest.TestCase):
         # 모집단 최하위보다 싸면 total+1 이 아니라 최하위로 맞춘다
         self.assertEqual(grades["CHEAP"].grade, "D")
         self.assertNotIn("NONE", grades)
+
+    def test_모집단_4곳이면_대입_단지까지_전부_등급_없음(self):
+        population = [GradeCandidate(f"P{i}", 3, 100.0 - i, None) for i in range(4)]
+        thin = GradeCandidate("THIN", 1, 50.0, 99.0)
+        self.assertEqual(complex_grades([*population, thin], COMPLEX_LABELS), {})
+
+    def test_모집단_5곳이면_등급_부여(self):
+        population = [GradeCandidate(f"P{i}", 3, 100.0 - i, None) for i in range(5)]
+        thin = GradeCandidate("THIN", 1, 50.0, 99.0)
+        grades = complex_grades([*population, thin], COMPLEX_LABELS)
+        self.assertEqual(
+            [grades[f"P{i}"].grade for i in range(5)], ["S", "A", "B", "C", "D"]
+        )
+        self.assertEqual((grades["P4"].rank, grades["P4"].total), (5, 5))
+        self.assertEqual(grades["THIN"].window_months, GRADE_FALLBACK_WINDOW_MONTHS)
 
     def test_모집단이_없으면_등급_없음(self):
         self.assertEqual(
