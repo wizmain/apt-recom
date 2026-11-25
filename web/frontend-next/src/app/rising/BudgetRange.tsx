@@ -33,12 +33,17 @@ export default function BudgetRange({ budgetMin, budgetMax, onChange }: BudgetRa
   const [draft, setDraft] = useState<{ edge: "min" | "max"; text: string } | null>(null);
   const current = { min: budgetMin, max: budgetMax };
 
-  const commitDraft = (edge: "min" | "max", text: string) => {
-    setDraft({ edge, text });
-    const parsed = Number(text);
-    if (text.trim() === "" || Number.isNaN(parsed)) return;
-    if (parsed < BUDGET_MIN_EOK || parsed > BUDGET_MAX_EOK) return;
-    onChange(applyBudgetChange(edge, parsed, current));
+  /** 입력 중에는 draft 만 갱신하고, blur/Enter 에서만 반영한다(중간 키 입력이 상대 값을 밀지 않게). */
+  const commitDraft = () => {
+    if (draft === null) return;
+    const parsed = Number(draft.text);
+    const isValid =
+      draft.text.trim() !== "" &&
+      !Number.isNaN(parsed) &&
+      parsed >= BUDGET_MIN_EOK &&
+      parsed <= BUDGET_MAX_EOK;
+    setDraft(null); // 유효하지 않으면 현재 확정 값으로 되돌린다.
+    if (isValid) onChange(applyBudgetChange(draft.edge, parsed, current));
   };
 
   const inputValue = (edge: "min" | "max", value: number) =>
@@ -55,8 +60,11 @@ export default function BudgetRange({ budgetMin, budgetMax, onChange }: BudgetRa
         max={BUDGET_MAX_EOK}
         step={0.5}
         value={inputValue(edge, value)}
-        onChange={(e) => commitDraft(edge, e.target.value)}
-        onBlur={() => setDraft(null)}
+        onChange={(e) => setDraft({ edge, text: e.target.value })}
+        onBlur={commitDraft}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitDraft();
+        }}
         className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-right text-sm"
       />
       억
