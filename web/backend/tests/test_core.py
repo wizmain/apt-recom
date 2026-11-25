@@ -1910,6 +1910,25 @@ def test_rising_budget_inverted():
     assert resp.status_code == 422, resp.status_code
 
 
+@test("오르는 단지: 예산 inf·상한 초과 → 422 (500 아님)")
+def test_rising_budget_overflow():
+    import requests
+
+    for key in ("budget_max", "budget_min"):
+        for value in ("inf", "1e30"):
+            resp = requests.get(RISING_API, params={"area_band": "84", key: value})
+            assert resp.status_code == 422, f"{key}={value} → {resp.status_code}"
+
+
+@test("오르는 단지: meta — 시도 목록(common_code) 포함")
+def test_rising_meta_sidos():
+    import requests
+
+    sidos = requests.get(f"{RISING_API}/meta").json()["sidos"]
+    assert [s["code"] for s in sidos] == ["11", "28", "41"], sidos
+    assert all(s["name"] for s in sidos), sidos
+
+
 @test("오르는 단지: 없는 면적대·정렬 → 422")
 def test_rising_invalid_band_or_sort():
     import requests

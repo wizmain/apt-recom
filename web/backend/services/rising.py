@@ -14,6 +14,9 @@ from typing import NamedTuple
 
 AREA_BAND_GROUP = "rising_area_band"
 SIGUNGU_GROUP = "sigungu"
+SCOPE_SIDO_GROUP = (
+    "rising_scope_sido"  # batch.trade.band_trend_source.SCOPE_SIDO_GROUP 과 같은 값
+)
 
 PAGE_SIZE = 20
 MANWON_PER_EOK = 10_000  # 예산 파라미터(억) → 집계 금액(만원)
@@ -111,6 +114,15 @@ def load_area_bands(conn) -> dict[str, AreaBand]:
     return bands
 
 
+def load_scope_sidos(conn) -> list[dict]:
+    """계산 범위 시도 목록 (common_code rising_scope_sido, sort_order 순) — 지역 패널 탭 라벨."""
+    rows = conn.execute(
+        "SELECT code, name FROM common_code WHERE group_id = %s ORDER BY sort_order",
+        [SCOPE_SIDO_GROUP],
+    ).fetchall()
+    return [{"code": row["code"], "name": row["name"]} for row in rows]
+
+
 def _sigungu_names(conn) -> dict[str, str]:
     """시군구 코드 → 표시명. routers/dashboard.py 의 _get_sgg_names 와 같은 표기
     (extra 가 이름과 다르면 "이름(extra)", 예: 장안구(수원))."""
@@ -158,6 +170,7 @@ def get_meta(conn) -> dict:
     return {
         "base_ym": _latest_base_ym(conn),
         "bands": [band._asdict() for band in bands.values()],
+        "sidos": load_scope_sidos(conn),
         "regions": regions,
     }
 
