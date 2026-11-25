@@ -176,7 +176,7 @@ class TestBuildTables(unittest.TestCase):
             band_trade(202608, 11000),
             band_trade(202603, 10000),
             band_trade(202602, 10000),
-            # P2: 현재 창 1건 → 목록 제외, 월별 시계열은 유지
+            # P2: 현재 창 1건 → 목록 제외, 월별 시계열도 넣지 않음
             band_trade(202609, 30000, pnu="P2"),
             band_trade(202603, 30000, pnu="P2"),
             band_trade(202602, 30000, pnu="P2"),
@@ -199,8 +199,10 @@ class TestBuildTables(unittest.TestCase):
         self.assertEqual(region.trade_count_3m, 3)
         self.assertIsNone(region.region_grade)  # 3건 < MIN_REGION_TRADES
 
-        p2_months = sorted(r.deal_ym for r in tables.monthly_rows if r.pnu == "P2")
-        self.assertEqual(p2_months, [202602, 202603, 202609])
+        # 월별 시계열은 목록에 오른 쌍(P1)만
+        self.assertEqual({r.pnu for r in tables.monthly_rows}, {"P1"})
+        p1_months = sorted(r.deal_ym for r in tables.monthly_rows)
+        self.assertEqual(p1_months, [202602, 202603, 202608, 202609])
 
 
 if __name__ == "__main__":

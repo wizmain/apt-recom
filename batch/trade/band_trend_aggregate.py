@@ -366,15 +366,8 @@ def build_tables(
     for t in kept:
         trades_by_complex[(t.pnu, t.band)].append(t)
 
-    monthly_rows: list[MonthlyRow] = []
     members_by_region: dict[tuple[str, str], list[ComplexStats]] = defaultdict(list)
     for (pnu, band), trades in trades_by_complex.items():
-        by_month = prices_by_key(trades, lambda t: t.deal_ym)
-        for ym, median_price, trade_count in monthly_series(by_month, history_months):
-            if median_price is not None:
-                monthly_rows.append(
-                    MonthlyRow(pnu, band, ym, median_price, trade_count)
-                )
         stats = complex_stats(pnu, band, trades, windows)
         members_by_region[(stats.sigungu_code, band)].append(stats)
 
@@ -411,6 +404,7 @@ def build_tables(
             )
 
     trend_rows: list[TrendRow] = []
+    monthly_rows: list[MonthlyRow] = []
     for (sgg, band), members in members_by_region.items():
         grades = complex_grades(
             [
@@ -456,5 +450,16 @@ def build_tables(
                     g.window_months if g else None,
                 )
             )
+            # 월별 시계열은 목록(apt_band_trend)에 오른 쌍만 — 상세 패널은 목록에서만 열리고 Railway 메모리 비용을 줄인다.
+            by_month = prices_by_key(
+                trades_by_complex[(s.pnu, band)], lambda t: t.deal_ym
+            )
+            for ym, median_price, trade_count in monthly_series(
+                by_month, history_months
+            ):
+                if median_price is not None:
+                    monthly_rows.append(
+                        MonthlyRow(s.pnu, band, ym, median_price, trade_count)
+                    )
 
     return BandTables(monthly_rows, trend_rows, region_rows)
