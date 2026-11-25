@@ -1,0 +1,107 @@
+// 오르는 단지 API(/api/rising*) 응답 타입. 필드명·null 허용은 backend/services/rising.py 기준.
+
+/** 정렬 키 — backend SORT_ORDER_SQL 의 키와 1:1. */
+export type RisingSort =
+  | "change_6m"
+  | "change_12m"
+  | "relative_6m"
+  | "region_price"
+  | "complex_rank"
+  | "price_asc"
+  | "budget_near";
+
+/** common_code rising_area_band 한 행. max_area null = 상한 없음. */
+export interface RisingBand {
+  code: string;
+  name: string;
+  min_area: number;
+  max_area: number | null;
+}
+
+/** 시군구×면적대 집계 한 행 (metadata 의 regions[면적대코드]). */
+export interface RisingRegion {
+  sigungu_code: string;
+  sigungu_name: string;
+  sido_code: string;
+  median_price_3m: number | null;
+  trade_count_3m: number | null;
+  change_6m_pct: number | null;
+  change_12m_pct: number | null;
+  region_grade: string | null;
+  region_rank: number | null;
+  region_rank_total: number | null;
+}
+
+/** GET /api/rising/meta. base_ym(YYYYMM) null = 집계 전. */
+export interface RisingMeta {
+  base_ym: number | null;
+  bands: RisingBand[];
+  regions: Record<string, RisingRegion[]>;
+}
+
+/** 단지×면적대 집계 한 행. 금액은 만원, 변화율은 %. */
+export interface RisingItem {
+  pnu: string;
+  name: string;
+  address: string | null;
+  sigungu_code: string;
+  median_price_3m: number | null;
+  trade_count_3m: number | null;
+  change_6m_pct: number | null;
+  change_12m_pct: number | null;
+  matched_type_count_6m: number | null;
+  matched_type_count_12m: number | null;
+  relative_change_6m_pct: number | null;
+  complex_grade: string | null;
+  complex_rank: number | null;
+  complex_rank_total: number | null;
+  grade_window_months: number | null;
+  region_grade: string | null;
+}
+
+/** GET /api/rising. region_counts 는 시군구 선택·검색어를 뺀 지역별 단지 수. */
+export interface RisingListResponse {
+  base_ym: number | null;
+  total_count: number;
+  region_count: number;
+  page: number;
+  page_size: number;
+  items: RisingItem[];
+  region_counts: Record<string, number>;
+}
+
+export interface RisingMonthlyPoint {
+  ym: number;
+  median_price: number | null;
+  trade_count: number;
+}
+
+export interface RisingRecentTrade {
+  deal_date: string | null;
+  exclu_use_ar: number;
+  floor: number | null;
+  deal_amount: number;
+  is_direct_deal: boolean;
+}
+
+/** GET /api/rising/{pnu}?area_band= */
+export interface RisingDetail {
+  pnu: string;
+  name: string;
+  address: string | null;
+  item: RisingItem;
+  monthly: RisingMonthlyPoint[];
+  recent_trades: RisingRecentTrade[];
+}
+
+/** 화면 필터 상태. 예산은 억 단위(API 파라미터와 동일). */
+export interface RisingFilters {
+  areaBand: string;
+  budgetMin: number;
+  budgetMax: number;
+  sido: string | null;
+  sggCodes: string[];
+  query: string;
+  sort: RisingSort;
+  page: number;
+}
