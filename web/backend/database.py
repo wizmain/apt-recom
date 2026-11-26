@@ -840,6 +840,16 @@ def create_tables(conn) -> None:
             ('rising_scope_sido', '41', '경기', '', 3)
         ON CONFLICT (group_id, code) DO NOTHING;
 
+        -- 국토부 실거래 API 조회 코드 (ADR-013 부기, 2026-11-26 실측).
+        -- 인천 개편 후 API 는 구코드(28110·28140·28260) 조회에 0건을 주고 과거 월까지
+        -- 신코드로 응답한다. code = 내부 구코드, name = 쉼표 구분 API 조회 코드.
+        -- 사용: batch/region_codes.api_query_codes (collect_trades, backfill_dealing_gbn)
+        INSERT INTO common_code (group_id, code, name, extra, sort_order) VALUES
+            ('trade_api_query_code', '28110', '28125,28155', '인천 중구 → 제물포구(일부)·영종구', 1),
+            ('trade_api_query_code', '28140', '28125', '인천 동구 → 제물포구(일부)', 2),
+            ('trade_api_query_code', '28260', '28275,28290', '인천 서구 → 서해구·검단구', 3)
+        ON CONFLICT (group_id, code) DO NOTHING;
+
         -- apartments.display_name 자동 보완 트리거
         -- 다양한 INSERT 사이트(enrich_apartments, backfill_trades 등)에서 display_name을
         -- 명시하지 않았을 때 K-APT 명칭(bld_nm)으로 자동 채움. UPDATE에는 적용하지 않아

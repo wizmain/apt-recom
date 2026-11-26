@@ -165,6 +165,7 @@ class TestCollectBudget(unittest.TestCase):
 
         with (
             patch.object(mod, "get_district_codes", return_value=list(codes)),
+            patch.object(mod, "load_api_query_codes", return_value={}),
             patch.object(mod, "_get_collection_months", return_value=["202608"]),
             patch.object(mod, "_call_api", fake_call),
             patch.object(
@@ -407,6 +408,41 @@ class TestDbKeepAlive(unittest.TestCase):
         self.assertEqual(keepalive.pings, 1)
         keepalive.ping_if_due(60)
         self.assertEqual(keepalive.pings, 2)
+
+
+class TestApiQueryCodes(unittest.TestCase):
+    def test_개편_지역은_API_조회_코드로_부르고_병합_코드는_한_번만(self):
+        """인천 개편(2026) 후 API 는 구코드에 0건 — 등록된 조회 코드로 부른다."""
+        called = []
+
+        def fake_call(url, code, month, log, **kwargs):
+            called.append(code)
+            return "<xml/>"
+
+        with (
+            patch.object(
+                mod, "get_district_codes", return_value=["11110", "28110", "28140"]
+            ),
+            patch.object(
+                mod,
+                "load_api_query_codes",
+                return_value={"28110": ["28125", "28155"], "28140": ["28125"]},
+            ),
+            patch.object(mod, "_get_collection_months", return_value=["202608"]),
+            patch.object(mod, "_call_api", fake_call),
+            patch.object(mod, "_parse_xml", lambda xml, cmap: []),
+            patch.object(mod.time, "sleep"),
+        ):
+            mod.collect_trades(
+                conn=FakeConn(),
+                logger=FakeLogger(),
+                budget_seconds=3600,
+                clock=StepClock(0),
+                now=datetime(2026, 8, 17, 3, 0),
+            )
+        # 매매·전월세 각 1회씩, 회전 오프셋과 무관하게 같은 집합
+        self.assertEqual(sorted(set(called)), ["11110", "28125", "28155"])
+        self.assertEqual(len(called), 6)
 
 
 if __name__ == "__main__":

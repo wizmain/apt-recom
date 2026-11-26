@@ -33,7 +33,7 @@ import re
 import time
 from datetime import date
 
-from batch.region_codes import normalize_sigungu_code
+from batch.region_codes import normalize_api_sigungu
 
 # 국토부 매매 API 가 dealingGbn 을 제공하기 시작한 계약월 — 이보다 이전 쌍은 호출해도 채울 값이 없다.
 DEALING_GBN_FIRST_YM = 202111
@@ -74,7 +74,9 @@ def _to_float(val) -> float | None:
         return None
 
 
-def update_row(api_row: dict, aliases: dict) -> tuple | None:
+def update_row(
+    api_row: dict, aliases: dict, emd_names: dict[str, set[str]] | None = None
+) -> tuple | None:
     """API 매매 행 → (dealing_gbn, 고유키 8칼럼) 튜플. 채울 값이나 고유키가 없으면 None.
 
     고유키는 load_trades 의 적재 규칙(시군구 코드 정규화 포함)과 같게 만든다.
@@ -82,7 +84,13 @@ def update_row(api_row: dict, aliases: dict) -> tuple | None:
     dealing_gbn = (api_row.get("dealingGbn") or "").strip()
     if not dealing_gbn:
         return None
-    sgg = normalize_sigungu_code(str(api_row.get("sggCd", "")), aliases)
+    sgg = normalize_api_sigungu(
+        str(api_row.get("sggCd", "")),
+        aliases,
+        umd_cd=api_row.get("umdCd"),
+        umd_nm=api_row.get("umdNm"),
+        emd_names=emd_names,
+    )
     apt_nm = str(api_row.get("aptNm", ""))
     exclu = _to_float(api_row.get("excluUseAr"))
     floor = _to_int(api_row.get("floor"))
@@ -228,11 +236,18 @@ def backfill_dealing_gbn(
 ) -> dict:
     """대상 쌍을 최근 월부터 처리한다. 반환: 집계 dict."""
     from batch.config import DATA_GO_KR_RATE, TRADE_URL
-    from batch.region_codes import load_aliases
+    from batch.region_codes import (
+        api_query_codes,
+        load_aliases,
+        load_api_query_codes,
+        load_emd_names,
+    )
     from batch.trade.backfill_trades import _call_api_secondary
     from batch.trade.collect_trades import TRADE_COL_MAP, _parse_xml
 
     aliases = load_aliases(conn)
+    emd_names = load_emd_names(conn)
+    query_map = load_api_query_codes(conn)
     targets = _load_targets(conn, from_ym, to_ym, sido)
     completed = _load_checkpoint(conn)
     remaining = [(s, ym) for s, ym in targets if pair_key(s, ym) not in completed]
@@ -256,16 +271,20 @@ def backfill_dealing_gbn(
                 f"호출 한도 도달 ({stats['calls']}콜) — 다음 실행에서 이어서 처리"
             )
             break
-        xml = _call_api_secondary(TRADE_URL, sgg, str(ym))
-        stats["calls"] += 1
-        time.sleep(DATA_GO_KR_RATE)
-        api_rows = _parse_xml(xml, TRADE_COL_MAP)
+        # 개편 지역은 내부 구코드로 조회하면 0건이라 API 조회 코드로 부른다(ADR-013 부기).
+        # 병합 코드는 다른 구의 행도 섞여 오지만 고유키(정규화된 sgg_cd)로만 맞추므로 무해하다.
+        api_rows = []
+        for query_code in api_query_codes([sgg], query_map):
+            xml = _call_api_secondary(TRADE_URL, query_code, str(ym))
+            stats["calls"] += 1
+            time.sleep(DATA_GO_KR_RATE)
+            api_rows.extend(_parse_xml(xml, TRADE_COL_MAP))
         if not api_rows:
             # 응답 실패·빈 응답은 완료로 남기지 않는다(다음 실행에서 재시도).
             stats["empty_responses"] += 1
             logger.warning(f"  {sgg} {ym}: 응답 없음/실패 — 체크포인트 미기록")
             continue
-        rows = [r for a in api_rows if (r := update_row(a, aliases))]
+        rows = [r for a in api_rows if (r := update_row(a, aliases, emd_names))]
         filled = _apply_rows(conn, rows, dry_run)
         stats["pairs"] += 1
         stats["api_rows"] += len(api_rows)

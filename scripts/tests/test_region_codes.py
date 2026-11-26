@@ -3,8 +3,10 @@
 import unittest
 
 from batch.region_codes import (
+    api_query_codes,
     is_known_sigungu,
     load_aliases,
+    normalize_api_sigungu,
     normalize_pnu,
     normalize_sido_name,
     normalize_sigungu,
@@ -123,6 +125,104 @@ class TestLoadAliases(unittest.TestCase):
         a = load_aliases(_Conn())
         self.assertEqual(a["sigungu"]["12300"], "29170")
         self.assertEqual(a["sido"]["전남광주통합특별시"], "광주")
+
+
+# 2026-11-26 국토부 API 실측 — 인천 개편 후 API 가 응답하는 코드
+API_ALIASES = {
+    "sigungu": {
+        "2812511800": "2811011800",  # 제물포구 항동7가 ← 구 중구
+        "2812510100": "2814010100",  # 제물포구 만석동 ← 구 동구
+        "2815510100": "2811014500",  # 영종구 → 구 중구 (분할형, 유일 접기)
+        "2827510100": "2826010300",  # 서해구 → 구 서구
+        "2829010100": "2826010100",  # 검단구 → 구 서구
+    },
+    "sido": {},
+}
+EMD_NAMES = {
+    "28110": {"항동7가", "북성동1가", "신흥동3가"},
+    "28140": {"만석동", "송림동"},
+}
+QUERY_MAP = {
+    "28110": ["28125", "28155"],
+    "28140": ["28125"],
+    "28260": ["28275", "28290"],
+}
+
+
+class TestApiQueryCodes(unittest.TestCase):
+    def test_등록된_구코드는_API_조회_코드로_바꾸고_병합_코드는_한_번만(self):
+        self.assertEqual(
+            api_query_codes(["11110", "28110", "28140", "28260"], QUERY_MAP),
+            ["11110", "28125", "28155", "28275", "28290"],
+        )
+
+    def test_등록_없는_코드는_그대로(self):
+        self.assertEqual(
+            api_query_codes(["41595", "41597"], QUERY_MAP), ["41595", "41597"]
+        )
+
+    def test_이미_신코드가_대상에_있어도_중복_없이(self):
+        """apartments 에 섞인 신코드(28155)가 수집 대상에 같이 와도 한 번만 부른다."""
+        self.assertEqual(
+            api_query_codes(["28110", "28155"], QUERY_MAP), ["28125", "28155"]
+        )
+
+
+class TestNormalizeApiSigungu(unittest.TestCase):
+    def test_매매는_법정동_코드로_병합형을_가른다(self):
+        self.assertEqual(
+            normalize_api_sigungu("28125", API_ALIASES, umd_cd="11800"), "28110"
+        )
+        self.assertEqual(
+            normalize_api_sigungu("28125", API_ALIASES, umd_cd="10100"), "28140"
+        )
+
+    def test_분할형은_법정동_없이도_접힌다(self):
+        self.assertEqual(normalize_api_sigungu("28155", API_ALIASES), "28110")
+        self.assertEqual(
+            normalize_api_sigungu("28290", API_ALIASES, umd_cd="10600"), "28260"
+        )
+
+    def test_전월세는_법정동명으로_후보_구코드_안에서만_찾는다(self):
+        self.assertEqual(
+            normalize_api_sigungu(
+                "28125", API_ALIASES, umd_nm="송림동", emd_names=EMD_NAMES
+            ),
+            "28140",
+        )
+        self.assertEqual(
+            normalize_api_sigungu(
+                "28125", API_ALIASES, umd_nm="신흥동3가", emd_names=EMD_NAMES
+            ),
+            "28110",
+        )
+
+    def test_매매_법정동_별칭이_없으면_이름으로_보완(self):
+        """북성동1가(28125-14500) 는 10자리 별칭이 없었다(2026-11-26 실측)."""
+        self.assertEqual(
+            normalize_api_sigungu(
+                "28125",
+                API_ALIASES,
+                umd_cd="14500",
+                umd_nm="북성동1가",
+                emd_names=EMD_NAMES,
+            ),
+            "28110",
+        )
+
+    def test_정해지지_않으면_원본(self):
+        self.assertEqual(normalize_api_sigungu("28125", API_ALIASES), "28125")
+        self.assertEqual(
+            normalize_api_sigungu(
+                "28125", API_ALIASES, umd_nm="없는동", emd_names=EMD_NAMES
+            ),
+            "28125",
+        )
+
+    def test_개편_없는_코드는_그대로(self):
+        self.assertEqual(
+            normalize_api_sigungu("11110", API_ALIASES, umd_cd="10100"), "11110"
+        )
 
 
 if __name__ == "__main__":

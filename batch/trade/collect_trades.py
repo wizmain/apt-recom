@@ -34,6 +34,7 @@ from batch.config import (
     TRADE_URL,
 )
 from batch.db import get_district_codes, query_one
+from batch.region_codes import api_query_codes, load_api_query_codes
 
 # 회전 보폭. 소수라 시군구 수와 서로소가 되기 쉬워 전 구간을 고르게 돈다.
 DISTRICT_ROTATION_STRIDE = 97
@@ -267,7 +268,10 @@ def collect_trades(
 
     예산을 넘기면 남은 시군구를 남긴 채 정상 반환한다 (모듈 docstring 참고).
     """
-    codes = get_district_codes(conn)
+    # 내부 구코드 → 국토부 API 가 실제로 응답하는 조회 코드 (ADR-013 부기, 2026-11-26).
+    # 응답의 신코드 sggCd 는 load_trades 가 다시 구코드로 정규화한다.
+    internal_codes = get_district_codes(conn)
+    codes = api_query_codes(internal_codes, load_api_query_codes(conn))
     months = _get_collection_months(conn)
 
     offset = _rotation_offset(len(codes), now)

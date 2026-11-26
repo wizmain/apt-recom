@@ -2,7 +2,7 @@
 
 import re
 from batch.db import execute_values_chunked, query_all
-from batch.region_codes import load_aliases, normalize_sigungu_code
+from batch.region_codes import load_aliases, load_emd_names, normalize_api_sigungu
 from batch.trade.trade_keys import resolve_trade_key
 
 
@@ -31,8 +31,11 @@ def _to_float(val):
         return None
 
 
-def load_trades(conn, trade_rows, rent_rows, logger):
-    """거래/전월세 데이터를 중복 제거 후 INSERT."""
+def load_trades(conn, trade_rows, rent_rows, logger, dry_run=False):
+    """거래/전월세 데이터를 중복 제거 후 INSERT. 반환: 적재 건수(dry_run 이면 신규 후보 건수).
+
+    dry_run 은 기존 키 대조까지만 하고 쓰지 않는다(recollect_history 의 사전 점검용).
+    """
     total_inserted = 0
 
     # ADR-013: 내부 표준은 구코드. 질의는 구코드(LAWD_CD)로 하지만 응답
@@ -42,6 +45,9 @@ def load_trades(conn, trade_rows, rent_rows, logger):
     # 포함하므로 여기서 접어야 하류(매핑·등록)까지 구코드로 일관된다.
     # 미지의 코드는 그대로 두고 audit_unknown_codes 가 감시.
     aliases = load_aliases(conn)
+    # 병합형 신코드(제물포구 28125)를 법정동명으로 가르기 위한 레지스트리 — 전월세 응답에는
+    # 법정동 코드가 없다. 2026-11-26 인천 개편 대응(ADR-013 부기).
+    emd_names = load_emd_names(conn)
 
     # ── 매매 ──
     if trade_rows:
@@ -78,7 +84,13 @@ def load_trades(conn, trade_rows, rent_rows, logger):
         # 신규 건만 필터
         new_rows = []
         for r in trade_rows:
-            sgg = normalize_sigungu_code(str(r.get("sggCd", "")), aliases)
+            sgg = normalize_api_sigungu(
+                str(r.get("sggCd", "")),
+                aliases,
+                umd_cd=r.get("umdCd"),
+                umd_nm=r.get("umdNm"),
+                emd_names=emd_names,
+            )
             apt_nm = str(r.get("aptNm", ""))
             exclu = str(r.get("excluUseAr", ""))
             floor = str(r.get("floor", ""))
@@ -125,7 +137,12 @@ def load_trades(conn, trade_rows, rent_rows, logger):
                 )
             )
 
-        if new_rows:
+        if new_rows and dry_run:
+            total_inserted += len(new_rows)
+            logger.info(
+                f"  [dry-run] 매매 신규 후보 {len(new_rows):,}건 (기존 키 {len(existing_keys):,}건)"
+            )
+        elif new_rows:
             cnt = execute_values_chunked(
                 conn,
                 "INSERT INTO trade_history (apt_seq, sgg_cd, apt_nm, deal_amount, exclu_use_ar, floor, deal_year, deal_month, deal_day, build_year,"
@@ -174,7 +191,12 @@ def load_trades(conn, trade_rows, rent_rows, logger):
 
         new_rows = []
         for r in rent_rows:
-            sgg = normalize_sigungu_code(str(r.get("sggCd", "")), aliases)
+            sgg = normalize_api_sigungu(
+                str(r.get("sggCd", "")),
+                aliases,
+                umd_nm=r.get("umdNm"),
+                emd_names=emd_names,
+            )
             apt_nm = str(r.get("aptNm", ""))
             exclu = str(r.get("excluUseAr", ""))
             floor = str(r.get("floor", ""))
@@ -220,7 +242,12 @@ def load_trades(conn, trade_rows, rent_rows, logger):
                 )
             )
 
-        if new_rows:
+        if new_rows and dry_run:
+            total_inserted += len(new_rows)
+            logger.info(
+                f"  [dry-run] 전월세 신규 후보 {len(new_rows):,}건 (기존 키 {len(existing_keys):,}건)"
+            )
+        elif new_rows:
             cnt = execute_values_chunked(
                 conn,
                 "INSERT INTO rent_history (apt_seq, sgg_cd, apt_nm, deposit, monthly_rent, exclu_use_ar, floor, deal_year, deal_month, deal_day,"
