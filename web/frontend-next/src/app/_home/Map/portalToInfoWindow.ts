@@ -18,6 +18,7 @@ export function openInfoWindow(
   map: kakao.maps.Map,
   position: kakao.maps.LatLng,
   content: ReactElement,
+  onShown?: (card: HTMLElement) => void,
 ): () => void {
   const container = document.createElement("div");
   const root: Root = createRoot(container);
@@ -41,6 +42,8 @@ export function openInfoWindow(
     if (closed) return;
     flushSync(() => root.render(content));
     overlay.setMap(map);
+    // 지도에 붙은 뒤 실제 위치로 측정해야 하므로 다음 프레임에 알린다(카드 잘림 보정 등).
+    if (onShown) requestAnimationFrame(() => !closed && onShown(container));
   });
   return () => {
     closed = true;

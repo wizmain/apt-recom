@@ -368,3 +368,83 @@ def get_detail(conn, pnu: str, band: AreaBand) -> dict | None:
         "monthly": _monthly_series(conn, pnu, band.code, base_ym),
         "recent_trades": _recent_trades(conn, pnu, band, base_ym),
     }
+
+
+# ── 지도용 추세 요약 ───────────────────────────────────────────────────
+
+# 한 번에 받는 PNU 상한. 클러스터러 minLevel(5) 이상 줌은 마커가 묶여 개별 화살표가 안 보이므로
+# 그 줌의 대량 요청은 받지 않는다. 프론트 hooks/useMapTrends.ts 의 같은 이름 상수와 함께 바꾼다.
+MAP_TREND_MAX_PNUS = 2000
+# |6개월 변화| 가 이 값 이하면 보합(화살표 없음). 설계 2026-11-26 사용자 확정.
+FLAT_THRESHOLD_PCT = 2.0
+# 3개월 거래가 이 건수 이하면 표본 적음(화살표 없음) — frontend-next app/rising/format.ts 와 같은 값.
+THIN_SAMPLE_MAX_TRADES = 2
+
+
+def trend_direction(change_6m_pct: float | None, trade_count_3m: int | None) -> str:
+    """마커 방향: up / down / flat(보합) / none(비교 부족·표본 적음)."""
+    if change_6m_pct is None or trade_count_3m is None:
+        return "none"
+    if trade_count_3m <= THIN_SAMPLE_MAX_TRADES:
+        return "none"
+    if abs(change_6m_pct) <= FLAT_THRESHOLD_PCT:
+        return "flat"
+    return "up" if change_6m_pct > 0 else "down"
+
+
+def bands_for_area_filter(
+    bands: dict[str, AreaBand], min_area: float | None, max_area: float | None
+) -> list[str]:
+    """면적 필터와 겹치는 면적대 코드(면적대 [min, max) 기준, bands 순서 유지)."""
+    return [
+        code
+        for code, band in bands.items()
+        if (max_area is None or band.min_area <= max_area)
+        and (min_area is None or band.max_area is None or band.max_area > min_area)
+    ]
+
+
+# 요청 PNU → 대표 단지(group_pnu) 집계 행 중 선택 면적대의 거래 최다 1행. 응답 키는 요청 PNU.
+# 동률이면 면적대 정의 순서(common_code sort_order — 작은 면적대 먼저). area_band 는 TEXT 라
+# 문자열 정렬하면 "100" 이 "59" 보다 앞선다.
+_MAP_TRENDS_SQL = """
+    SELECT DISTINCT ON (req.pnu)
+           req.pnu AS request_pnu, t.area_band, t.median_price_3m, t.trade_count_3m,
+           t.change_6m_pct, t.change_12m_pct, t.matched_type_count_6m, t.matched_type_count_12m,
+           t.complex_grade, t.complex_rank, t.complex_rank_total, t.grade_window_months,
+           r.region_grade
+    FROM unnest(%(pnus)s::text[]) AS req(pnu)
+    JOIN apartments a ON a.pnu = req.pnu
+    JOIN apt_band_trend t
+        ON t.pnu = COALESCE(a.group_pnu, a.pnu) AND t.area_band = ANY(%(bands)s)
+    JOIN common_code bc ON bc.group_id = %(band_group)s AND bc.code = t.area_band
+    LEFT JOIN region_band_trend r
+        ON r.sigungu_code = t.sigungu_code AND r.area_band = t.area_band
+    ORDER BY req.pnu, t.trade_count_3m DESC NULLS LAST, bc.sort_order
+"""
+
+
+def get_map_trends(
+    conn, pnus: list[str], min_area: float | None, max_area: float | None
+) -> dict:
+    """지도 단지들의 추세 요약. 집계 행이 없는 PNU 는 결과에 없다."""
+    base_ym = _latest_base_ym(conn)
+    bands = load_area_bands(conn)
+    selected = bands_for_area_filter(bands, min_area, max_area)
+    if not pnus or not selected:
+        return {"base_ym": base_ym, "items": {}}
+    rows = conn.execute(
+        _MAP_TRENDS_SQL,
+        {
+            "pnus": list(dict.fromkeys(pnus)),
+            "bands": selected,
+            "band_group": AREA_BAND_GROUP,
+        },
+    ).fetchall()
+    items = {}
+    for row in rows:
+        item = {k: v for k, v in row.items() if k != "request_pnu"}
+        item["area_band_name"] = bands[row["area_band"]].name
+        item["direction"] = trend_direction(row["change_6m_pct"], row["trade_count_3m"])
+        items[row["request_pnu"]] = item
+    return {"base_ym": base_ym, "items": items}

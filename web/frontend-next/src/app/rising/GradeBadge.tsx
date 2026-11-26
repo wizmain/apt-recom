@@ -35,7 +35,13 @@ export function RegionGradeBadge({ grade }: { grade: string | null }) {
 }
 
 /** 지역 내 단지 등급 + 순위(rank/total) 또는 "12개월 참고". */
-export function ComplexGradeCell({ item }: { item: RisingItem }) {
+/** 단지 등급 표시에 필요한 필드만 — 목록 항목(RisingItem)과 지도 추세(MapTrend)가 함께 쓴다. */
+type ComplexGradeFields = Pick<
+  RisingItem,
+  "complex_grade" | "grade_window_months" | "complex_rank" | "complex_rank_total"
+>;
+
+export function ComplexGradeCell({ item }: { item: ComplexGradeFields }) {
   if (item.complex_grade === null) return <GradeBadge grade={null} />;
   const isReference = item.grade_window_months === REFERENCE_WINDOW_MONTHS;
   const hasRank = item.complex_rank !== null && item.complex_rank_total !== null;

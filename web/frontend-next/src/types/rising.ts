@@ -112,3 +112,31 @@ export interface RisingFilters {
   sort: RisingSort;
   page: number;
 }
+
+/** 지도 마커 방향 — 서버 판정(보합 ±2%, 비교 부족·표본 적음은 none). backend services/rising.py trend_direction */
+export type TrendDirection = "up" | "down" | "flat" | "none";
+
+/** POST /api/rising/map 단지별 추세 요약 (면적 필터와 겹치는 면적대 중 거래 최다). */
+export interface MapTrend {
+  area_band: string;
+  area_band_name: string;
+  median_price_3m: number | null;
+  trade_count_3m: number | null;
+  change_6m_pct: number | null;
+  change_12m_pct: number | null;
+  /** 비교에 쓴 주택형 수 — 1 이면 "한 주택형만 비교" 표시. */
+  matched_type_count_6m: number | null;
+  matched_type_count_12m: number | null;
+  complex_grade: string | null;
+  complex_rank: number | null;
+  complex_rank_total: number | null;
+  grade_window_months: number | null;
+  region_grade: string | null;
+  direction: TrendDirection;
+}
+
+export interface MapTrendResponse {
+  base_ym: number | null;
+  /** 요청 PNU → 요약. 집계 행이 없는 PNU 는 키 없음. */
+  items: Record<string, MapTrend>;
+}

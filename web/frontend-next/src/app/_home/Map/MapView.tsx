@@ -5,18 +5,26 @@ import { useEffect, useRef } from "react";
 import type { Apartment, MapBounds, ScoredApartment } from "@/types/apartment";
 import type { ChatHighlightApt } from "@/lib/store/chatSlice";
 import type { FocusPnu } from "@/lib/store/mapSlice";
+import type { MapTrend } from "@/types/rising";
 import { useKakaoReady } from "./useKakaoReady";
 import { useMapInstance } from "./useMapInstance";
-import { createBasicMarker } from "./markers/createBasicMarker";
+import { createTrendMarker } from "./markers/createTrendMarker";
 import { createRankedMarker } from "./markers/createRankedMarker";
 import { createChatMarker } from "./markers/createChatMarker";
 import { InfoWindowBody } from "./InfoWindowBody";
 import { openInfoWindow } from "./portalToInfoWindow";
 
+/** 지도 위에 겹친 상단 바(검색·칩·지역 칩)를 표시하는 속성 — 팝업은 그 아래로 보이게 한다. */
+const MAP_TOP_OVERLAY_SELECTOR = "[data-map-top-overlay]";
+/** 상단 바와 팝업 카드 사이 간격(px). */
+const POPUP_TOP_GAP_PX = 8;
+
 export type MapViewProps = {
   apartments: Apartment[];
   scoredApartments: ScoredApartment[];
   chatHighlights: ChatHighlightApt[];
+  /** 단지별 오르는 단지 추세 요약(useMapTrends). 없으면 기본 핀·팝업 블록 생략. */
+  trends: Record<string, MapTrend>;
   focusPnu: FocusPnu | null;
   regionFitNonce: number;
   scoredFitNonce: number;
@@ -32,6 +40,7 @@ export function MapView(props: MapViewProps) {
     apartments,
     scoredApartments,
     chatHighlights,
+    trends,
     focusPnu,
     regionFitNonce,
     scoredFitNonce,
@@ -51,6 +60,9 @@ export function MapView(props: MapViewProps) {
   const chatMarkersRef = useRef<kakao.maps.Marker[]>([]);
   const basicMarkersRef = useRef<kakao.maps.Marker[]>([]);
   const closeInfoRef = useRef<(() => void) | null>(null);
+  // 순위·챗 마커와 focus 는 trends 갱신 때 다시 만들지 않으므로, 클릭 시점의 최신 추세를 ref 로 읽는다.
+  const trendsRef = useRef(trends);
+  trendsRef.current = trends;
 
   const showInfo = (apt: { pnu: string; bld_nm: string; lat: number; lng: number }) => {
     if (!mapRef.current) return;
@@ -62,6 +74,7 @@ export function MapView(props: MapViewProps) {
       position,
       <InfoWindowBody
         apt={{ pnu: apt.pnu, bld_nm: apt.bld_nm }}
+        trend={trendsRef.current[apt.pnu]}
         onDetailOpen={(pnu) => {
           closeInfoRef.current?.();
           closeInfoRef.current = null;
@@ -78,7 +91,23 @@ export function MapView(props: MapViewProps) {
           closeInfoRef.current = null;
         }}
       />,
+      (card) => keepCardInView(card),
     );
+  };
+
+  // 팝업 카드가 지도 위쪽 밖으로 나가면(추세 블록으로 카드가 길어짐) 그만큼 지도를 내린다.
+  const keepCardInView = (card: HTMLElement) => {
+    const map = mapRef.current;
+    const container = containerRef.current;
+    if (!map || !container) return;
+    const overlayBottom = Math.max(
+      container.getBoundingClientRect().top,
+      ...[...document.querySelectorAll(MAP_TOP_OVERLAY_SELECTOR)].map(
+        (el) => el.getBoundingClientRect().bottom,
+      ),
+    );
+    const overflow = overlayBottom + POPUP_TOP_GAP_PX - card.getBoundingClientRect().top;
+    if (overflow > 0) map.panBy(0, -overflow);
   };
 
   // 순위 마커 — Marker + MarkerImage (클러스터러에 넣지 않고 개별 표시)
@@ -137,9 +166,10 @@ export function MapView(props: MapViewProps) {
     const markers: kakao.maps.Marker[] = [];
     apartments.forEach((apt) => {
       if (apt.lat == null || apt.lng == null) return;
-      const marker = createBasicMarker(
+      const marker = createTrendMarker(
         new k.LatLng(apt.lat, apt.lng),
         apt.bld_nm || "",
+        trends[apt.pnu],
         () => showInfo({ pnu: apt.pnu, bld_nm: apt.bld_nm, lat: apt.lat, lng: apt.lng }),
       );
       markers.push(marker);
@@ -150,7 +180,7 @@ export function MapView(props: MapViewProps) {
       clusterer.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showInfo 매 렌더 생성 제외
-  }, [apartments, scoredApartments.length, ready, mapRef, clustererRef]);
+  }, [apartments, trends, scoredApartments.length, ready, mapRef, clustererRef]);
 
   // focus 이동 — panTo + InfoWindow.
   // 일회성 인터랙션이므로 적용 직후 store 의 focusPnu 를 소비(null)한다.

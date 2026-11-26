@@ -28,6 +28,8 @@ declare namespace kakao.maps {
     setLevel(level: number): void;
     getLevel(): number;
     panTo(latlng: LatLng): void;
+    /** 지도 중심을 화면 픽셀(dx, dy)만큼 부드럽게 이동. */
+    panBy(dx: number, dy: number): void;
   }
 
   interface MarkerOptions {

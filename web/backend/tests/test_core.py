@@ -1096,8 +1096,13 @@ def test_admin_mcp_usage():
     assert resp.status_code == 200, f"예상: 200, 실제: {resp.status_code}"
     data = resp.json()
     for key in (
-        "range", "summary", "daily", "by_tool",
-        "by_client_kind", "by_client_name", "recent_errors",
+        "range",
+        "summary",
+        "daily",
+        "by_tool",
+        "by_client_kind",
+        "by_client_name",
+        "recent_errors",
     ):
         assert key in data, f"{key} 필드 없음"
 
@@ -1136,7 +1141,10 @@ def test_mcp_usage_separates_protocol_rows():
         "by_tool 에 프로토콜 행 포함"
     )
     assert sum(t["count_calls"] for t in data["by_tool"]) == raw["tool_calls"]
-    assert sum(c["count_connections"] for c in data["by_client_name"]) == raw["connections"]
+    assert (
+        sum(c["count_connections"] for c in data["by_client_name"])
+        == raw["connections"]
+    )
     assert sum(d["count_tool_calls"] for d in data["daily"]) == raw["tool_calls"]
 
 
@@ -1989,6 +1997,177 @@ def test_rising_detail_missing_band():
     resp = requests.get(f"{RISING_API}/{pnu}", params={"area_band": "175"})
     expected = 200 if has_row else 404
     assert resp.status_code == expected, f"{pnu} 175㎡급 → {resp.status_code}"
+
+
+# ------------------------------------------------------------
+# 지도용 추세 요약 (POST /api/rising/map)
+# ------------------------------------------------------------
+
+RISING_MAP_API = f"{RISING_API}/map"
+
+
+def _top_band_pnu(conn, need_band: str = "84") -> tuple[str, str]:
+    """need_band 행이 있는 대표 단지와 그 단지의 거래 최다 면적대."""
+    row = conn.execute(
+        """
+        SELECT t.pnu,
+               (SELECT t2.area_band FROM apt_band_trend t2 WHERE t2.pnu = t.pnu
+                ORDER BY t2.trade_count_3m DESC, t2.area_band LIMIT 1) AS top_band
+        FROM apt_band_trend t WHERE t.area_band = %s
+        ORDER BY t.trade_count_3m DESC LIMIT 1
+        """,
+        [need_band],
+    ).fetchone()
+    return row["pnu"], row["top_band"]
+
+
+@test("지도 추세: 방향 판정 — ±2% 보합, 표본 2건 이하·비교 부족은 none")
+def test_rising_map_direction():
+    from services.rising import trend_direction
+
+    assert trend_direction(2.01, 3) == "up"
+    assert trend_direction(-2.01, 3) == "down"
+    assert trend_direction(2.0, 3) == "flat"
+    assert trend_direction(-2.0, 3) == "flat"
+    assert trend_direction(10.0, 2) == "none"
+    assert trend_direction(None, 9) == "none"
+    assert trend_direction(5.0, None) == "none"
+
+
+@test("지도 추세: 면적 필터와 겹치는 면적대만")
+def test_rising_map_bands_for_filter():
+    from database import DictConnection
+    from services.rising import bands_for_area_filter, load_area_bands
+
+    conn = DictConnection()
+    bands = load_area_bands(conn)
+    conn.close()
+    assert bands_for_area_filter(bands, None, None) == list(bands), bands
+    assert bands_for_area_filter(bands, 60, 85) == ["59", "84"]
+    assert bands_for_area_filter(bands, 100, None) == ["100", "125", "150", "175"]
+    assert bands_for_area_filter(bands, None, 40) == []
+
+
+@test("지도 추세: 필터 없으면 거래 최다 면적대, 방향 값 포함")
+def test_rising_map_default_band():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    pnu, top_band = _top_band_pnu(conn)
+    conn.close()
+    resp = requests.post(RISING_MAP_API, json={"pnus": [pnu]})
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["items"][pnu]
+    assert item["area_band"] == top_band, (item, top_band)
+    assert item["direction"] in {"up", "down", "flat", "none"}, item
+
+
+@test("지도 추세: 면적 필터 적용 — 겹치는 면적대만, 겹치는 게 없으면 빈 결과")
+def test_rising_map_filter():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    pnu, _ = _top_band_pnu(conn)
+    conn.close()
+    data = requests.post(
+        RISING_MAP_API, json={"pnus": [pnu], "min_area": 60, "max_area": 85}
+    ).json()
+    assert data["items"][pnu]["area_band"] in {"59", "84"}, data
+    data = requests.post(RISING_MAP_API, json={"pnus": [pnu], "max_area": 40}).json()
+    assert data["items"] == {}, data
+
+
+@test("지도 추세: 비대표 PNU 는 대표 단지 추세를 원래 키로 받는다")
+def test_rising_map_group_member():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        """
+        SELECT a.pnu, a.group_pnu FROM apartments a
+        WHERE a.group_pnu IS NOT NULL AND a.group_pnu <> a.pnu
+          AND EXISTS (SELECT 1 FROM apt_band_trend t WHERE t.pnu = a.group_pnu)
+        LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    if row is None:
+        print("    (skip: 집계 행이 있는 비대표 PNU 없음)")
+        return
+    data = requests.post(
+        RISING_MAP_API, json={"pnus": [row["pnu"], row["group_pnu"]]}
+    ).json()
+    member, rep = data["items"][row["pnu"]], data["items"][row["group_pnu"]]
+    assert member == rep, (member, rep)
+
+
+@test("지도 추세: 거래 수 동률이면 면적대 정의 순서(작은 면적대)가 대표")
+def test_rising_map_tie_uses_band_order():
+    import requests
+
+    from database import DictConnection
+    from services.rising import load_area_bands
+
+    conn = DictConnection()
+    order = list(load_area_bands(conn))
+    row = conn.execute(
+        """
+        WITH r AS (
+            SELECT pnu, area_band,
+                   rank() OVER (PARTITION BY pnu ORDER BY trade_count_3m DESC) AS rk
+            FROM apt_band_trend
+        )
+        SELECT pnu, array_agg(area_band) AS bands FROM r WHERE rk = 1
+        GROUP BY pnu HAVING count(*) > 1
+          AND bool_or(area_band IN ('59', '84'))
+          AND bool_or(area_band IN ('100', '125', '150', '175'))
+        LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    if row is None:
+        print("    (skip: 소형·대형 동률 단지 없음)")
+        return
+    expected = min(row["bands"], key=order.index)
+    item = requests.post(RISING_MAP_API, json={"pnus": [row["pnu"]]}).json()["items"][
+        row["pnu"]
+    ]
+    assert item["area_band"] == expected, (row, item["area_band"])
+
+
+@test("지도 추세: 신뢰도 표시용 비교 주택형 수 포함")
+def test_rising_map_matched_type_counts():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    pnu, _ = _top_band_pnu(conn)
+    conn.close()
+    item = requests.post(RISING_MAP_API, json={"pnus": [pnu]}).json()["items"][pnu]
+    assert "matched_type_count_6m" in item and "matched_type_count_12m" in item, item
+
+
+@test("지도 추세: 빈 요청 200, 상한 초과 422, 집계 밖 PNU 는 결과 없음")
+def test_rising_map_bounds():
+    import requests
+
+    resp = requests.post(RISING_MAP_API, json={"pnus": []})
+    assert resp.status_code == 200 and resp.json()["items"] == {}, resp.text
+    resp = requests.post(RISING_MAP_API, json={"pnus": [f"X{i}" for i in range(2001)]})
+    assert resp.status_code == 422, resp.status_code
+    resp = requests.post(RISING_MAP_API, json={"pnus": ["5011010100000010000"]})
+    assert resp.status_code == 200 and resp.json()["items"] == {}, resp.text
+    resp = requests.post(
+        RISING_MAP_API, json={"pnus": ["x"], "min_area": 90, "max_area": 60}
+    )
+    assert resp.status_code == 422, resp.status_code
 
 
 # ============================================================

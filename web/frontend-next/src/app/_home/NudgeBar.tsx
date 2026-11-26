@@ -73,7 +73,8 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
   };
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-10 bg-white/95 backdrop-blur-sm shadow-sm">
+    // data-map-top-overlay: 지도 팝업이 이 바 아래로 보이도록 MapView 가 높이를 잰다.
+    <div data-map-top-overlay className="fixed top-0 left-0 right-0 z-10 bg-white/95 backdrop-blur-sm shadow-sm">
       {/* 공통: 로고 + 탭 + 지도 전용 컨트롤 */}
       <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 h-12 sm:h-14">
         <span className="text-sm font-semibold text-gray-700 whitespace-nowrap mr-0.5 sm:mr-1">🐿</span>
