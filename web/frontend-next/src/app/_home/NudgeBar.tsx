@@ -128,6 +128,10 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
 
 /* ── 하위 컴포넌트 ── */
 
+// 가격흐름(오르는 단지) 바로가기 — 화면 전환이 아니라 /rising 페이지 이동이라 선택 상태가 없다.
+const PRICE_FLOW_LABEL = '가격흐름';
+const PRICE_FLOW_PATH = '/rising';
+
 function ViewTabs({ viewMode, onViewChange }: { viewMode: string; onViewChange: (m: 'map' | 'dashboard') => void }) {
   return (
     <div className="flex items-center bg-gray-100 rounded-full p-0.5 flex-shrink-0">
@@ -141,6 +145,14 @@ function ViewTabs({ viewMode, onViewChange }: { viewMode: string; onViewChange: 
           {mode === 'map' ? '지도' : '실거래대시보드'}
         </button>
       ))}
+      <Link
+        href={PRICE_FLOW_PATH}
+        onClick={() => logEvent('price_flow_shortcut_click', { view_mode: viewMode })}
+        className="px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap text-gray-500 hover:text-gray-700 transition-colors"
+      >
+        {PRICE_FLOW_LABEL}
+        <span aria-hidden className="ml-0.5 text-[10px]">↗</span>
+      </Link>
     </div>
   );
 }
