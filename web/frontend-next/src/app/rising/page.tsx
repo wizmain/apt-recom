@@ -1,8 +1,8 @@
 // src/app/rising/page.tsx
 import type { Metadata } from "next";
-import { SiteNav } from "@/components/SiteNav";
 import Disclaimer from "./Disclaimer";
 import RisingView from "./_view";
+import RisingTopBar from "./RisingTopBar";
 
 export const metadata: Metadata = {
   // 루트 layout 의 title.template("%s | 집토리")가 접미사를 붙이므로 페이지명만 선언.
@@ -15,11 +15,12 @@ export const metadata: Metadata = {
 // 정적 셸 — 서버 fetch·searchParams·revalidate 없이 데이터는 클라이언트 훅으로만 받는다.
 export default function RisingPage() {
   return (
-    <main className="min-h-[100dvh] bg-gray-50 px-4 py-8 sm:px-6">
+    <>
+    {/* 홈 대시보드와 같은 상단 바(고정) — 본문은 바 높이(h-12 / sm:h-14)만큼 내린다 */}
+    <RisingTopBar />
+    <main className="min-h-[100dvh] bg-gray-50 px-4 pb-8 pt-20 sm:px-6 sm:pt-22">
       <div className="mx-auto max-w-5xl">
-        {/* 홈 밖 페이지 공용 이동 — 지도·실거래 대시보드로 돌아가는 길 (대시보드 유입 계측 from=rising) */}
-        <SiteNav from="rising" />
-        <h1 className="mt-5 text-xl sm:text-2xl font-bold text-gray-900">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
           가격흐름
         </h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -29,5 +30,6 @@ export default function RisingPage() {
         <RisingView />
       </div>
     </main>
+    </>
   );
 }
