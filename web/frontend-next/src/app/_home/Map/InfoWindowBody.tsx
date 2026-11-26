@@ -1,6 +1,9 @@
 // src/app/_home/Map/InfoWindowBody.tsx
 "use client";
 
+import type { MapTrend } from "@/types/rising";
+import { InfoWindowTrend } from "./InfoWindowTrend";
+
 export type InfoWindowApt = {
   pnu: string;
   bld_nm: string;
@@ -8,12 +11,15 @@ export type InfoWindowApt = {
 
 export function InfoWindowBody({
   apt,
+  trend,
   onDetailOpen,
   onChatAnalyze,
   onCompareToggle,
   onClose,
 }: {
   apt: InfoWindowApt;
+  /** 오르는 단지 추세 요약 — 집계가 없는 단지는 undefined(블록 생략). */
+  trend?: MapTrend;
   onDetailOpen: (pnu: string) => void;
   onChatAnalyze: (name: string, pnu: string) => void;
   onCompareToggle: (pnu: string, name: string) => void;
@@ -33,6 +39,7 @@ export function InfoWindowBody({
           ✕
         </button>
       </div>
+      {trend && <InfoWindowTrend trend={trend} />}
       <div className="mt-2 flex flex-col gap-1 text-xs">
         <button
           onClick={() => onDetailOpen(apt.pnu)}

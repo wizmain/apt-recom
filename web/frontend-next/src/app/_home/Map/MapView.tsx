@@ -14,6 +14,11 @@ import { createChatMarker } from "./markers/createChatMarker";
 import { InfoWindowBody } from "./InfoWindowBody";
 import { openInfoWindow } from "./portalToInfoWindow";
 
+/** 지도 위에 겹친 상단 바(검색·칩·지역 칩)를 표시하는 속성 — 팝업은 그 아래로 보이게 한다. */
+const MAP_TOP_OVERLAY_SELECTOR = "[data-map-top-overlay]";
+/** 상단 바와 팝업 카드 사이 간격(px). */
+const POPUP_TOP_GAP_PX = 8;
+
 export type MapViewProps = {
   apartments: Apartment[];
   scoredApartments: ScoredApartment[];
@@ -66,6 +71,7 @@ export function MapView(props: MapViewProps) {
       position,
       <InfoWindowBody
         apt={{ pnu: apt.pnu, bld_nm: apt.bld_nm }}
+        trend={trends[apt.pnu]}
         onDetailOpen={(pnu) => {
           closeInfoRef.current?.();
           closeInfoRef.current = null;
@@ -82,7 +88,23 @@ export function MapView(props: MapViewProps) {
           closeInfoRef.current = null;
         }}
       />,
+      (card) => keepCardInView(card),
     );
+  };
+
+  // 팝업 카드가 지도 위쪽 밖으로 나가면(추세 블록으로 카드가 길어짐) 그만큼 지도를 내린다.
+  const keepCardInView = (card: HTMLElement) => {
+    const map = mapRef.current;
+    const container = containerRef.current;
+    if (!map || !container) return;
+    const overlayBottom = Math.max(
+      container.getBoundingClientRect().top,
+      ...[...document.querySelectorAll(MAP_TOP_OVERLAY_SELECTOR)].map(
+        (el) => el.getBoundingClientRect().bottom,
+      ),
+    );
+    const overflow = overlayBottom + POPUP_TOP_GAP_PX - card.getBoundingClientRect().top;
+    if (overflow > 0) map.panBy(0, -overflow);
   };
 
   // 순위 마커 — Marker + MarkerImage (클러스터러에 넣지 않고 개별 표시)
