@@ -8,6 +8,8 @@ import type { RegionCandidate, SelectedRegion } from '@/types/apartment';
 import { useAppStore } from '@/lib/store';
 import { logEvent } from '@/lib/logEvent';
 import SearchCoach from './SearchCoach';
+import TopBarMoreMenu from './TopBarMoreMenu';
+import { TOP_BAR_LINKS, type TopBarLink } from './topBarLinks';
 
 interface NudgeBarProps {
   onOpenSettings: () => void;
@@ -97,9 +99,10 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
           />
         )}
 
-        <ExploreLink />
-        <ContentLink />
-        <GuideLink />
+        <TopBarMoreMenu />
+        {TOP_BAR_LINKS.map((link, index) => (
+          <TopBarPillLink key={link.href} link={link} alignRight={index === 0} />
+        ))}
         <SiteInfo />
       </div>
 
@@ -142,7 +145,13 @@ function ViewTabs({ viewMode, onViewChange }: { viewMode: string; onViewChange: 
           className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors
             ${viewMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
         >
-          {mode === 'map' ? '지도' : '실거래대시보드'}
+          {mode === 'map' ? '지도' : (
+            <>
+              {/* 1280px 미만은 짧은 라벨 — 가격흐름 바로가기를 넣어도 상단 바가 넘치지 않게 */}
+              <span className="xl:hidden">대시보드</span>
+              <span className="hidden xl:inline">실거래대시보드</span>
+            </>
+          )}
         </button>
       ))}
       <Link
@@ -151,7 +160,7 @@ function ViewTabs({ viewMode, onViewChange }: { viewMode: string; onViewChange: 
         className="px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap text-gray-500 hover:text-gray-700 transition-colors"
       >
         {PRICE_FLOW_LABEL}
-        <span aria-hidden className="ml-0.5 text-[10px]">↗</span>
+        <span aria-hidden className="ml-0.5 text-[10px] hidden xl:inline">↗</span>
       </Link>
     </div>
   );
@@ -510,55 +519,20 @@ function NudgeChip({
   );
 }
 
-function ExploreLink() {
-  // 상단바 우측: /explore 큐레이션 갤러리 진입점 (D안 홈 진입점).
-  // ml-auto 로 우측 정렬 → GuideLink, SiteInfo (데스크톱 전용) 는 바로 옆에 붙어 표시.
+function TopBarPillLink({ link, alignRight }: { link: TopBarLink; alignRight: boolean }) {
+  // 상단바 우측 알약 링크(둘러보기·콘텐츠·가이드) — 넓은 화면 전용. 휴대폰 폭은 TopBarMoreMenu 가 대신한다.
+  // 첫 링크의 sm:ml-auto 로 우측 정렬 → 나머지와 SiteInfo(데스크톱 전용)는 바로 옆에 붙는다.
   return (
     <Link
-      href="/explore"
-      title="추천 둘러보기"
-      aria-label="추천 둘러보기"
-      className="ml-auto inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
+      href={link.href}
+      title={link.title}
+      aria-label={link.ariaLabel}
+      className={`hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
                  text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
-                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0"
+                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0 ${alignRight ? 'sm:ml-auto' : ''}`}
     >
-      <span aria-hidden>✨</span>
-      <span className="hidden sm:inline">둘러보기</span>
-    </Link>
-  );
-}
-
-function ContentLink() {
-  // 상단바 우측: /content 카드뉴스 랜딩 진입점 — 탐색성 링크(둘러보기)와
-  // 유틸리티(가이드) 사이. 스타일·모바일(이모지만) 패턴은 ExploreLink 준용.
-  return (
-    <Link
-      href="/content"
-      title="숫자로 보는 집 이야기"
-      aria-label="콘텐츠 — 숫자로 보는 집 이야기"
-      className="inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
-                 text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
-                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0"
-    >
-      <span aria-hidden>📰</span>
-      <span className="hidden sm:inline">콘텐츠</span>
-    </Link>
-  );
-}
-
-function GuideLink() {
-  // 상단바 우측: 사용 가이드 / MCP 연결 안내 진입점. 맵·대시보드 모두 노출.
-  return (
-    <Link
-      href="/guide"
-      title="사용 가이드"
-      aria-label="사용 가이드"
-      className="inline-flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
-                 text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
-                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0"
-    >
-      <span aria-hidden>❓</span>
-      <span className="hidden sm:inline">가이드</span>
+      <span aria-hidden>{link.emoji}</span>
+      <span>{link.label}</span>
     </Link>
   );
 }
