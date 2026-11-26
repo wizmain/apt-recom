@@ -94,6 +94,16 @@ def get_rising_map(body: MapTrendRequest):
         )
 
 
+@router.get("/rising/complex/{pnu}")
+def get_rising_complex(pnu: str):
+    """가격흐름 탭 — 단지의 전 면적대 요약(요청 PNU 의 대표 단지 기준)."""
+    with DictConnection() as conn:
+        summary = rising_service.get_complex_summary(conn, pnu)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다")
+    return summary
+
+
 @router.get("/rising/{pnu}")
 def get_rising_detail(
     pnu: str,

@@ -75,6 +75,13 @@ _ITEM_FROM_SQL = """
 """
 
 
+# region_band_trend 응답 칼럼 — 메타 지역 목록과 단지 요약이 같은 모양을 쓴다(_to_region).
+_REGION_COLUMNS_SQL = """
+    sigungu_code, median_price_3m, trade_count_3m, change_6m_pct, change_12m_pct,
+    region_grade, region_rank, region_rank_total
+"""
+
+
 class AreaBand(NamedTuple):
     code: str
     name: str
@@ -143,6 +150,16 @@ def _latest_base_ym(conn) -> int | None:
     return row["base_ym"]
 
 
+def _to_region(row: dict, sgg_names: dict[str, str]) -> dict:
+    """region_band_trend 행 → 지역 응답 모양(시군구 표시명·시도 코드 부여). 메타·단지 요약 공용."""
+    region = dict(row)
+    region["sigungu_name"] = sgg_names.get(
+        region["sigungu_code"], region["sigungu_code"]
+    )
+    region["sido_code"] = region["sigungu_code"][:2]
+    return region
+
+
 # ── 메타 ─────────────────────────────────────────────────────────────
 
 
@@ -151,9 +168,8 @@ def get_meta(conn) -> dict:
     bands = load_area_bands(conn)
     sgg_names = _sigungu_names(conn)
     rows = conn.execute(
-        """
-        SELECT area_band, sigungu_code, median_price_3m, trade_count_3m,
-               change_6m_pct, change_12m_pct, region_grade, region_rank, region_rank_total
+        f"""
+        SELECT area_band, {_REGION_COLUMNS_SQL}
         FROM region_band_trend
         ORDER BY area_band, region_rank ASC NULLS LAST, sigungu_code
         """
@@ -162,11 +178,7 @@ def get_meta(conn) -> dict:
     for row in rows:
         region = dict(row)
         band_code = region.pop("area_band")
-        region["sigungu_name"] = sgg_names.get(
-            region["sigungu_code"], region["sigungu_code"]
-        )
-        region["sido_code"] = region["sigungu_code"][:2]
-        regions.setdefault(band_code, []).append(region)
+        regions.setdefault(band_code, []).append(_to_region(region, sgg_names))
     return {
         "base_ym": _latest_base_ym(conn),
         "bands": [band._asdict() for band in bands.values()],
@@ -448,3 +460,84 @@ def get_map_trends(
         item["direction"] = trend_direction(row["change_6m_pct"], row["trade_count_3m"])
         items[row["request_pnu"]] = item
     return {"base_ym": base_ym, "items": items}
+
+
+# ── 가격흐름: 상세 팝업 탭용 단지 요약 ─────────────────────────────────
+
+
+def _representative(conn, pnu: str) -> dict | None:
+    """요청 PNU 의 대표 단지(group_pnu) 이름·주소. apartments 에 없으면 None."""
+    return conn.execute(
+        f"""
+        SELECT a.pnu, a.display_name AS name, {_ADDRESS_SQL} AS address
+        FROM apartments req
+        JOIN apartments a ON a.pnu = COALESCE(req.group_pnu, req.pnu)
+        WHERE req.pnu = %s
+        """,
+        [pnu],
+    ).fetchone()
+
+
+def _regions_by_band(conn, sigungu_code: str, band_codes: list[str]) -> dict[str, dict]:
+    """한 시군구의 면적대별 지역 집계 → {면적대: 지역 응답}."""
+    rows = conn.execute(
+        f"""
+        SELECT area_band, {_REGION_COLUMNS_SQL}
+        FROM region_band_trend
+        WHERE sigungu_code = %s AND area_band = ANY(%s)
+        """,
+        [sigungu_code, band_codes],
+    ).fetchall()
+    sgg_names = _sigungu_names(conn)
+    regions = {}
+    for row in rows:
+        region = dict(row)
+        regions[region.pop("area_band")] = _to_region(region, sgg_names)
+    return regions
+
+
+def get_complex_summary(conn, pnu: str) -> dict | None:
+    """단지의 전 면적대 요약(대표 단지 기준). 요청 PNU 가 apartments 에 없으면 None.
+
+    첫 면적대(default_band)는 지도 추세(get_map_trends, 필터 없음)의 면적대를 그대로 써서
+    지도 배지와 상세 탭 첫 화면이 같은 면적대를 보이게 한다.
+    """
+    rep = _representative(conn, pnu)
+    if rep is None:
+        return None
+    bands = load_area_bands(conn)
+    rows = conn.execute(
+        f"""
+        SELECT {_ITEM_COLUMNS_SQL}, t.area_band
+        {_ITEM_FROM_SQL}
+        WHERE t.pnu = %s
+        """,
+        [rep["pnu"]],
+    ).fetchall()
+    order = list(bands)
+    rows = sorted((dict(r) for r in rows), key=lambda r: order.index(r["area_band"]))
+    regions = (
+        _regions_by_band(conn, rows[0]["sigungu_code"], [r["area_band"] for r in rows])
+        if rows
+        else {}
+    )
+    band_items = []
+    for item in rows:
+        code = item.pop("area_band")
+        band_items.append(
+            {
+                "area_band": code,
+                "area_band_name": bands[code].name,
+                "item": item,
+                "region": regions.get(code),
+            }
+        )
+    map_item = get_map_trends(conn, [pnu], None, None)["items"].get(pnu)
+    return {
+        "base_ym": _latest_base_ym(conn),
+        "pnu": rep["pnu"],
+        "name": rep["name"],
+        "address": rep["address"],
+        "default_band": map_item["area_band"] if map_item else None,
+        "bands": band_items,
+    }
