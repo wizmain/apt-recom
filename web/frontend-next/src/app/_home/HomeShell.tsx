@@ -1,13 +1,14 @@
 // src/app/_home/HomeShell.tsx
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useAppStore } from "@/lib/store";
 import { useApartments, countActiveFilters } from "@/hooks/useApartments";
 import { useNudge } from "@/hooks/useNudge";
 import { useUrlSyncedPnu } from "@/hooks/useUrlSyncedPnu";
 import { useCodes } from "@/hooks/useCodes";
+import { useMapTrends } from "@/hooks/useMapTrends";
 import { logEvent } from "@/lib/logEvent";
 import { BridgeParams } from "./BridgeParams";
 import { MapView } from "./Map/MapView";
@@ -59,6 +60,13 @@ export function HomeShell() {
   const viewMode = useAppStore((s) => s.viewMode);
   const showChat = useAppStore((s) => s.showChat);
   const compareList = useAppStore((s) => s.compareList);
+
+  // 지도 마커·팝업용 오르는 단지 추세 — 일반·추천 순위·챗 하이라이트 마커 모두에서 팝업이 열린다.
+  const mapTrendPnus = useMemo(
+    () => [...apartments, ...nudgeResults, ...chatHighlights].map((apt) => apt.pnu),
+    [apartments, nudgeResults, chatHighlights],
+  );
+  const mapTrends = useMapTrends(mapTrendPnus, filters.min_area, filters.max_area);
 
   // store actions
   const onBoundsChange = useAppStore((s) => s.onBoundsChange);
@@ -170,6 +178,7 @@ export function HomeShell() {
             apartments={apartments}
             scoredApartments={nudgeResults}
             chatHighlights={chatHighlights}
+            trends={mapTrends}
             focusPnu={focusPnu}
             regionFitNonce={regionFitNonce}
             scoredFitNonce={scoredFitNonce}
