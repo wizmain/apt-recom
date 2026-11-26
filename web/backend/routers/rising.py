@@ -32,6 +32,12 @@ def _require_band(conn, area_band: str) -> rising_service.AreaBand:
     return band
 
 
+def _require_area_range(min_area: float | None, max_area: float | None) -> None:
+    """지도 면적 필터 하한·상한 순서 검증 — 지도 추세·가격흐름 요약 공용."""
+    if min_area is not None and max_area is not None and min_area > max_area:
+        raise HTTPException(status_code=422, detail="min_area 가 max_area 보다 큽니다")
+
+
 @router.get("/rising/meta")
 def get_rising_meta():
     with DictConnection() as conn:
@@ -82,16 +88,36 @@ def get_rising_map(body: MapTrendRequest):
             status_code=422,
             detail=f"PNU 는 최대 {rising_service.MAP_TREND_MAX_PNUS}개까지 요청할 수 있습니다",
         )
-    if (
-        body.min_area is not None
-        and body.max_area is not None
-        and body.min_area > body.max_area
-    ):
-        raise HTTPException(status_code=422, detail="min_area 가 max_area 보다 큽니다")
+    _require_area_range(body.min_area, body.max_area)
     with DictConnection() as conn:
         return rising_service.get_map_trends(
             conn, body.pnus, body.min_area, body.max_area
         )
+
+
+@router.get("/rising/complex/{pnu}")
+def get_rising_complex(
+    pnu: str,
+    min_area: float | None = Query(
+        None,
+        ge=0,
+        le=MAX_AREA_M2,
+        description="지도 면적 필터 하한(㎡) — 첫 면적대 선택용",
+    ),
+    max_area: float | None = Query(
+        None,
+        ge=0,
+        le=MAX_AREA_M2,
+        description="지도 면적 필터 상한(㎡) — 첫 면적대 선택용",
+    ),
+):
+    """가격흐름 탭 — 단지의 전 면적대 요약(요청 PNU 의 대표 단지 기준)."""
+    _require_area_range(min_area, max_area)
+    with DictConnection() as conn:
+        summary = rising_service.get_complex_summary(conn, pnu, min_area, max_area)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다")
+    return summary
 
 
 @router.get("/rising/{pnu}")

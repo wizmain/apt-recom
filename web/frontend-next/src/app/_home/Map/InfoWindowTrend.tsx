@@ -44,7 +44,7 @@ export function InfoWindowTrend({ trend }: { trend: MapTrend }) {
         <ComplexGradeCell item={trend} />
       </div>
       <Link href="/rising" className="mt-2 block text-right font-medium text-blue-600 hover:underline">
-        오르는 단지에서 보기 →
+        가격흐름에서 보기 →
       </Link>
     </div>
   );

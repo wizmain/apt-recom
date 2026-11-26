@@ -101,6 +101,25 @@ export interface RisingDetail {
   recent_trades: RisingRecentTrade[];
 }
 
+/** GET /api/rising/complex/{pnu} 의 면적대 한 줄 — 상세 팝업 가격흐름 탭. */
+export interface RisingComplexBand {
+  area_band: string;
+  area_band_name: string;
+  item: RisingItem;
+  region: RisingRegion | null;
+}
+
+/** GET /api/rising/complex/{pnu} — 요청 PNU 의 대표 단지(pnu) 전 면적대 요약. */
+export interface RisingComplexSummary {
+  base_ym: number | null;
+  pnu: string;
+  name: string;
+  address: string | null;
+  /** 지도 배지와 같은 기준(최근 3개월 거래 최다)의 첫 면적대. 집계 없으면 null. */
+  default_band: string | null;
+  bands: RisingComplexBand[];
+}
+
 /** 화면 필터 상태. 예산은 억 단위(API 파라미터와 동일), 양 끝 값은 "제한 없음"(budgetScale.ts). */
 export interface RisingFilters {
   areaBand: string;

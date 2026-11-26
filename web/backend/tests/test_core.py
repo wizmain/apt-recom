@@ -2170,6 +2170,127 @@ def test_rising_map_bounds():
     assert resp.status_code == 422, resp.status_code
 
 
+# ---------- 가격흐름: 상세 팝업 탭용 단지 요약 ----------
+
+RISING_COMPLEX_API = f"{RISING_API}/complex"
+
+
+@test("가격흐름 요약: 면적대 정의 순서, 첫 면적대 = 지도 API, 지표·지역 포함")
+def test_rising_complex_summary():
+    import requests
+
+    from database import DictConnection
+    from services.rising import load_area_bands
+
+    conn = DictConnection()
+    pnu, _ = _top_band_pnu(conn)
+    bands = load_area_bands(conn)
+    order = list(bands)
+    names = {code: band.name for code, band in bands.items()}
+    conn.close()
+    resp = requests.get(f"{RISING_COMPLEX_API}/{pnu}")
+    # 경로 등록 확인 — 없으면 404
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    codes = [b["area_band"] for b in data["bands"]]
+    assert codes and codes == sorted(codes, key=order.index), codes
+    map_item = requests.post(RISING_MAP_API, json={"pnus": [pnu]}).json()["items"][pnu]
+    assert data["default_band"] == map_item["area_band"], (
+        data["default_band"],
+        map_item,
+    )
+    assert data["pnu"] == pnu and data["base_ym"] is not None, data
+    for band in data["bands"]:
+        assert band["area_band_name"] == names[band["area_band"]], band
+        assert band["item"]["pnu"] == pnu, band
+        if band["region"] is not None:
+            assert {
+                "sigungu_name",
+                "sido_code",
+                "region_rank",
+                "region_rank_total",
+            } <= (band["region"].keys()), band["region"]
+    assert any(b["region"] is not None for b in data["bands"]), "지역 집계 조인 누락"
+
+
+@test("가격흐름 요약: 지도 면적 필터와 같은 첫 면적대, 겹치는 게 없으면 필터 없는 기준")
+def test_rising_complex_area_filter():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        """
+        SELECT pnu FROM apt_band_trend GROUP BY pnu
+        HAVING bool_or(area_band = '59') AND bool_or(area_band = '84')
+        ORDER BY max(trade_count_3m) DESC LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    pnu = row["pnu"]
+    for area in ({"min_area": 60, "max_area": 85}, {"min_area": 0, "max_area": 59}):
+        expected = requests.post(RISING_MAP_API, json={"pnus": [pnu], **area}).json()
+        data = requests.get(f"{RISING_COMPLEX_API}/{pnu}", params=area).json()
+        assert data["default_band"] == expected["items"][pnu]["area_band"], (area, data)
+    unfiltered = requests.post(RISING_MAP_API, json={"pnus": [pnu]}).json()
+    data = requests.get(f"{RISING_COMPLEX_API}/{pnu}", params={"max_area": 40}).json()
+    assert data["default_band"] == unfiltered["items"][pnu]["area_band"], data
+    resp = requests.get(
+        f"{RISING_COMPLEX_API}/{pnu}", params={"min_area": 90, "max_area": 60}
+    )
+    assert resp.status_code == 422, resp.status_code
+
+
+@test("가격흐름 요약: 비대표 PNU 는 대표 단지 요약을 받는다")
+def test_rising_complex_group_member():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        """
+        SELECT a.pnu, a.group_pnu FROM apartments a
+        WHERE a.group_pnu IS NOT NULL AND a.group_pnu <> a.pnu
+          AND EXISTS (SELECT 1 FROM apt_band_trend t WHERE t.pnu = a.group_pnu)
+        LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    if row is None:
+        print("    (skip: 집계 행이 있는 비대표 PNU 없음)")
+        return
+    member = requests.get(f"{RISING_COMPLEX_API}/{row['pnu']}").json()
+    rep = requests.get(f"{RISING_COMPLEX_API}/{row['group_pnu']}").json()
+    assert member["pnu"] == row["group_pnu"] and member == rep, (member, rep)
+
+
+@test("가격흐름 요약: 집계 없는 단지는 빈 목록, 없는 PNU 는 404")
+def test_rising_complex_empty_and_missing():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        """
+        SELECT a.pnu FROM apartments a
+        WHERE NOT EXISTS (
+            SELECT 1 FROM apt_band_trend t WHERE t.pnu = COALESCE(a.group_pnu, a.pnu)
+        )
+        LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    resp = requests.get(f"{RISING_COMPLEX_API}/{row['pnu']}")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["bands"] == [] and data["default_band"] is None, data
+    resp = requests.get(f"{RISING_COMPLEX_API}/0000000000000000000")
+    assert resp.status_code == 404, resp.status_code
+
+
 # ============================================================
 # 실행
 # ============================================================

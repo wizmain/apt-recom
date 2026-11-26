@@ -6,6 +6,7 @@ import { useCodes } from '@/hooks/useCodes';
 import type { TopContributor } from '@/types/apartment';
 import { buildRankReason, rankEmoji } from '@/utils/scoreReason';
 import ChartFrame from './ChartFrame';
+import PriceFlowTab from './PriceFlowTab';
 import { useAppStore } from '@/lib/store';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -140,7 +141,7 @@ interface TradesResponse {
 
 // nudgeLabels, facilityLabels는 컴포넌트 내부에서 useCodes로 로드
 
-const TABS = ['기본정보', '가격분석', '관리비', '주변시설', '학군', '안전', '인구'] as const;
+const TABS = ['기본정보', '가격분석', '가격흐름', '관리비', '주변시설', '학군', '안전', '인구'] as const;
 type TabName = (typeof TABS)[number];
 
 const BLUE = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'];
@@ -272,6 +273,7 @@ export function DetailModalClient({ pnu }: DetailModalProps) {
                 <>
                   {activeTab === '기본정보' && <TabBasicInfo detail={detail} rankContext={rankContext ?? null} />}
                   {activeTab === '가격분석' && <TabPriceAnalysis trades={tradesData.trades} rents={tradesData.rents} />}
+                  {activeTab === '가격흐름' && <PriceFlowTab pnu={pnu} />}
                   {activeTab === '관리비' && <TabMgmtCost mgmtCost={detail?.mgmt_cost ?? undefined} />}
                   {activeTab === '주변시설' && <TabFacilities detail={detail} />}
                   {activeTab === '학군' && <TabSchool school={detail?.school ?? undefined} />}
