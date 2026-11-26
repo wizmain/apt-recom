@@ -2242,6 +2242,37 @@ def test_rising_complex_area_filter():
     assert resp.status_code == 422, resp.status_code
 
 
+@test("가격흐름 요약: 면적대 정의(common_code)에 없는 집계 행은 빼고 200")
+def test_rising_complex_unknown_band():
+    import requests
+
+    from database import DictConnection
+
+    unknown_band = "test_unknown_band"
+    conn = DictConnection()
+    pnu, _ = _top_band_pnu(conn)
+    # 면적대 정의 변경 후 배치 재실행 전 상태를 흉내 — 로컬 DB 에 임시 행, finally 에서 삭제
+    conn.execute(
+        """
+        INSERT INTO apt_band_trend (pnu, area_band, sigungu_code, base_ym)
+        SELECT pnu, %s, sigungu_code, base_ym FROM apt_band_trend
+        WHERE pnu = %s LIMIT 1
+        """,
+        [unknown_band, pnu],
+    )
+    try:
+        resp = requests.get(f"{RISING_COMPLEX_API}/{pnu}")
+        assert resp.status_code == 200, resp.text
+        codes = [b["area_band"] for b in resp.json()["bands"]]
+        assert codes and unknown_band not in codes, codes
+    finally:
+        conn.execute(
+            "DELETE FROM apt_band_trend WHERE pnu = %s AND area_band = %s",
+            [pnu, unknown_band],
+        )
+        conn.close()
+
+
 @test("가격흐름 요약: 비대표 PNU 는 대표 단지 요약을 받는다")
 def test_rising_complex_group_member():
     import requests
