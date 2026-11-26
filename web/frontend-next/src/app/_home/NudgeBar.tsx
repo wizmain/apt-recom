@@ -1,15 +1,14 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useCodes } from '@/hooks/useCodes';
 import type { RegionCandidate, SelectedRegion } from '@/types/apartment';
 import { useAppStore } from '@/lib/store';
 import { logEvent } from '@/lib/logEvent';
 import SearchCoach from './SearchCoach';
-import TopBarMoreMenu from './TopBarMoreMenu';
-import { TOP_BAR_LINKS, type TopBarLink } from './topBarLinks';
+import TopBarRightLinks from '@/components/TopBarRightLinks';
+import ViewTabs from '@/components/ViewTabs';
 
 interface NudgeBarProps {
   onOpenSettings: () => void;
@@ -80,7 +79,7 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
       {/* 공통: 로고 + 탭 + 지도 전용 컨트롤 */}
       <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 h-12 sm:h-14">
         <span className="text-sm font-semibold text-gray-700 whitespace-nowrap mr-0.5 sm:mr-1">🐿</span>
-        <ViewTabs viewMode={viewMode} onViewChange={switchView} />
+        <ViewTabs active={viewMode} onSwitchHomeView={switchView} />
 
         {isMapMode && (
           <MapControls
@@ -99,11 +98,7 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
           />
         )}
 
-        <TopBarMoreMenu />
-        {TOP_BAR_LINKS.map((link, index) => (
-          <TopBarPillLink key={link.href} link={link} alignRight={index === 0} />
-        ))}
-        <SiteInfo />
+        <TopBarRightLinks />
       </div>
 
       {/* 지도 모드 전용: 모바일 넛지 칩 + 키워드/지역 태그 */}
@@ -130,41 +125,6 @@ export default function NudgeBar({ onOpenSettings, onOpenFilter, filterCount }: 
 }
 
 /* ── 하위 컴포넌트 ── */
-
-// 가격흐름(오르는 단지) 바로가기 — 화면 전환이 아니라 /rising 페이지 이동이라 선택 상태가 없다.
-const PRICE_FLOW_LABEL = '가격흐름';
-const PRICE_FLOW_PATH = '/rising';
-
-function ViewTabs({ viewMode, onViewChange }: { viewMode: string; onViewChange: (m: 'map' | 'dashboard') => void }) {
-  return (
-    <div className="flex items-center bg-gray-100 rounded-full p-0.5 flex-shrink-0">
-      {(['map', 'dashboard'] as const).map(mode => (
-        <button
-          key={mode}
-          onClick={() => onViewChange(mode)}
-          className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors
-            ${viewMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          {mode === 'map' ? '지도' : (
-            <>
-              {/* 1280px 미만은 짧은 라벨 — 가격흐름 바로가기를 넣어도 상단 바가 넘치지 않게 */}
-              <span className="xl:hidden">대시보드</span>
-              <span className="hidden xl:inline">실거래대시보드</span>
-            </>
-          )}
-        </button>
-      ))}
-      <Link
-        href={PRICE_FLOW_PATH}
-        onClick={() => logEvent('price_flow_shortcut_click', { view_mode: viewMode })}
-        className="px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap text-gray-500 hover:text-gray-700 transition-colors"
-      >
-        {PRICE_FLOW_LABEL}
-        <span aria-hidden className="ml-0.5 text-[10px] hidden xl:inline">↗</span>
-      </Link>
-    </div>
-  );
-}
 
 interface SearchResult {
   pnu: string;
@@ -516,46 +476,6 @@ function NudgeChip({
     >
       {nudge.label}
     </button>
-  );
-}
-
-function TopBarPillLink({ link, alignRight }: { link: TopBarLink; alignRight: boolean }) {
-  // 상단바 우측 알약 링크(둘러보기·콘텐츠·가이드) — 넓은 화면 전용. 휴대폰 폭은 TopBarMoreMenu 가 대신한다.
-  // 첫 링크의 sm:ml-auto 로 우측 정렬 → 나머지와 SiteInfo(데스크톱 전용)는 바로 옆에 붙는다.
-  return (
-    <Link
-      href={link.href}
-      title={link.title}
-      aria-label={link.ariaLabel}
-      className={`hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
-                 text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
-                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0 ${alignRight ? 'sm:ml-auto' : ''}`}
-    >
-      <span aria-hidden>{link.emoji}</span>
-      <span>{link.label}</span>
-    </Link>
-  );
-}
-
-function SiteInfo() {
-  // 상단바 우측 끝: 도메인 + 운영자 이메일 (데스크톱 전용 — 모바일은 공간 부족)
-  return (
-    <div className="hidden lg:flex flex-col items-end leading-tight text-[11px] text-gray-500 whitespace-nowrap flex-shrink-0">
-      <a
-        href="https://apt-recom.kr"
-        target="_blank"
-        rel="noreferrer"
-        className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
-      >
-        apt-recom.kr
-      </a>
-      <a
-        href="mailto:apt.recom@gmail.com"
-        className="text-gray-500 hover:text-gray-700 hover:underline"
-      >
-        apt.recom@gmail.com
-      </a>
-    </div>
   );
 }
 
