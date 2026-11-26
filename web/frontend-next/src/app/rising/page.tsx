@@ -1,5 +1,6 @@
 // src/app/rising/page.tsx
 import type { Metadata } from "next";
+import { SiteNav } from "@/components/SiteNav";
 import Disclaimer from "./Disclaimer";
 import RisingView from "./_view";
 
@@ -16,7 +17,9 @@ export default function RisingPage() {
   return (
     <main className="min-h-[100dvh] bg-gray-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-5xl">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+        {/* 홈 밖 페이지 공용 이동 — 지도·실거래 대시보드로 돌아가는 길 (대시보드 유입 계측 from=rising) */}
+        <SiteNav from="rising" />
+        <h1 className="mt-5 text-xl sm:text-2xl font-bold text-gray-900">
           가격흐름
         </h1>
         <p className="mt-1 text-sm text-gray-500">
