@@ -1,6 +1,7 @@
 """오르는 단지 API — 파라미터 검증만 하고 조회는 services/rising.py 에 맡긴다."""
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from database import DictConnection
 from services import rising as rising_service
@@ -10,6 +11,18 @@ router = APIRouter()
 MAX_QUERY_LENGTH = 100
 # 예산 파라미터 상한(억). inf/초대형 값이 금액 환산(만원 정수)에서 OverflowError 500 이 되지 않게 422 로 막는다.
 MAX_BUDGET_EOK = 1000  # 1,000억 — 어떤 단지 가격보다 충분히 큼
+# 지도 면적 필터 상한(㎡) — 어떤 주택형보다 충분히 큼(inf·초대형 값 422).
+MAX_AREA_M2 = 1000
+
+
+class MapTrendRequest(BaseModel):
+    pnus: list[str] = Field(default_factory=list, description="지도에 보이는 단지 PNU")
+    min_area: float | None = Field(
+        None, ge=0, le=MAX_AREA_M2, description="면적 하한(㎡)"
+    )
+    max_area: float | None = Field(
+        None, ge=0, le=MAX_AREA_M2, description="면적 상한(㎡)"
+    )
 
 
 def _require_band(conn, area_band: str) -> rising_service.AreaBand:
@@ -59,6 +72,26 @@ def list_rising(
             query=q,
         )
         return rising_service.list_complexes(conn, filters, sort, page)
+
+
+@router.post("/rising/map")
+def get_rising_map(body: MapTrendRequest):
+    """지도 마커·팝업용 단지별 추세 요약 (면적 필터와 겹치는 면적대 중 거래 최다)."""
+    if len(body.pnus) > rising_service.MAP_TREND_MAX_PNUS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"PNU 는 최대 {rising_service.MAP_TREND_MAX_PNUS}개까지 요청할 수 있습니다",
+        )
+    if (
+        body.min_area is not None
+        and body.max_area is not None
+        and body.min_area > body.max_area
+    ):
+        raise HTTPException(status_code=422, detail="min_area 가 max_area 보다 큽니다")
+    with DictConnection() as conn:
+        return rising_service.get_map_trends(
+            conn, body.pnus, body.min_area, body.max_area
+        )
 
 
 @router.get("/rising/{pnu}")
