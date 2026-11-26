@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useRisingComplex } from '@/hooks/useRisingComplex';
 import { useRisingDetail } from '@/hooks/useRisingDetail';
+import { useAppStore } from '@/lib/store';
 import type { RisingComplexBand, RisingComplexSummary } from '@/types/rising';
 import BandPriceChart from '../rising/BandPriceChart';
 import DetailMetrics from '../rising/DetailMetrics';
@@ -95,7 +96,8 @@ function BandDetail({ pnu, band }: { pnu: string; band: RisingComplexBand }) {
 }
 
 export default function PriceFlowTab({ pnu }: { pnu: string }) {
-  const { summary, loading, error } = useRisingComplex(pnu);
+  const filters = useAppStore((s) => s.filters);
+  const { summary, loading, error } = useRisingComplex(pnu, filters.min_area, filters.max_area);
   const [picked, setPicked] = useState<string | null>(null);
 
   if (loading) return <p className="py-12 text-center text-sm text-gray-400">{LOADING_TEXT}</p>;

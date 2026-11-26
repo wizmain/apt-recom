@@ -2213,6 +2213,35 @@ def test_rising_complex_summary():
     assert any(b["region"] is not None for b in data["bands"]), "지역 집계 조인 누락"
 
 
+@test("가격흐름 요약: 지도 면적 필터와 같은 첫 면적대, 겹치는 게 없으면 필터 없는 기준")
+def test_rising_complex_area_filter():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    row = conn.execute(
+        """
+        SELECT pnu FROM apt_band_trend GROUP BY pnu
+        HAVING bool_or(area_band = '59') AND bool_or(area_band = '84')
+        ORDER BY max(trade_count_3m) DESC LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    pnu = row["pnu"]
+    for area in ({"min_area": 60, "max_area": 85}, {"min_area": 0, "max_area": 59}):
+        expected = requests.post(RISING_MAP_API, json={"pnus": [pnu], **area}).json()
+        data = requests.get(f"{RISING_COMPLEX_API}/{pnu}", params=area).json()
+        assert data["default_band"] == expected["items"][pnu]["area_band"], (area, data)
+    unfiltered = requests.post(RISING_MAP_API, json={"pnus": [pnu]}).json()
+    data = requests.get(f"{RISING_COMPLEX_API}/{pnu}", params={"max_area": 40}).json()
+    assert data["default_band"] == unfiltered["items"][pnu]["area_band"], data
+    resp = requests.get(
+        f"{RISING_COMPLEX_API}/{pnu}", params={"min_area": 90, "max_area": 60}
+    )
+    assert resp.status_code == 422, resp.status_code
+
+
 @test("가격흐름 요약: 비대표 PNU 는 대표 단지 요약을 받는다")
 def test_rising_complex_group_member():
     import requests

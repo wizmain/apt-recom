@@ -496,11 +496,14 @@ def _regions_by_band(conn, sigungu_code: str, band_codes: list[str]) -> dict[str
     return regions
 
 
-def get_complex_summary(conn, pnu: str) -> dict | None:
+def get_complex_summary(
+    conn, pnu: str, min_area: float | None = None, max_area: float | None = None
+) -> dict | None:
     """단지의 전 면적대 요약(대표 단지 기준). 요청 PNU 가 apartments 에 없으면 None.
 
-    첫 면적대(default_band)는 지도 추세(get_map_trends, 필터 없음)의 면적대를 그대로 써서
-    지도 배지와 상세 탭 첫 화면이 같은 면적대를 보이게 한다.
+    첫 면적대(default_band)는 지도 추세(get_map_trends)에 지도와 같은 면적 필터를 넣어 고른다 —
+    지도 배지와 상세 탭 첫 화면이 같은 면적대·같은 숫자를 보이게 하기 위함.
+    필터와 겹치는 면적대가 없으면 지도에도 배지가 없으므로, 필터 없는 기준(대표 면적대)으로 연다.
     """
     rep = _representative(conn, pnu)
     if rep is None:
@@ -532,7 +535,9 @@ def get_complex_summary(conn, pnu: str) -> dict | None:
                 "region": regions.get(code),
             }
         )
-    map_item = get_map_trends(conn, [pnu], None, None)["items"].get(pnu)
+    map_item = get_map_trends(conn, [pnu], min_area, max_area)["items"].get(pnu)
+    if map_item is None and (min_area is not None or max_area is not None):
+        map_item = get_map_trends(conn, [pnu], None, None)["items"].get(pnu)
     return {
         "base_ym": _latest_base_ym(conn),
         "pnu": rep["pnu"],
