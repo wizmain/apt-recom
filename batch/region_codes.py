@@ -37,6 +37,11 @@ from __future__ import annotations
 SIGUNGU_ALIAS_GROUP = "sigungu_alias"
 SIDO_ALIAS_GROUP = "sido_alias"
 SIDO_GROUP = "sido"
+# 국토부 실거래 API 조회 코드 (내부 구코드 → API 가 실제로 응답하는 코드 목록).
+# code = 내부 구코드, name = 쉼표 구분 API 조회 코드, extra = 근거.
+API_QUERY_CODE_GROUP = "trade_api_query_code"
+# 법정동 레지스트리 (code = 10자리 구 법정동 코드, name = 법정동명)
+EMD_GROUP = "emd"
 
 
 def load_aliases(conn) -> dict:
@@ -96,6 +101,80 @@ def normalize_sigungu_code(code: str, aliases: dict) -> str:
     if len(folded) == 1:
         return folded.pop()
     return code
+
+
+def load_api_query_codes(conn) -> dict[str, list[str]]:
+    """common_code 의 API 조회 코드 등록을 읽는다. {내부 구코드: [API 조회 코드, ...]}"""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT code, name FROM common_code WHERE group_id = %s", [API_QUERY_CODE_GROUP]
+    )
+    return {
+        code: [c.strip() for c in name.split(",") if c.strip()]
+        for code, name in cur.fetchall()
+    }
+
+
+def load_emd_names(conn) -> dict[str, set[str]]:
+    """법정동 레지스트리를 구 시군구별 법정동명 집합으로 읽는다. {구 시군구 5자리: {법정동명}}"""
+    cur = conn.cursor()
+    cur.execute("SELECT code, name FROM common_code WHERE group_id = %s", [EMD_GROUP])
+    out: dict[str, set[str]] = {}
+    for code, name in cur.fetchall():
+        out.setdefault(code[:5], set()).add(name)
+    return out
+
+
+def api_query_codes(
+    internal_codes: list[str], query_map: dict[str, list[str]]
+) -> list[str]:
+    """수집 대상 내부 코드를 국토부 API 조회 코드로 바꾼다(등록 없는 코드는 그대로). 순서 유지, 중복 제거.
+
+    2026 인천 개편 이후 API 는 구코드(28110·28140·28260) 조회에 0건을 주고, 과거 월 거래까지
+    신코드(28125·28155·28275·28290)로 옮겨 응답한다(2026-11-26 실측). 그래서 조회 코드는
+    "실제 API 응답 기준"으로 등록한 표를 따른다. 병합 코드(제물포구 28125 = 구 중구+동구)는
+    두 내부 코드가 같은 조회 코드를 가리키므로 한 번만 부른다.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for code in internal_codes:
+        for query in query_map.get(code, [code]):
+            if query not in seen:
+                seen.add(query)
+                out.append(query)
+    return out
+
+
+def normalize_api_sigungu(
+    code: str,
+    aliases: dict,
+    umd_cd: str | None = None,
+    umd_nm: str | None = None,
+    emd_names: dict[str, set[str]] | None = None,
+) -> str:
+    """국토부 실거래 응답의 시군구 코드를 내부 구코드로 바꾼다. 정해지지 않으면 원본을 돌려준다.
+
+    1) 법정동 코드(매매 umdCd)가 있으면 10자리 별칭  2) 5자리 별칭·분할형 접기
+    3) 병합형(제물포구 28125 → 구 중구/동구)은 법정동명으로 후보 구코드 안에서만 찾는다 —
+       전월세 응답에는 법정동 코드가 없다. 후보를 별칭이 가리키는 구코드로 한정하므로
+       전국 동명이(예: 송림동)와 섞이지 않는다.
+    원본이 그대로 남으면 적재 후 audit_unknown_codes(지역코드 감사)가 경고한다.
+    """
+    by_bjdong = normalize_sigungu(code, aliases, umd_cd)
+    if by_bjdong != code:
+        return by_bjdong
+    folded = normalize_sigungu_code(code, aliases)
+    if folded != code:
+        return folded
+    if not code or not umd_nm or not emd_names:
+        return code
+    candidates = {
+        value[:5]
+        for key, value in aliases.get("sigungu", {}).items()
+        if len(key) == 10 and key.startswith(code)
+    }
+    matches = {c for c in candidates if umd_nm.strip() in emd_names.get(c, set())}
+    return matches.pop() if len(matches) == 1 else code
 
 
 def normalize_pnu(pnu: str, aliases: dict) -> str:

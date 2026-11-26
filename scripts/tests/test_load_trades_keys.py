@@ -57,6 +57,7 @@ class LoadTradesKeyTest(unittest.TestCase):
         with (
             patch.object(mod, "query_all", return_value=[]),
             patch.object(mod, "load_aliases", return_value={}),
+            patch.object(mod, "load_emd_names", return_value={}),
             patch.object(mod, "execute_values_chunked", fake_exec),
         ):
             mod.load_trades(None, trade_rows, rent_rows, _Logger())
