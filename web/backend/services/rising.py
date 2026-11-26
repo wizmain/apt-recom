@@ -509,16 +509,19 @@ def get_complex_summary(
     if rep is None:
         return None
     bands = load_area_bands(conn)
+    # 면적대 정의(common_code)와 조인 — 정의에 없는 집계 행(정의 변경 후 배치 재실행 전)은
+    # 지도 추세(_MAP_TRENDS_SQL)와 같이 제외하고, 정렬도 정의 순서(sort_order)를 따른다.
     rows = conn.execute(
         f"""
         SELECT {_ITEM_COLUMNS_SQL}, t.area_band
         {_ITEM_FROM_SQL}
+        JOIN common_code bc ON bc.group_id = %s AND bc.code = t.area_band
         WHERE t.pnu = %s
+        ORDER BY bc.sort_order
         """,
-        [rep["pnu"]],
+        [AREA_BAND_GROUP, rep["pnu"]],
     ).fetchall()
-    order = list(bands)
-    rows = sorted((dict(r) for r in rows), key=lambda r: order.index(r["area_band"]))
+    rows = [dict(r) for r in rows]
     regions = (
         _regions_by_band(conn, rows[0]["sigungu_code"], [r["area_band"] for r in rows])
         if rows
