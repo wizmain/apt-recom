@@ -23,15 +23,17 @@ export function useMapTrends(
   minArea: number | undefined,
   maxArea: number | undefined,
 ): Record<string, MapTrend> {
-  const [result, setResult] = useState<{ key: string; items: Record<string, MapTrend> } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{
+    areaKey: string;
+    items: Record<string, MapTrend>;
+  } | null>(null);
 
   // PNU 배열 참조가 매 렌더 바뀌어도 내용이 같으면 재요청하지 않도록 정렬 키를 쓴다.
   const pnuKey = useMemo(() => [...new Set(pnus)].sort().join(","), [pnus]);
   const pnuCount = pnuKey ? pnuKey.split(",").length : 0;
   const enabled = pnuCount > 0 && pnuCount <= MAP_TREND_MAX_PNUS;
-  const requestKey = `${pnuKey}|${minArea ?? ""}|${maxArea ?? ""}`;
+  // 면적 조건 — 바뀌면 직전 결과(다른 면적대 기준)를 쓰지 않는다.
+  const areaKey = `${minArea ?? ""}|${maxArea ?? ""}`;
 
   useEffect(() => {
     if (!enabled) return;
@@ -43,20 +45,21 @@ export function useMapTrends(
           { pnus: pnuKey.split(","), min_area: minArea ?? null, max_area: maxArea ?? null },
           { signal: controller.signal },
         )
-        .then((res) => setResult({ key: requestKey, items: res.data.items }))
+        .then((res) => setResult({ areaKey, items: res.data.items }))
         .catch((err: unknown) => {
           if (isCancel(err)) return;
           console.warn("[useMapTrends] 추세 요약 조회 실패 — 마커는 기본 핀으로 표시", err);
-          setResult({ key: requestKey, items: EMPTY });
+          setResult({ areaKey, items: EMPTY });
         });
     }, MAP_TREND_DEBOUNCE_MS);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, pnuKey, minArea, maxArea, requestKey]);
+  }, [enabled, pnuKey, minArea, maxArea, areaKey]);
 
-  if (!enabled) return EMPTY;
-  // 요청 진행 중에는 직전 결과를 유지해 배지가 깜빡이지 않게 한다(지도 이동 시 같은 단지 대부분 유지).
-  return result?.items ?? EMPTY;
+  if (!enabled || !result) return EMPTY;
+  // 같은 면적 조건이면 요청 진행 중에도 직전 결과를 유지해 지도 이동 시 배지가 깜빡이지 않게 한다.
+  // 면적 조건이 바뀌었으면 이전 면적대 기준 배지를 보이지 않는다(다른 평형 기준 화살표 방지).
+  return result.areaKey === areaKey ? result.items : EMPTY;
 }

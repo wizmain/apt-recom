@@ -405,18 +405,22 @@ def bands_for_area_filter(
 
 
 # 요청 PNU → 대표 단지(group_pnu) 집계 행 중 선택 면적대의 거래 최다 1행. 응답 키는 요청 PNU.
+# 동률이면 면적대 정의 순서(common_code sort_order — 작은 면적대 먼저). area_band 는 TEXT 라
+# 문자열 정렬하면 "100" 이 "59" 보다 앞선다.
 _MAP_TRENDS_SQL = """
     SELECT DISTINCT ON (req.pnu)
            req.pnu AS request_pnu, t.area_band, t.median_price_3m, t.trade_count_3m,
-           t.change_6m_pct, t.change_12m_pct, t.complex_grade, t.complex_rank,
-           t.complex_rank_total, t.grade_window_months, r.region_grade
+           t.change_6m_pct, t.change_12m_pct, t.matched_type_count_6m, t.matched_type_count_12m,
+           t.complex_grade, t.complex_rank, t.complex_rank_total, t.grade_window_months,
+           r.region_grade
     FROM unnest(%(pnus)s::text[]) AS req(pnu)
     JOIN apartments a ON a.pnu = req.pnu
     JOIN apt_band_trend t
         ON t.pnu = COALESCE(a.group_pnu, a.pnu) AND t.area_band = ANY(%(bands)s)
+    JOIN common_code bc ON bc.group_id = %(band_group)s AND bc.code = t.area_band
     LEFT JOIN region_band_trend r
         ON r.sigungu_code = t.sigungu_code AND r.area_band = t.area_band
-    ORDER BY req.pnu, t.trade_count_3m DESC, t.area_band
+    ORDER BY req.pnu, t.trade_count_3m DESC NULLS LAST, bc.sort_order
 """
 
 
@@ -430,7 +434,12 @@ def get_map_trends(
     if not pnus or not selected:
         return {"base_ym": base_ym, "items": {}}
     rows = conn.execute(
-        _MAP_TRENDS_SQL, {"pnus": list(dict.fromkeys(pnus)), "bands": selected}
+        _MAP_TRENDS_SQL,
+        {
+            "pnus": list(dict.fromkeys(pnus)),
+            "bands": selected,
+            "band_group": AREA_BAND_GROUP,
+        },
     ).fetchall()
     items = {}
     for row in rows:

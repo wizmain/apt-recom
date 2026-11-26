@@ -2107,6 +2107,53 @@ def test_rising_map_group_member():
     assert member == rep, (member, rep)
 
 
+@test("지도 추세: 거래 수 동률이면 면적대 정의 순서(작은 면적대)가 대표")
+def test_rising_map_tie_uses_band_order():
+    import requests
+
+    from database import DictConnection
+    from services.rising import load_area_bands
+
+    conn = DictConnection()
+    order = list(load_area_bands(conn))
+    row = conn.execute(
+        """
+        WITH r AS (
+            SELECT pnu, area_band,
+                   rank() OVER (PARTITION BY pnu ORDER BY trade_count_3m DESC) AS rk
+            FROM apt_band_trend
+        )
+        SELECT pnu, array_agg(area_band) AS bands FROM r WHERE rk = 1
+        GROUP BY pnu HAVING count(*) > 1
+          AND bool_or(area_band IN ('59', '84'))
+          AND bool_or(area_band IN ('100', '125', '150', '175'))
+        LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    if row is None:
+        print("    (skip: 소형·대형 동률 단지 없음)")
+        return
+    expected = min(row["bands"], key=order.index)
+    item = requests.post(RISING_MAP_API, json={"pnus": [row["pnu"]]}).json()["items"][
+        row["pnu"]
+    ]
+    assert item["area_band"] == expected, (row, item["area_band"])
+
+
+@test("지도 추세: 신뢰도 표시용 비교 주택형 수 포함")
+def test_rising_map_matched_type_counts():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    pnu, _ = _top_band_pnu(conn)
+    conn.close()
+    item = requests.post(RISING_MAP_API, json={"pnus": [pnu]}).json()["items"][pnu]
+    assert "matched_type_count_6m" in item and "matched_type_count_12m" in item, item
+
+
 @test("지도 추세: 빈 요청 200, 상한 초과 422, 집계 밖 PNU 는 결과 없음")
 def test_rising_map_bounds():
     import requests

@@ -124,6 +124,9 @@ export interface MapTrend {
   trade_count_3m: number | null;
   change_6m_pct: number | null;
   change_12m_pct: number | null;
+  /** 비교에 쓴 주택형 수 — 1 이면 "한 주택형만 비교" 표시. */
+  matched_type_count_6m: number | null;
+  matched_type_count_12m: number | null;
   complex_grade: string | null;
   complex_rank: number | null;
   complex_rank_total: number | null;

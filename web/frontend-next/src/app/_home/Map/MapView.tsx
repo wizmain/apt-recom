@@ -60,6 +60,9 @@ export function MapView(props: MapViewProps) {
   const chatMarkersRef = useRef<kakao.maps.Marker[]>([]);
   const basicMarkersRef = useRef<kakao.maps.Marker[]>([]);
   const closeInfoRef = useRef<(() => void) | null>(null);
+  // 순위·챗 마커와 focus 는 trends 갱신 때 다시 만들지 않으므로, 클릭 시점의 최신 추세를 ref 로 읽는다.
+  const trendsRef = useRef(trends);
+  trendsRef.current = trends;
 
   const showInfo = (apt: { pnu: string; bld_nm: string; lat: number; lng: number }) => {
     if (!mapRef.current) return;
@@ -71,7 +74,7 @@ export function MapView(props: MapViewProps) {
       position,
       <InfoWindowBody
         apt={{ pnu: apt.pnu, bld_nm: apt.bld_nm }}
-        trend={trends[apt.pnu]}
+        trend={trendsRef.current[apt.pnu]}
         onDetailOpen={(pnu) => {
           closeInfoRef.current?.();
           closeInfoRef.current = null;

@@ -28,11 +28,11 @@ export function InfoWindowTrend({ trend }: { trend: MapTrend }) {
       <div className="mt-1 grid grid-cols-2 gap-2">
         <div>
           <div className="text-gray-500">6개월</div>
-          <ChangeCell pct={trend.change_6m_pct} matchedTypeCount={null} />
+          <ChangeCell pct={trend.change_6m_pct} matchedTypeCount={trend.matched_type_count_6m} />
         </div>
         <div>
           <div className="text-gray-500">12개월</div>
-          <ChangeCell pct={trend.change_12m_pct} matchedTypeCount={null} />
+          <ChangeCell pct={trend.change_12m_pct} matchedTypeCount={trend.matched_type_count_12m} />
         </div>
       </div>
       <div className="mt-1 flex items-center justify-between gap-2">
