@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { TOP_BAR_LINKS } from './topBarLinks';
 
 /**
- * 휴대폰 폭(sm 미만) 전용 "⋯" 메뉴 — 상단 바 오른쪽 링크(둘러보기·콘텐츠·가이드)를 하나로 묶는다.
- * 360px 화면에서 상단 바가 넘쳐 링크가 화면 밖으로 밀리던 문제(가격흐름 바로가기 추가로 악화) 대응.
+ * 1024px(lg) 미만 전용 "⋯" 메뉴(휴대폰·태블릿) — 상단 바 오른쪽 링크(둘러보기·콘텐츠·가이드)를 하나로 묶는다.
+ * 휴대폰(360px)·태블릿(640~1023px)에서 상단 바가 넘쳐 링크가 화면 밖으로 밀리던 문제 대응.
  */
 export default function TopBarMoreMenu() {
   const [open, setOpen] = useState(false);
@@ -30,7 +30,7 @@ export default function TopBarMoreMenu() {
   }, [open]);
 
   return (
-    <div ref={containerRef} className="relative ml-auto flex-shrink-0 sm:hidden">
+    <div ref={containerRef} className="relative ml-auto flex-shrink-0 lg:hidden">
       <button
         type="button"
         aria-label="더보기"
