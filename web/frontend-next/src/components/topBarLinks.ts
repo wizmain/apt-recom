@@ -1,5 +1,5 @@
 /**
- * 홈 상단 바 오른쪽 탐색 링크 — 넓은 화면은 알약 버튼(NudgeBar), 휴대폰 폭은 "⋯" 메뉴(TopBarMoreMenu)가
+ * 홈 상단 바 오른쪽 탐색 링크 — 넓은 화면은 알약 버튼(NudgeBar), 1024px 미만은 "⋯" 메뉴(TopBarMoreMenu)가
  * 같은 목록을 쓴다. 순서: 탐색성(둘러보기·콘텐츠) → 유틸리티(가이드).
  */
 import type { Route } from 'next';

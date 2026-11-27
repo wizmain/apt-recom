@@ -3,20 +3,20 @@ import TopBarMoreMenu from './TopBarMoreMenu';
 import { TOP_BAR_LINKS, type TopBarLink } from './topBarLinks';
 
 /**
- * 상단 바 오른쪽 묶음 — 휴대폰 폭 "⋯" 메뉴 + 넓은 화면 알약 링크(둘러보기·콘텐츠·가이드) + 도메인·이메일.
+ * 상단 바 오른쪽 묶음 — 1024px(lg) 미만 "⋯" 메뉴 + 넓은 화면 알약 링크(둘러보기·콘텐츠·가이드) + 도메인·이메일.
  * 홈(NudgeBar)과 가격흐름 페이지 상단 바가 함께 쓴다. 부모 flex 줄의 직접 자식으로 들어가야
  * 오른쪽 정렬(ml-auto)이 맞는다.
  */
 function TopBarPillLink({ link, alignRight }: { link: TopBarLink; alignRight: boolean }) {
-  // 첫 링크의 sm:ml-auto 로 우측 정렬 → 나머지와 SiteInfo(데스크톱 전용)는 바로 옆에 붙는다.
+  // 첫 링크의 lg:ml-auto 로 우측 정렬 → 나머지와 SiteInfo(데스크톱 전용)는 바로 옆에 붙는다.
   return (
     <Link
       href={link.href}
       title={link.title}
       aria-label={link.ariaLabel}
-      className={`hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
+      className={`hidden lg:inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium
                  text-gray-600 border border-gray-300 hover:border-blue-400 hover:text-blue-600
-                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0 ${alignRight ? 'sm:ml-auto' : ''}`}
+                 transition-all duration-200 whitespace-nowrap cursor-pointer flex-shrink-0 ${alignRight ? 'lg:ml-auto' : ''}`}
     >
       <span aria-hidden>{link.emoji}</span>
       <span>{link.label}</span>

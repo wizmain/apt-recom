@@ -384,8 +384,8 @@ function MapControls({
         )}
       </div>
 
-      {/* 넛지 칩 (데스크톱) */}
-      <div className="hidden sm:flex items-center gap-2 overflow-x-auto scrollbar-hide">
+      {/* 넛지 칩 (1024px 이상 — 그 미만은 둘째 줄 MobileNudgeChips) */}
+      <div className="hidden lg:flex items-center gap-2 overflow-x-auto scrollbar-hide">
         {nudges.map(nudge => (
           <NudgeChip
             key={nudge.id}
@@ -400,7 +400,7 @@ function MapControls({
       </div>
 
       {/* 필터 / 가중치 */}
-      <div className="flex items-center gap-1.5 sm:gap-2 sm:ml-3 sm:pl-3 sm:border-l sm:border-gray-200 flex-shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 lg:ml-3 lg:pl-3 lg:border-l lg:border-gray-200 flex-shrink-0">
         <button
           onClick={onOpenFilter}
           className={`flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium
@@ -410,7 +410,7 @@ function MapControls({
                        : 'text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
                      }`}
         >
-          🔽<span className="hidden sm:inline"> 필터</span>{filterCount > 0 && ` (${filterCount})`}
+          🔽<span className="hidden lg:inline"> 필터</span>{filterCount > 0 && ` (${filterCount})`}
         </button>
         <button
           onClick={onOpenSettings}
@@ -418,7 +418,7 @@ function MapControls({
                      text-gray-600 border border-gray-300 hover:border-blue-400
                      hover:text-blue-600 transition-all duration-200 whitespace-nowrap cursor-pointer"
         >
-          ⚙<span className="hidden sm:inline"> 가중치</span>
+          ⚙<span className="hidden lg:inline"> 가중치</span>
         </button>
       </div>
     </>
@@ -435,7 +435,7 @@ function MobileNudgeChips({
   const nudges = nudgeCodes.map(c => ({ id: c.code, label: c.name }));
 
   return (
-    <div className="flex sm:hidden items-center gap-1.5 px-3 pb-2 overflow-x-auto scrollbar-hide">
+    <div className="flex lg:hidden items-center gap-1.5 px-3 pb-2 overflow-x-auto scrollbar-hide">
       {nudges.map(nudge => (
         <NudgeChip
           key={nudge.id}
