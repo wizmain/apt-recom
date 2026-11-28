@@ -4,9 +4,13 @@ import unittest
 from datetime import date
 
 from batch.trade.band_trend_calc import (
+    CAUTION_FLOOR_MIX_UP,
+    CAUTION_LOW_SAMPLE,
     BandDef,
+    average_floor,
     band_of,
     base_month,
+    caution_codes,
     complex_grade,
     drop_outliers,
     monthly_series,
@@ -126,6 +130,44 @@ class TestMonthlySeries(unittest.TestCase):
         self.assertEqual(
             series[2], (202609, 83000, 1)
         )  # 7~9월 창 중앙값 81000 기준 50000 제외
+
+
+class TestAverageFloor(unittest.TestCase):
+    def test_지하층과_층정보_없음은_뺀다(self):
+        self.assertEqual(average_floor([3, 5, None, -1, 0]), 4)
+
+    def test_남는_거래가_없으면_None(self):
+        self.assertIsNone(average_floor([None, -2]))
+        self.assertIsNone(average_floor([]))
+
+
+class TestCautionCodes(unittest.TestCase):
+    def test_최근_3건_이하는_표본_적음(self):
+        self.assertEqual(caution_codes(3, 5.0, None, None), [CAUTION_LOW_SAMPLE])
+        self.assertEqual(caution_codes(4, 5.0, None, None), [])
+
+    def test_상승이고_1_5배_3층차_이상이면_고층_편중(self):
+        self.assertEqual(caution_codes(5, 10.0, 12.0, 8.0), [CAUTION_FLOOR_MIX_UP])
+        self.assertEqual(caution_codes(5, 10.0, 6.0, 3.0), [CAUTION_FLOOR_MIX_UP])
+
+    def test_배수나_층수_차이_한쪽만_넘으면_아님(self):
+        self.assertEqual(caution_codes(5, 10.0, 2.0, 1.0), [])  # 2배지만 1층 차이
+        self.assertEqual(caution_codes(5, 10.0, 14.0, 10.0), [])  # 4층 차이지만 1.4배
+
+    def test_하락_보합_비교부족이면_고층_편중_판정_안함(self):
+        self.assertEqual(caution_codes(5, -3.0, 12.0, 4.0), [])
+        self.assertEqual(caution_codes(5, 0.0, 12.0, 4.0), [])
+        self.assertEqual(caution_codes(5, None, 12.0, 4.0), [])
+
+    def test_층_정보가_없으면_고층_편중_판정_안함(self):
+        self.assertEqual(caution_codes(5, 10.0, None, 4.0), [])
+        self.assertEqual(caution_codes(5, 10.0, 12.0, None), [])
+
+    def test_두_주의는_정해진_순서로_함께(self):
+        self.assertEqual(
+            caution_codes(2, 10.0, 12.0, 4.0),
+            [CAUTION_LOW_SAMPLE, CAUTION_FLOOR_MIX_UP],
+        )
 
 
 if __name__ == "__main__":

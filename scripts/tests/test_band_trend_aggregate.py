@@ -51,6 +51,7 @@ def source(
     build_year=2010,
     completion_year=2010,
     pnu="P1",
+    floor=None,
 ):
     return SourceTrade(
         apt_seq,
@@ -63,11 +64,12 @@ def source(
         price,
         build_year,
         completion_year,
+        floor,
     )
 
 
-def band_trade(ym, price, pnu="P1", sgg="11110", area=84.0):
-    return BandTrade(pnu, sgg, "84", area, ym, price)
+def band_trade(ym, price, pnu="P1", sgg="11110", area=84.0, floor=None):
+    return BandTrade(pnu, sgg, "84", area, ym, price, floor)
 
 
 class TestBuildYearMismatch(unittest.TestCase):
@@ -245,7 +247,7 @@ class TestAttachTrades(unittest.TestCase):
     MAPPING = {"11590-57": "P_MEMBER", "11590-85": "P_REP", "11590-99": "P_OUTSIDE"}
 
     def test_매핑과_대표_단지_정보를_붙인다(self):
-        rows = [("11590-57", "대림", 84.9, 202609, 85000, 1993)]
+        rows = [("11590-57", "대림", 84.9, 202609, 85000, 1993, 7)]
         self.assertEqual(
             attach_trades(rows, self.MAPPING, self.MEMBERS),
             [
@@ -260,12 +262,13 @@ class TestAttachTrades(unittest.TestCase):
                     85000,
                     1993,
                     1993,
+                    7,
                 )
             ],
         )
 
     def test_준공연도는_매핑된_구성원_단지_기준(self):
-        rows = [("11590-85", "대림", 84.9, 202609, 85000, 1995)]
+        rows = [("11590-85", "대림", 84.9, 202609, 85000, 1995, 7)]
         (trade,) = attach_trades(rows, self.MAPPING, self.MEMBERS)
         self.assertEqual(
             (trade.mapped_pnu, trade.pnu, trade.completion_year),
@@ -274,16 +277,51 @@ class TestAttachTrades(unittest.TestCase):
 
     def test_매핑_없는_키와_범위_밖_단지는_버린다(self):
         rows = [
-            ("11590-00", "미매핑", 84.9, 202609, 85000, 2000),
-            ("11590-99", "범위밖", 84.9, 202609, 85000, 2000),
+            ("11590-00", "미매핑", 84.9, 202609, 85000, 2000, 7),
+            ("11590-99", "범위밖", 84.9, 202609, 85000, 2000, 7),
         ]
         self.assertEqual(attach_trades(rows, self.MAPPING, self.MEMBERS), [])
 
     def test_이름이_없으면_None(self):
-        rows = [("11590-57", None, 84.9, 202609, 85000, None)]
+        rows = [("11590-57", None, 84.9, 202609, 85000, None, None)]
         (trade,) = attach_trades(rows, self.MAPPING, self.MEMBERS)
         self.assertIsNone(trade.apt_nm)
         self.assertIsNone(trade.build_year)
+        self.assertIsNone(trade.floor)
+
+
+class TestTrendRowCautions(unittest.TestCase):
+    def test_혼입_제외를_거쳐도_층이_유지된다(self):
+        result = apply_exclusions([source("OK", floor=9)], BANDS, {})
+        self.assertEqual([t.floor for t in result.kept], [9])
+
+    def test_평균층과_주의는_변화율과_같은_창으로_판정(self):
+        base = 202609
+        kept = [
+            # 최근 창 2건(12·14층) — 6개월 전 창 2건(4·6층), +10%
+            band_trade(202609, 11000, floor=12),
+            band_trade(202608, 11000, floor=14),
+            band_trade(202603, 10000, floor=4),
+            band_trade(202602, 10000, floor=6),
+            # 창 밖 거래의 층은 평균에 들어가지 않는다
+            band_trade(202606, 10500, floor=30),
+        ]
+        (row,) = build_tables(kept, base, REGION_LABELS, COMPLEX_LABELS).trend_rows
+        self.assertEqual((row.avg_floor_3m, row.avg_floor_past_6m), (13.0, 5.0))
+        self.assertEqual(row.caution_codes, ["low_sample", "floor_mix_up"])
+
+    def test_층_정보가_없으면_평균층_None_주의는_표본만(self):
+        base = 202609
+        kept = [
+            band_trade(202609, 11000),
+            band_trade(202608, 11000),
+            band_trade(202603, 10000),
+            band_trade(202602, 10000),
+        ]
+        (row,) = build_tables(kept, base, REGION_LABELS, COMPLEX_LABELS).trend_rows
+        self.assertIsNone(row.avg_floor_3m)
+        self.assertIsNone(row.avg_floor_past_6m)
+        self.assertEqual(row.caution_codes, ["low_sample"])
 
 
 if __name__ == "__main__":

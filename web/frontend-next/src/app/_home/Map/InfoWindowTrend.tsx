@@ -5,7 +5,16 @@ import Link from "next/link";
 import type { MapTrend } from "@/types/rising";
 import ChangeCell from "@/app/rising/ChangeCell";
 import { ComplexGradeCell, RegionGradeBadge } from "@/app/rising/GradeBadge";
-import { THIN_SAMPLE_TEXT, formatEok, isThinSample } from "@/app/rising/format";
+import { formatEok } from "@/app/rising/format";
+
+// 지도 전용 표본 규칙 — backend services/rising.py THIN_SAMPLE_MAX_TRADES(지도 화살표 숨김)와 같은 값.
+// 가격흐름 목록·상세의 "표본 적음" 배지는 배치 주의 코드(3건 이하)로 따로 판정한다.
+const MAP_THIN_SAMPLE_MAX_TRADES = 2;
+const MAP_THIN_SAMPLE_TEXT = "표본 적음";
+
+function isMapThinSample(tradeCount: number | null): boolean {
+  return tradeCount !== null && tradeCount <= MAP_THIN_SAMPLE_MAX_TRADES;
+}
 
 /** 지도 팝업의 오르는 단지 추세 요약 (면적 필터와 겹치는 면적대 중 거래 최다 면적대 기준). */
 export function InfoWindowTrend({ trend }: { trend: MapTrend }) {
@@ -19,8 +28,8 @@ export function InfoWindowTrend({ trend }: { trend: MapTrend }) {
             {trend.median_price_3m === null ? "—" : formatEok(trend.median_price_3m)}
           </span>
           <span className="ml-1 text-[11px] text-gray-400">
-            {isThinSample(trend.trade_count_3m)
-              ? THIN_SAMPLE_TEXT
+            {isMapThinSample(trend.trade_count_3m)
+              ? MAP_THIN_SAMPLE_TEXT
               : `${trend.trade_count_3m ?? 0}건`}
           </span>
         </span>

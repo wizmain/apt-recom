@@ -1,7 +1,8 @@
 import type { RisingItem } from "@/types/rising";
 import ChangeCell from "./ChangeCell";
 import { ComplexGradeCell, RegionGradeBadge } from "./GradeBadge";
-import { THIN_SAMPLE_TEXT, formatEok, isThinSample } from "./format";
+import CautionBadges from "./CautionBadges";
+import { formatEok } from "./format";
 import Pagination from "./Pagination";
 
 const EMPTY_RESULT_TEXT = "조건에 맞는 단지가 없습니다";
@@ -46,9 +47,6 @@ function PriceCell({ item }: { item: RisingItem }) {
       {item.trade_count_3m !== null && (
         <span className="block text-[11px] text-gray-400">{item.trade_count_3m}건</span>
       )}
-      {isThinSample(item.trade_count_3m) && (
-        <span className="block whitespace-nowrap text-[11px] text-amber-600">{THIN_SAMPLE_TEXT}</span>
-      )}
     </div>
   );
 }
@@ -89,6 +87,7 @@ function DesktopTable({ items, onSelect }: { items: RisingItem[]; onSelect: Sele
             <td className="px-3 py-3"><PriceCell item={item} /></td>
             <td className="px-3 py-3">
               <ChangeCell pct={item.change_6m_pct} matchedTypeCount={item.matched_type_count_6m} />
+              <CautionBadges item={item} />
             </td>
             <td className="px-3 py-3">
               <ChangeCell pct={item.change_12m_pct} matchedTypeCount={item.matched_type_count_12m} />
@@ -121,6 +120,7 @@ function MobileCards({ items, onSelect }: { items: RisingItem[]; onSelect: Selec
             <div>
               <span className="block text-[11px] text-gray-400">6개월</span>
               <ChangeCell pct={item.change_6m_pct} matchedTypeCount={item.matched_type_count_6m} />
+              <CautionBadges item={item} />
             </div>
             <div>
               <span className="block text-[11px] text-gray-400">12개월</span>

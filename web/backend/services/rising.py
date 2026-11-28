@@ -10,13 +10,19 @@ web/backend 는 batch 를 import 할 수 없으므로(배포 제약) 배치와 �
 
 from __future__ import annotations
 
+import logging
 from typing import NamedTuple
+
+logger = logging.getLogger(__name__)
 
 AREA_BAND_GROUP = "rising_area_band"
 SIGUNGU_GROUP = "sigungu"
 SCOPE_SIDO_GROUP = (
     "rising_scope_sido"  # batch.trade.band_trend_source.SCOPE_SIDO_GROUP 과 같은 값
 )
+# 주의 표시 코드 → 배지 문구(name)·툴팁 설명(extra). 판정은 배치(band_trend_calc.caution_codes)가 하고
+# API 는 코드를 표시명으로 바꾸기만 한다. batch.trade.band_trend_source.CAUTION_GROUP 과 같은 값.
+CAUTION_GROUP = "rising_caution"
 
 PAGE_SIZE = 20
 MANWON_PER_EOK = 10_000  # 예산 파라미터(억) → 집계 금액(만원)
@@ -64,6 +70,7 @@ _ITEM_COLUMNS_SQL = f"""
     t.median_price_3m, t.trade_count_3m, t.change_6m_pct, t.change_12m_pct,
     t.matched_type_count_6m, t.matched_type_count_12m, t.relative_change_6m_pct,
     t.complex_grade, t.complex_rank, t.complex_rank_total, t.grade_window_months,
+    t.avg_floor_3m, t.avg_floor_past_6m, t.caution_codes,
     r.region_grade
 """
 
@@ -128,6 +135,44 @@ def load_scope_sidos(conn) -> list[dict]:
         [SCOPE_SIDO_GROUP],
     ).fetchall()
     return [{"code": row["code"], "name": row["name"]} for row in rows]
+
+
+def load_caution_labels(conn) -> dict[str, dict]:
+    """주의 코드 → {code, name, description} (common_code rising_caution, sort_order 순)."""
+    rows = conn.execute(
+        "SELECT code, name, extra FROM common_code WHERE group_id = %s ORDER BY sort_order",
+        [CAUTION_GROUP],
+    ).fetchall()
+    return {
+        row["code"]: {
+            "code": row["code"],
+            "name": row["name"],
+            "description": row["extra"],
+        }
+        for row in rows
+    }
+
+
+def _to_item(row: dict, caution_labels: dict[str, dict]) -> dict:
+    """apt_band_trend 행(_ITEM_COLUMNS_SQL) → 응답 item. 주의 코드를 표시명 목록(cautions)으로 바꾼다.
+
+    배치가 적재 전에 코드-표시명 짝을 검증하므로(band_trend_source.load_codes) 표시명 없는 코드는
+    정상 경로에선 없다. 생기면 배치·common_code 불일치이므로 경고 로그를 남기고 그 코드만 뺀다.
+    """
+    item = dict(row)
+    codes = item.pop("caution_codes") or []
+    unknown = [code for code in codes if code not in caution_labels]
+    if unknown:
+        logger.warning(
+            "rising caution 표시명 없음 %s (pnu=%s) — common_code %s 확인",
+            unknown,
+            item.get("pnu"),
+            CAUTION_GROUP,
+        )
+    item["cautions"] = [
+        caution_labels[code] for code in codes if code in caution_labels
+    ]
+    return item
 
 
 def _sigungu_names(conn) -> dict[str, str]:
@@ -249,6 +294,7 @@ def list_complexes(conn, filters: ListFilters, sort: str, page: int) -> dict:
         {**params, "limit": PAGE_SIZE, "offset": (page - 1) * PAGE_SIZE},
     ).fetchall()
 
+    caution_labels = load_caution_labels(conn)
     region_where_sql, region_params = _list_where(filters, include_selection=False)
     region_rows = conn.execute(
         f"""
@@ -266,7 +312,7 @@ def list_complexes(conn, filters: ListFilters, sort: str, page: int) -> dict:
         "region_count": totals["region_count"],
         "page": page,
         "page_size": PAGE_SIZE,
-        "items": [dict(row) for row in items],
+        "items": [_to_item(row, caution_labels) for row in items],
         "region_counts": {
             row["sigungu_code"]: row["complex_count"] for row in region_rows
         },
@@ -370,7 +416,7 @@ def get_detail(conn, pnu: str, band: AreaBand) -> dict | None:
     ).fetchone()
     if item is None:
         return None
-    item = dict(item)
+    item = _to_item(item, load_caution_labels(conn))
     base_ym = item.pop("base_ym")
     return {
         "pnu": item["pnu"],
@@ -389,7 +435,9 @@ def get_detail(conn, pnu: str, band: AreaBand) -> dict | None:
 MAP_TREND_MAX_PNUS = 2000
 # |6개월 변화| 가 이 값 이하면 보합(화살표 없음). 설계 2026-11-26 사용자 확정.
 FLAT_THRESHOLD_PCT = 2.0
-# 3개월 거래가 이 건수 이하면 표본 적음(화살표 없음) — frontend-next app/rising/format.ts 와 같은 값.
+# 3개월 거래가 이 건수 이하면 지도 화살표를 그리지 않는다(지도 전용 규칙, 노출 하한 2건과 같다).
+# frontend-next app/_home/Map/InfoWindowTrend.tsx 의 MAP_THIN_SAMPLE_MAX_TRADES 와 같은 값 — 함께 바꾼다.
+# 목록·상세의 "표본 적음" 배지는 배치 주의 코드(low_sample, 3건 이하)로 따로 판정한다.
 THIN_SAMPLE_MAX_TRADES = 2
 
 
@@ -521,7 +569,8 @@ def get_complex_summary(
         """,
         [AREA_BAND_GROUP, rep["pnu"]],
     ).fetchall()
-    rows = [dict(r) for r in rows]
+    caution_labels = load_caution_labels(conn)
+    rows = [_to_item(r, caution_labels) for r in rows]
     regions = (
         _regions_by_band(conn, rows[0]["sigungu_code"], [r["area_band"] for r in rows])
         if rows

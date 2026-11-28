@@ -1980,6 +1980,46 @@ def test_rising_detail():
         assert band["max_area"] is None or area < band["max_area"], trade
 
 
+@test("오르는 단지: 주의 배지 — 표시명 변환·표본 기준·목록/상세 일치")
+def test_rising_cautions():
+    import requests
+
+    from database import DictConnection
+
+    conn = DictConnection()
+    try:
+        labels = {
+            r["code"]: r["name"]
+            for r in conn.execute(
+                "SELECT code, name FROM common_code WHERE group_id = 'rising_caution'"
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+    assert {"low_sample", "floor_mix_up"} <= set(labels), labels
+
+    items = requests.get(RISING_API, params={"area_band": "84"}).json()["items"]
+    assert items, "84㎡급 목록 비어 있음"
+    for item in items:
+        assert "caution_codes" not in item, "내부 코드 배열이 노출됨"
+        codes = [c["code"] for c in item["cautions"]]
+        for caution in item["cautions"]:
+            assert caution["name"] == labels[caution["code"]], caution
+            assert caution["description"], caution
+        # 표본 적음 = 최근 3개월 3건 이하 (batch band_trend_calc.LOW_SAMPLE_MAX_TRADES)
+        assert ("low_sample" in codes) == (item["trade_count_3m"] <= 3), item
+        if "floor_mix_up" in codes:
+            assert item["change_6m_pct"] > 0, item
+            assert item["avg_floor_3m"] >= item["avg_floor_past_6m"] * 1.5, item
+
+    flagged = next((i for i in items if i["cautions"]), None)
+    if flagged is not None:
+        detail = requests.get(
+            f"{RISING_API}/{flagged['pnu']}", params={"area_band": "84"}
+        ).json()
+        assert detail["item"]["cautions"] == flagged["cautions"], "목록·상세 주의 불일치"
+
+
 @test("오르는 단지: 상세 — 해당 면적대 행 없으면 404")
 def test_rising_detail_missing_band():
     import requests
