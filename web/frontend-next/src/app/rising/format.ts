@@ -21,14 +21,6 @@ export function formatChange(pct: number | null): string {
   return pct > 0 ? `+${rounded}%` : `${rounded}%`;
 }
 
-/** 3개월 중위가격 표본이 이 건수 이하면 "표본 적음" 표시. */
-export const THIN_SAMPLE_MAX_TRADES = 2;
-export const THIN_SAMPLE_TEXT = "표본 적음";
-
-export function isThinSample(tradeCount: number | null): boolean {
-  return tradeCount !== null && tradeCount <= THIN_SAMPLE_MAX_TRADES;
-}
-
 /** 202609 → "2026.09" */
 export function formatBaseMonth(ym: number): string {
   const text = String(ym);

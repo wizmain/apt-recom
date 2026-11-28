@@ -7,7 +7,7 @@
 import calendar
 import math
 import statistics
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from datetime import date, timedelta
 from typing import NamedTuple
 
@@ -49,6 +49,20 @@ EXCLUDED_DEALING_GBN = "직거래"
 
 DECILE_COUNT = 10
 DECILES_PER_COMPLEX_GRADE = 2  # 5등급 라벨 기준 십분위 2개씩
+
+# 주의 표시 코드 — common_code rising_caution 그룹의 code 와 같은 값(표시명·설명은 그쪽).
+CAUTION_LOW_SAMPLE = "low_sample"
+CAUTION_FLOOR_MIX_UP = "floor_mix_up"
+CAUTION_CODES = (CAUTION_LOW_SAMPLE, CAUTION_FLOOR_MIX_UP)
+# 주의 판정 기준. 2026-11-28 상승 신호 검증(reports/rising_signals/FINDINGS.md, 84㎡급 기준월 202609)에서
+# 6개월 상승 상위 50곳 중 최근 3건 이하가 60%(전체 37%), 고층 편중이 38%(전체 14%)로
+# 상위 목록을 부풀리는 주원인이었다. 순위는 그대로 두고 배지로만 알린다(사용자 결정).
+# 최근 3개월 거래가 이 건수 이하면 표본 적음. 노출 하한(MIN_RECENT_TRADES=2)보다 한 건 넓다.
+LOW_SAMPLE_MAX_TRADES = 3
+# 최근 창 평균층이 6개월 전 창 평균층의 이 배수 이상이면서 이 층수 이상 높으면 고층 편중.
+# 배수만 쓰면 1층→2층 같은 작은 차이도 걸리므로 층수 차이를 함께 본다.
+FLOOR_MIX_MIN_RATIO = 1.5
+FLOOR_MIX_MIN_DIFF = 3
 
 
 class BandDef(NamedTuple):
@@ -188,3 +202,39 @@ def monthly_series(
         else:
             series.append((ym, round(median(kept)), len(kept)))
     return series
+
+
+def average_floor(floors: Iterable[int | None]) -> float | None:
+    """지상층(1층 이상) 평균. 층 정보 없음·지하층은 빼고, 남는 거래가 없으면 None."""
+    above_ground = [f for f in floors if f is not None and f >= 1]
+    if not above_ground:
+        return None
+    return statistics.mean(above_ground)
+
+
+def caution_codes(
+    trade_count_3m: int,
+    change_6m_pct: float | None,
+    avg_floor_current: float | None,
+    avg_floor_past_6m: float | None,
+) -> list[str]:
+    """단지×면적대 행의 주의 코드(CAUTION_CODES 순서).
+
+    - low_sample: 최근 3개월 거래가 LOW_SAMPLE_MAX_TRADES 이하.
+    - floor_mix_up: 6개월 변화가 플러스이고 최근 창 평균층이 6개월 전 창보다
+      FLOOR_MIX_MIN_RATIO 배 이상·FLOOR_MIX_MIN_DIFF 층 이상 높다(비싼 층이 팔려 상승률이 커 보임).
+      하락 단지의 저층 편중은 쓰는 화면이 없어 판정하지 않는다.
+    """
+    codes: list[str] = []
+    if trade_count_3m <= LOW_SAMPLE_MAX_TRADES:
+        codes.append(CAUTION_LOW_SAMPLE)
+    if (
+        change_6m_pct is not None
+        and change_6m_pct > 0
+        and avg_floor_current is not None
+        and avg_floor_past_6m is not None
+        and avg_floor_current >= avg_floor_past_6m * FLOOR_MIX_MIN_RATIO
+        and avg_floor_current - avg_floor_past_6m >= FLOOR_MIX_MIN_DIFF
+    ):
+        codes.append(CAUTION_FLOOR_MIX_UP)
+    return codes

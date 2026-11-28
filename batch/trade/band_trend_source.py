@@ -11,7 +11,12 @@ from typing import NamedTuple
 from batch.db import query_all
 from batch.trade.audit_mappings import find_violations
 from batch.trade.band_trend_aggregate import MemberApt, SourceTrade, attach_trades
-from batch.trade.band_trend_calc import EXCLUDED_DEALING_GBN, BandDef, parse_band_extra
+from batch.trade.band_trend_calc import (
+    CAUTION_CODES,
+    EXCLUDED_DEALING_GBN,
+    BandDef,
+    parse_band_extra,
+)
 
 # "목록에 노출 가능한 단지" 조건 — web/backend/routers/apartments.py 의
 # APARTMENT_VISIBLE_CONDITIONS 와 같은 5개 조건이다. batch 는 web/backend 를 import
@@ -31,6 +36,7 @@ AREA_BAND_GROUP = "rising_area_band"
 REGION_GRADE_GROUP = "rising_region_grade"
 COMPLEX_GRADE_GROUP = "rising_complex_grade"
 SCOPE_SIDO_GROUP = "rising_scope_sido"
+CAUTION_GROUP = "rising_caution"
 
 # 서버 측 커서 한 번에 받는 행 수 (메모리와 왕복 횟수의 절충)
 _FETCH_BATCH_ROWS = 50_000
@@ -51,7 +57,15 @@ def load_codes(conn) -> BandCodes:
         WHERE group_id = ANY(%s)
         ORDER BY group_id, sort_order
         """,
-        [[AREA_BAND_GROUP, REGION_GRADE_GROUP, COMPLEX_GRADE_GROUP, SCOPE_SIDO_GROUP]],
+        [
+            [
+                AREA_BAND_GROUP,
+                REGION_GRADE_GROUP,
+                COMPLEX_GRADE_GROUP,
+                SCOPE_SIDO_GROUP,
+                CAUTION_GROUP,
+            ]
+        ],
     )
     by_group: dict[str, list[dict]] = {}
     for row in rows:
@@ -63,12 +77,19 @@ def load_codes(conn) -> BandCodes:
             REGION_GRADE_GROUP,
             COMPLEX_GRADE_GROUP,
             SCOPE_SIDO_GROUP,
+            CAUTION_GROUP,
         )
         if not by_group.get(g)
     ]
     if missing:
         raise RuntimeError(
             f"common_code 그룹 누락: {missing} — create_tables() 실행 필요"
+        )
+    # 배치가 적재한 주의 코드를 API 가 표시명으로 바꾸므로, 표시명 없는 코드는 적재 전에 막는다.
+    missing_cautions = set(CAUTION_CODES) - {r["code"] for r in by_group[CAUTION_GROUP]}
+    if missing_cautions:
+        raise RuntimeError(
+            f"common_code {CAUTION_GROUP} 코드 누락: {sorted(missing_cautions)} — create_tables() 실행 필요"
         )
     return BandCodes(
         bands=[
@@ -114,7 +135,7 @@ _MAPPING_SQL = (
 # deal_year 범위는 계약월 식과 같은 조건이지만 인덱스·계획 추정을 돕기 위해 함께 둔다.
 _RAW_TRADES_SQL = """
 SELECT apt_seq, apt_nm, exclu_use_ar AS area, deal_year * 100 + deal_month AS deal_ym,
-       deal_amount AS price, build_year
+       deal_amount AS price, build_year, floor
 FROM trade_history
 WHERE deal_year BETWEEN %(start_year)s AND %(end_year)s
   AND deal_year * 100 + deal_month BETWEEN %(start_ym)s AND %(end_ym)s

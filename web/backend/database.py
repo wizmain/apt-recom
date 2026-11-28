@@ -773,9 +773,19 @@ def create_tables(conn) -> None:
             complex_rank INTEGER,
             complex_rank_total INTEGER,
             grade_window_months INTEGER,
+            avg_floor_3m DOUBLE PRECISION,
+            avg_floor_past_6m DOUBLE PRECISION,
+            caution_codes TEXT[] NOT NULL DEFAULT '{}',
             refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             PRIMARY KEY (pnu, area_band)
         );
+        -- 주의 표시(2026-11-28 추가). 기존 테이블 보강 — 배치가 매번 전체 재생성하므로 기존 행은
+        -- 다음 배치까지 빈 배열·NULL 로 남는다(화면은 배지 없음으로 표시).
+        -- avg_floor_*: 최근 3개월 / 6개월 전 3개월 창의 지상층 평균(층 정보 없으면 NULL)
+        -- caution_codes: common_code rising_caution 코드 배열
+        ALTER TABLE apt_band_trend ADD COLUMN IF NOT EXISTS avg_floor_3m DOUBLE PRECISION;
+        ALTER TABLE apt_band_trend ADD COLUMN IF NOT EXISTS avg_floor_past_6m DOUBLE PRECISION;
+        ALTER TABLE apt_band_trend ADD COLUMN IF NOT EXISTS caution_codes TEXT[] NOT NULL DEFAULT '{}';
         CREATE INDEX IF NOT EXISTS idx_apt_band_trend_band_price
             ON apt_band_trend(area_band, median_price_3m);
         CREATE INDEX IF NOT EXISTS idx_apt_band_trend_band_sigungu
@@ -837,7 +847,12 @@ def create_tables(conn) -> None:
             ('rising_complex_grade', 'D', 'D', '', 5),
             ('rising_scope_sido', '11', '서울', '', 1),
             ('rising_scope_sido', '28', '인천', '', 2),
-            ('rising_scope_sido', '41', '경기', '', 3)
+            ('rising_scope_sido', '41', '경기', '', 3),
+            -- 주의 표시: name = 배지 문구, extra = 툴팁 설명. 판정 기준은 batch/trade/band_trend_calc.py
+            ('rising_caution', 'low_sample', '표본 적음',
+             '거래가 적어 변화율이 크게 흔들릴 수 있어요', 1),
+            ('rising_caution', 'floor_mix_up', '고층 거래 위주',
+             '최근 거래가 이전보다 높은 층에 몰려 상승률이 실제보다 커 보일 수 있어요', 2)
         ON CONFLICT (group_id, code) DO NOTHING;
 
         -- 국토부 실거래 API 조회 코드 (ADR-013 부기, 2026-11-26 실측).

@@ -46,6 +46,15 @@ export interface RisingMeta {
   regions: Record<string, RisingRegion[]>;
 }
 
+/** 주의 표시 한 건 (common_code rising_caution). 판정은 배치, 화면은 표시만 한다. */
+export interface RisingCaution {
+  code: string;
+  /** 배지 문구 */
+  name: string;
+  /** 툴팁·상세 설명 */
+  description: string;
+}
+
 /** 단지×면적대 집계 한 행. 금액은 만원, 변화율은 %. */
 export interface RisingItem {
   pnu: string;
@@ -63,6 +72,11 @@ export interface RisingItem {
   complex_rank: number | null;
   complex_rank_total: number | null;
   grade_window_months: number | null;
+  /** 최근 3개월 / 6개월 전 3개월 창의 지상층 평균. 층 정보가 없으면 null. */
+  avg_floor_3m: number | null;
+  avg_floor_past_6m: number | null;
+  /** 변화율 해석 주의(표본 적음·고층 거래 위주 등). 없으면 빈 배열. */
+  cautions: RisingCaution[];
   region_grade: string | null;
 }
 

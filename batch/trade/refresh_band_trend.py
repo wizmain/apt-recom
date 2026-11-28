@@ -30,7 +30,12 @@ from batch.trade.band_trend_aggregate import (
     build_tables,
     excluded_ratio_by_band,
 )
-from batch.trade.band_trend_calc import HISTORY_MONTHS, base_month, shift_month
+from batch.trade.band_trend_calc import (
+    CAUTION_CODES,
+    HISTORY_MONTHS,
+    base_month,
+    shift_month,
+)
 from batch.trade.band_trend_source import (
     find_mapping_violations,
     load_codes,
@@ -55,8 +60,8 @@ _TABLE_INSERTS = (
         "INSERT INTO apt_band_trend (pnu, area_band, sigungu_code, base_ym, median_price_3m, trade_count_3m, "
         "trade_count_6m, change_6m_pct, change_12m_pct, matched_type_count_6m, matched_type_count_12m, "
         "relative_change_6m_pct, complex_grade, complex_rank, complex_rank_total, grade_window_months, "
-        "refreshed_at) VALUES %s",
-        "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
+        "avg_floor_3m, avg_floor_past_6m, caution_codes, refreshed_at) VALUES %s",
+        "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::TEXT[], NOW())",
     ),
     (
         "region_band_trend",
@@ -187,14 +192,18 @@ def _log_exclusions(
 
 
 def _log_coverage(logger, tables: BandTables, band_codes: list[str]) -> None:
-    """면적대별 노출 단지 수·변화값 NULL 비율·지역 등급 부여 수 (MIN_* 조정 근거)."""
+    """면적대별 노출 단지 수·변화값 NULL 비율·지역 등급 부여 수·주의 코드별 단지 수
+    (MIN_*·주의 판정 기준 조정 근거)."""
     for band in band_codes:
         trend = [r for r in tables.trend_rows if r.area_band == band]
         regions = [r for r in tables.region_rows if r.area_band == band]
         null_6m = sum(1 for r in trend if r.change_6m_pct is None)
         graded_regions = sum(1 for r in regions if r.region_grade is not None)
         null_ratio = null_6m / len(trend) if trend else 0.0
+        cautions = Counter(code for r in trend for code in r.caution_codes)
+        caution_text = ", ".join(f"{code} {cautions[code]:,}" for code in CAUTION_CODES)
         logger.info(
             f"      {band}: 단지 {len(trend):,} (6개월 변화 NULL {null_6m:,}, {null_ratio:.1%}), "
-            f"지역 {len(regions)} (등급 {graded_regions}, 미부여 {len(regions) - graded_regions})"
+            f"지역 {len(regions)} (등급 {graded_regions}, 미부여 {len(regions) - graded_regions}), "
+            f"주의 ({caution_text})"
         )

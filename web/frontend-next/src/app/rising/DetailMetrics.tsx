@@ -1,7 +1,8 @@
 import type { RisingItem, RisingRegion } from "@/types/rising";
 import ChangeCell from "./ChangeCell";
 import GradeBadge, { RegionGradeBadge } from "./GradeBadge";
-import { THIN_SAMPLE_TEXT, formatEok, isThinSample } from "./format";
+import CautionBadges from "./CautionBadges";
+import { formatEok } from "./format";
 
 const REFERENCE_WINDOW_MONTHS = 12;
 const DECILE_COUNT = 10;
@@ -69,44 +70,45 @@ interface DetailMetricsProps {
   region: RisingRegion | null;
 }
 
-/** 지표 5칸: 지역 가격 등급 / 지역 내 단지 등급 / 3개월 중위가격 / 6개월 / 12개월. */
+/** 지표 5칸: 지역 가격 등급 / 지역 내 단지 등급 / 3개월 중위가격 / 6개월 / 12개월 + 변화율 주의. */
 export default function DetailMetrics({ item, region }: DetailMetricsProps) {
   return (
-    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      <Metric label="지역 가격 등급">
-        <RegionGradeMetric region={region} grade={item.region_grade} />
-      </Metric>
-      <Metric label="지역 내 단지 등급">
-        <ComplexGradeMetric item={item} />
-      </Metric>
-      <Metric label="3개월 중위가격">
-        {item.median_price_3m === null ? (
-          <span className="text-gray-400">—</span>
-        ) : (
-          <>
-            <span className="font-semibold tabular-nums text-gray-900">
-              {formatEok(item.median_price_3m)}
+    <div>
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <Metric label="지역 가격 등급">
+          <RegionGradeMetric region={region} grade={item.region_grade} />
+        </Metric>
+        <Metric label="지역 내 단지 등급">
+          <ComplexGradeMetric item={item} />
+        </Metric>
+        <Metric label="3개월 중위가격">
+          {item.median_price_3m === null ? (
+            <span className="text-gray-400">—</span>
+          ) : (
+            <>
+              <span className="font-semibold tabular-nums text-gray-900">
+                {formatEok(item.median_price_3m)}
+              </span>
+              {item.trade_count_3m !== null && (
+                <span className="block text-[11px] text-gray-500">{item.trade_count_3m}건 기준</span>
+              )}
+            </>
+          )}
+        </Metric>
+        <Metric label="6개월 변화">
+          <ChangeCell pct={item.change_6m_pct} matchedTypeCount={item.matched_type_count_6m} />
+          {item.matched_type_count_6m !== null && (
+            <span className="block text-[11px] text-gray-500">
+              비교 주택형 {item.matched_type_count_6m}개
             </span>
-            {item.trade_count_3m !== null && (
-              <span className="block text-[11px] text-gray-500">{item.trade_count_3m}건 기준</span>
-            )}
-            {isThinSample(item.trade_count_3m) && (
-              <span className="block text-[11px] text-amber-600">{THIN_SAMPLE_TEXT}</span>
-            )}
-          </>
-        )}
-      </Metric>
-      <Metric label="6개월 변화">
-        <ChangeCell pct={item.change_6m_pct} matchedTypeCount={item.matched_type_count_6m} />
-        {item.matched_type_count_6m !== null && (
-          <span className="block text-[11px] text-gray-500">
-            비교 주택형 {item.matched_type_count_6m}개
-          </span>
-        )}
-      </Metric>
-      <Metric label="12개월 변화">
-        <ChangeCell pct={item.change_12m_pct} matchedTypeCount={item.matched_type_count_12m} />
-      </Metric>
-    </dl>
+          )}
+        </Metric>
+        <Metric label="12개월 변화">
+          <ChangeCell pct={item.change_12m_pct} matchedTypeCount={item.matched_type_count_12m} />
+        </Metric>
+      </dl>
+      {/* 칸 안은 좁아 설명이 잘리므로 표 아래 전체 폭으로 둔다(터치 기기는 툴팁을 볼 수 없다). */}
+      <CautionBadges item={item} showDescription />
+    </div>
   );
 }

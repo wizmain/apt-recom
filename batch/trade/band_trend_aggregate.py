@@ -31,7 +31,9 @@ from batch.trade.band_trend_calc import (
     MIN_RECENT_TRADES,
     MIN_REGION_TRADES,
     BandDef,
+    average_floor,
     band_of,
+    caution_codes,
     complex_grade,
     drop_outliers,
     median,
@@ -54,6 +56,8 @@ GRADE_FALLBACK_WINDOW_MONTHS = 12
 
 _OFFSET_6M, _OFFSET_12M = CHANGE_OFFSETS
 
+FLOOR_DECIMALS = 1  # apt_band_trend.avg_floor_* 적재 자릿수
+
 
 class SourceTrade(NamedTuple):
     apt_seq: str
@@ -66,6 +70,7 @@ class SourceTrade(NamedTuple):
     price: int  # 만원
     build_year: int | None  # 거래 신고서 건축년도
     completion_year: int | None  # 매핑 단지 준공연도
+    floor: int | None = None  # 거래 층(지하는 음수, 미상 None) — 고층 편중 주의 판정용
 
 
 class MemberApt(NamedTuple):
@@ -83,12 +88,12 @@ def attach_trades(
 ) -> list[SourceTrade]:
     """거래 행에 매핑·대표 단지 정보를 붙인다. 매핑이 없거나 범위 밖 단지인 거래는 버린다.
 
-    raw_trades: (apt_seq, apt_nm, area, deal_ym, price, build_year)
+    raw_trades: (apt_seq, apt_nm, area, deal_ym, price, build_year, floor)
     mapping: apt_seq → 매핑 PNU, members: 매핑 PNU → 대표 단지 정보.
     DB 조인 대신 여기서 붙이는 이유는 band_trend_source.load_trades 주석 참조.
     """
     trades: list[SourceTrade] = []
-    for apt_seq, apt_nm, area, deal_ym, price, build_year in raw_trades:
+    for apt_seq, apt_nm, area, deal_ym, price, build_year, floor in raw_trades:
         mapped_pnu = mapping.get(apt_seq)
         member = members.get(mapped_pnu) if mapped_pnu is not None else None
         if member is None:
@@ -106,6 +111,7 @@ def attach_trades(
                 price,
                 build_year,
                 member.completion_year,
+                floor,
             )
         )
     return trades
@@ -118,6 +124,7 @@ class BandTrade(NamedTuple):
     type_key: float
     deal_ym: int
     price: int
+    floor: int | None = None
 
 
 class ExclusionResult(NamedTuple):
@@ -211,7 +218,13 @@ def apply_exclusions(
         else:
             kept.append(
                 BandTrade(
-                    t.pnu, t.sigungu_code, band, type_key(t.area), t.deal_ym, t.price
+                    t.pnu,
+                    t.sigungu_code,
+                    band,
+                    type_key(t.area),
+                    t.deal_ym,
+                    t.price,
+                    t.floor,
                 )
             )
     return ExclusionResult(
@@ -366,6 +379,9 @@ class TrendRow(NamedTuple):
     complex_rank: int | None
     complex_rank_total: int | None
     grade_window_months: int | None
+    avg_floor_3m: float | None
+    avg_floor_past_6m: float | None
+    caution_codes: list[str]
 
 
 class RegionRow(NamedTuple):
@@ -385,6 +401,11 @@ class BandTables(NamedTuple):
     monthly_rows: list[MonthlyRow]
     trend_rows: list[TrendRow]
     region_rows: list[RegionRow]
+
+
+def _round_floor(value: float | None) -> float | None:
+    """적재·표시용 평균층(소수 1자리). 판정은 반올림 전 값으로 한다."""
+    return round(value, FLOOR_DECIMALS) if value is not None else None
 
 
 def _by_type(trades: Iterable[BandTrade]) -> dict[Hashable, list[int]]:
@@ -486,6 +507,9 @@ def build_tables(
                 else None
             )
             g = grades.get(s.pnu)
+            # 평균층은 변화율과 같은 창(이상거래 제외 후)으로 구해 주의 판정과 표시가 같은 거래를 본다.
+            avg_floor_current = average_floor(t.floor for t in s.current)
+            avg_floor_past = average_floor(t.floor for t in s.past_6m)
             trend_rows.append(
                 TrendRow(
                     s.pnu,
@@ -504,6 +528,11 @@ def build_tables(
                     g.rank if g else None,
                     g.total if g else None,
                     g.window_months if g else None,
+                    _round_floor(avg_floor_current),
+                    _round_floor(avg_floor_past),
+                    caution_codes(
+                        len(s.current), change_6m, avg_floor_current, avg_floor_past
+                    ),
                 )
             )
             # 월별 시계열은 목록(apt_band_trend)에 오른 쌍만 — 상세 패널은 목록에서만 열리고 Railway 메모리 비용을 줄인다.
