@@ -105,12 +105,25 @@ export interface RisingRecentTrade {
   is_direct_deal: boolean;
 }
 
+/** 상승과 함께 보이는 정보 한 건 (common_code rising_signal). 판정은 backend services/rising_signals.py. */
+export interface RisingSignal {
+  code: string;
+  /** 제목 */
+  name: string;
+  /** 일반 설명 */
+  description: string;
+  /** 이 단지의 근거 수치 문구 (예: "1987년 준공 · 39년") */
+  evidence: string;
+}
+
 /** GET /api/rising/{pnu}?area_band= */
 export interface RisingDetail {
   pnu: string;
   name: string;
   address: string | null;
   item: RisingItem;
+  /** 6개월 상승 단지만 채워진다. 하락·보합·비교 부족은 빈 배열. */
+  signals: RisingSignal[];
   monthly: RisingMonthlyPoint[];
   recent_trades: RisingRecentTrade[];
 }

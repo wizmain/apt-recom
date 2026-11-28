@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple
 
+from services.rising_signals import get_signals
+
 logger = logging.getLogger(__name__)
 
 AREA_BAND_GROUP = "rising_area_band"
@@ -418,11 +420,14 @@ def get_detail(conn, pnu: str, band: AreaBand) -> dict | None:
         return None
     item = _to_item(item, load_caution_labels(conn))
     base_ym = item.pop("base_ym")
+    sigungu_name = _sigungu_names(conn).get(item["sigungu_code"], item["sigungu_code"])
     return {
         "pnu": item["pnu"],
         "name": item["name"],
         "address": item["address"],
         "item": item,
+        # 상승과 함께 보이는 정보 — 상세(가격흐름 패널·홈 가격흐름 탭)에만 싣는다(services/rising_signals.py)
+        "signals": get_signals(conn, item, sigungu_name, base_ym),
         "monthly": _monthly_series(conn, pnu, band.code, base_ym),
         "recent_trades": _recent_trades(conn, pnu, band, base_ym),
     }

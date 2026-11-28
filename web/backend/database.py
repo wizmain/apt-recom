@@ -852,7 +852,16 @@ def create_tables(conn) -> None:
             ('rising_caution', 'low_sample', '표본 적음',
              '거래가 적어 변화율이 크게 흔들릴 수 있어요', 1),
             ('rising_caution', 'floor_mix_up', '고층 거래 위주',
-             '최근 거래가 이전보다 높은 층에 몰려 상승률이 실제보다 커 보일 수 있어요', 2)
+             '최근 거래가 이전보다 높은 층에 몰려 상승률이 실제보다 커 보일 수 있어요', 2),
+            -- 상승과 함께 보이는 정보: name = 제목, extra = 설명. 판정 기준은 services/rising_signals.py
+            ('rising_signal', 'region_wide', '지역 흐름과 함께 오름',
+             '같은 지역·같은 면적대 단지들도 함께 올랐어요', 1),
+            ('rising_signal', 'outpacing_region', '지역보다 더 오름',
+             '같은 지역·같은 면적대 평균보다 더 많이 올랐어요', 2),
+            ('rising_signal', 'rebuild_age', '재건축 연식',
+             '재건축 기대가 가격에 반영되기도 하는 연식이에요', 3),
+            ('rising_signal', 'near_subway', '역 가까움',
+             '지하철역까지 걸어서 가기 좋은 거리예요', 4)
         ON CONFLICT (group_id, code) DO NOTHING;
 
         -- 국토부 실거래 API 조회 코드 (ADR-013 부기, 2026-11-26 실측).

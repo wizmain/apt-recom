@@ -2017,7 +2017,73 @@ def test_rising_cautions():
         detail = requests.get(
             f"{RISING_API}/{flagged['pnu']}", params={"area_band": "84"}
         ).json()
-        assert detail["item"]["cautions"] == flagged["cautions"], "목록·상세 주의 불일치"
+        assert detail["item"]["cautions"] == flagged["cautions"], (
+            "목록·상세 주의 불일치"
+        )
+
+
+@test(
+    "상승 신호: 판정 경계 — 지역 동반/더 오름·연식 30년·역 500m, 하락·비교부족은 없음"
+)
+def test_rising_signal_rules():
+    from services.rising_signals import ComplexFacts, match_signals
+
+    def codes(change, relative, facts, base_ym=202609):
+        return [
+            m.code for m in match_signals(change, relative, "구로구", base_ym, facts)
+        ]
+
+    none = ComplexFacts(None, None)
+    # 지역 변화 = 단지 - relative. 20% 상승, 지역 10% → 절반 이상 → 지역 동반
+    assert codes(20.0, 10.0, none) == ["region_wide"]
+    # 지역 9.9% → 절반 미만 → 지역보다 더 오름
+    assert codes(20.0, 10.1, none) == ["outpacing_region"]
+    # 지역 하락이어도 단지 상승이면 더 오름
+    assert codes(5.0, 7.0, none) == ["outpacing_region"]
+    # 지역 비교 불가면 지역 신호 없음
+    assert codes(5.0, None, none) == []
+    # 준공 30년 경계(2026 - 1996 = 30), 역 500m 경계
+    assert codes(5.0, None, ComplexFacts(1996, 500.0)) == ["rebuild_age", "near_subway"]
+    assert codes(5.0, None, ComplexFacts(1997, 500.1)) == []
+    # 하락·보합·비교 부족은 판정하지 않음
+    for change in (-3.0, 0.0, None):
+        assert codes(change, 1.0, ComplexFacts(1980, 100.0)) == [], change
+
+    (outpacing,) = match_signals(20.0, 10.1, "구로구", 202609, none)
+    assert outpacing.evidence == "구로구 같은 면적대 +9.9%보다 +10.1%p", outpacing
+
+
+@test("상승 신호: 상세 응답 — 문구 변환, 상승 단지만, 근거 포함")
+def test_rising_detail_signals():
+    import requests
+
+    items = requests.get(RISING_API, params={"area_band": "84"}).json()["items"]
+    rising = next(i for i in items if (i["change_6m_pct"] or 0) > 0)
+    detail = requests.get(
+        f"{RISING_API}/{rising['pnu']}", params={"area_band": "84"}
+    ).json()
+    signals = detail["signals"]
+    codes = [s["code"] for s in signals]
+    assert len({"region_wide", "outpacing_region"} & set(codes)) == 1, codes
+    for signal in signals:
+        assert signal["name"] and signal["description"] and signal["evidence"], signal
+
+    falling = requests.get(
+        RISING_API, params={"area_band": "84", "sort": "price_asc"}
+    ).json()["items"]
+    down = next(
+        (
+            i
+            for i in falling
+            if i["change_6m_pct"] is not None and i["change_6m_pct"] <= 0
+        ),
+        None,
+    )
+    if down is not None:
+        detail = requests.get(
+            f"{RISING_API}/{down['pnu']}", params={"area_band": "84"}
+        ).json()
+        assert detail["signals"] == [], detail["signals"]
 
 
 @test("오르는 단지: 상세 — 해당 면적대 행 없으면 404")
