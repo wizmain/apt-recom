@@ -6,6 +6,7 @@ import { useRisingDetail } from "@/hooks/useRisingDetail";
 import type { RisingRegion } from "@/types/rising";
 import BandPriceChart from "./BandPriceChart";
 import DetailMetrics from "./DetailMetrics";
+import SignalList from "./SignalList";
 import { MonthlyTable, RecentTradesTable } from "./DetailTables";
 
 const NOT_FOUND_TEXT = "이 면적대 거래 없음";
@@ -103,6 +104,7 @@ export default function ComplexDetailPanel({
           {detail && (
             <>
               <DetailMetrics item={detail.item} region={region} />
+              <SignalList signals={detail.signals} />
               <BandPriceChart monthly={detail.monthly} />
               <MonthlyTable monthly={detail.monthly} />
               <RecentTradesTable trades={detail.recent_trades} />

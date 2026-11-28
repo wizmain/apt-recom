@@ -8,6 +8,7 @@ import { useAppStore } from '@/lib/store';
 import type { RisingComplexBand, RisingComplexSummary } from '@/types/rising';
 import BandPriceChart from '../rising/BandPriceChart';
 import DetailMetrics from '../rising/DetailMetrics';
+import SignalList from '../rising/SignalList';
 import { MonthlyTable, RecentTradesTable } from '../rising/DetailTables';
 
 /**
@@ -86,6 +87,7 @@ function BandDetail({ pnu, band }: { pnu: string; band: RisingComplexBand }) {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {detail && (
         <>
+          <SignalList signals={detail.signals} />
           <BandPriceChart monthly={detail.monthly} />
           <MonthlyTable monthly={detail.monthly} />
           <RecentTradesTable trades={detail.recent_trades} />
